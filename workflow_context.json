@@ -1,0 +1,15 @@
+{
+  "base_dir": ".",
+  "project_name": "",
+  "project_dir": ".",
+  "model_dir": ".",
+  "aoi_path": null,
+  "aoi_name": null,
+  "dem_path": null,
+  "dem_tif_path": null,
+  "dem_ascii_path": "dem.asc",
+  "triton_friction_path": null,
+  "triton_extbc_path": "extbc.txt",
+  "triton_hydro_path": "upstream_hydrograph.txt",
+  "triton_cfg_path": ".cfg"
+}

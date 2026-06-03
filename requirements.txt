@@ -1,0 +1,34 @@
+# ── Core GUI framework ─────────────────────────────────────────────────────────
+PyQt6>=6.4.0
+
+# ── Plotting (maps, raster previews, hydrographs) ──────────────────────────────
+matplotlib
+
+# ── Scientific / numerical ─────────────────────────────────────────────────────
+numpy
+scipy          # DEM nodata fill (distance_transform_edt), TRITON Manning
+
+# ── Data wrangling ─────────────────────────────────────────────────────────────
+pandas
+openpyxl       # Excel file support (discharge CSV/XLSX import)
+
+# ── Geospatial — vector ────────────────────────────────────────────────────────
+geopandas
+shapely
+pyproj         # CRS transforms (used in DEM, BCI, orchestrate)
+
+# ── Geospatial — raster ────────────────────────────────────────────────────────
+rasterio
+
+# ── Hydrology data access ──────────────────────────────────────────────────────
+requests       # General HTTP
+pynhd          # NHD flowlines + USGS gage lookup (USA)
+
+# ── NWM retrospective download (NOAA Zarr on S3) ───────────────────────────────
+xarray
+zarr
+s3fs
+numcodecs
+
+# ── Build tool (only needed to create standalone executables, not to run) ──────
+# pyinstaller  # Uncomment and install separately when building an installer
