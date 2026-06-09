@@ -10,46 +10,52 @@ FIMsim is a desktop application that automates the full geospatial pre-processin
 
 Setting up a flood model from scratch typically requires expertise across multiple GIS tools, hydrology databases, and model-specific file formats. FIMsim removes that barrier by connecting directly to authoritative data sources (USGS, NOAA, NHD, Esri) and writing the exact file formats each supported model expects.
 
-The application is organized into two main categories:
+The application is organized into two independent tracks:
 
-| Category | Purpose |
+| Track | Purpose |
 |---|---|
-| **Preparing Input Data** | Download and process individual geospatial datasets independently of any model |
-| **Flood Mapping** | Build a complete, ready-to-run input package for a specific 2D flood model |
+| **Input Parameters** | Prepare individual geospatial datasets as standalone outputs — each tool produces one input type, independent of any model |
+| **Flood Mapping Models** | Select a model and FIMsim handles everything — it downloads all required inputs, prepares all model files, and can submit the simulation to run on cloud infrastructure |
 
 ---
 
 ## Workflow overview
 
-The diagram below shows the general data flow — from defining a study area all the way to a running flood simulation.
-
 ```mermaid
-flowchart TD
+flowchart TB
     AOI([Define Study Area\nAOI shapefile / GeoPackage])
 
-    AOI --> DEM[Download DEM\n3DEP · HAND · user upload]
-    AOI --> LULC[Download LULC & Manning's n\nNLCD · Sentinel-2 · editable table]
-    AOI --> FL[Download Flowlines\nNHD main river or all reaches]
-    AOI --> SF[Download Streamflow Data\nNWM Retrospective · NWM Forecast · USGS]
+    AOI --> TRACK
 
-    DEM   --> MODEL
-    LULC  --> MODEL
-    FL    --> MODEL
-    SF    --> MODEL
+    TRACK{Choose a track}
 
-    MODEL{Choose Flood\nMapping Model}
+    %% ── Left track: Input Parameters ──────────────────────────────────────
+    TRACK -->|Input Parameters| IP[Prepare individual inputs\nindependently]
 
-    MODEL --> LFP[LISFLOOD-FP\n7-step wizard]
-    MODEL --> TRI[TRITON\n7-step wizard]
-    MODEL --> HEC[HEC-RAS\n8-step wizard]
+    IP --> DEM[DEM\n3DEP · HAND]
+    IP --> LULC[LULC & Manning's n\nNLCD · Sentinel-2]
+    IP --> FL[Flowlines\nNHD · USGS gages]
+    IP --> SF[Streamflow Data\nNWM · USGS]
 
-    LFP --> OUT_LFP[DEM .ascii\nManning .ascii\n.bci  .bdy  .par]
-    TRI --> OUT_TRI[DEM .asc\nFriction raster\n.extbc  .hyg  .cfg]
-    HEC --> OUT_HEC[DEM .tif\nManning .shp\nFlowline .shp\n2D Geometry · Mesh]
+    DEM  --> O_DEM[GeoTIFF / ASCII\nper AOI]
+    LULC --> O_LULC[Raster + Manning SHP\neditable lookup table]
+    FL   --> O_FL[Flowline SHP\ngage CSV · feature IDs]
+    SF   --> O_SF[Discharge CSV\nper feature / gage]
 
-    OUT_LFP --> RUN([Run flood simulation])
-    OUT_TRI --> RUN
-    OUT_HEC --> RUN
+    %% ── Right track: Flood Mapping Models ─────────────────────────────────
+    TRACK -->|Flood Mapping Models| FM[Select a 2D flood model]
+
+    FM --> LFP[LISFLOOD-FP]
+    FM --> TRI[TRITON]
+
+    LFP --> LFP_IN[Downloads all inputs\nDEM · Manning · BCI · BDY]
+    TRI --> TRI_IN[Downloads all inputs\nDEM · Friction · BC · Hydrograph]
+
+    LFP_IN --> LFP_OUT[Writes model files\n.par · .bci · .bdy · ASCII grids]
+    TRI_IN --> TRI_OUT[Writes model files\n.cfg · .extbc · .hyg · ASCII grids]
+
+    LFP_OUT --> CLOUD([Submit to cloud\nfor simulation])
+    TRI_OUT --> CLOUD
 ```
 
 ---
@@ -77,7 +83,6 @@ FIMsim connects to the following public data services. An internet connection is
 |---|---|---|
 | **LISFLOOD-FP** | 2D raster-based | `.par` · `.bci` · `.bdy` · DEM and Manning ASCII grids |
 | **TRITON** | 2D GPU-accelerated | `.cfg` · `.extbc` · `.hyg` · DEM and friction ASCII grids |
-| **HEC-RAS** | 2D finite-volume | DEM TIF · Manning SHP · Flowline SHP · 2D geometry · triangular mesh |
 
 ---
 
@@ -136,11 +141,13 @@ FIMsim/
 
 > Detailed documentation for each mode will be added below.
 
+<!-- INPUT PARAMETERS -->
 <!-- DEM mode -->
 <!-- LULC & Manning mode -->
 <!-- Flowline mode -->
 <!-- Streamflow Data mode -->
+
+<!-- FLOOD MAPPING MODELS -->
 <!-- LISFLOOD-FP mode -->
 <!-- TRITON mode -->
-<!-- HEC-RAS mode -->
 
