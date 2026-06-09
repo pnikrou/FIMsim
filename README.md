@@ -33,25 +33,41 @@ flowchart TD
     FIM --> IND["Independent Hydraulic\nModel Inputs"]
     FIM --> FM["Flood Mapping\nModels"]
 
+    %% ── Input Parameters ────────────────────────────────────────────
     IND --> DEM["DEM"]
     IND --> LULC["LULC & Manning's n"]
     IND --> FL["Flowline"]
     IND --> SF["Streamflow Data"]
 
-    FM --> LFP["LISFLOOD-FP\nDownloads all inputs\nRuns on cloud"]
-    FM --> TRI["TRITON\nDownloads all inputs\nRuns on cloud"]
+    %% ── LISFLOOD-FP: 3 steps ────────────────────────────────────────
+    FM --> LFP["LISFLOOD-FP"]
 
-    classDef main     fill:#1a365d,color:#ffffff,stroke:#1a365d,font-size:20px,padding:16px
-    classDef cat_grn  fill:#276749,color:#ffffff,stroke:#276749
-    classDef cat_blu  fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0
-    classDef item_grn fill:#f0fff4,color:#22543d,stroke:#68d391
-    classDef item_blu fill:#ebf8ff,color:#1a365d,stroke:#63b3ed
+    LFP --> LFP_IN["Download all inputs\nDEM & Manning → ASCII grids\n.bci · .bdy · .par"]
+
+    LFP_IN --> LFP_RUN["Run simulation on cloud\nSave flood depth &\nvelocity rasters"]
+
+    %% ── TRITON: 3 steps ─────────────────────────────────────────────
+    FM --> TRI["TRITON"]
+
+    TRI --> TRI_IN["Download all inputs\nDEM & Friction → .asc grids\n.extbc · .hyg · .cfg"]
+
+    TRI_IN --> TRI_RUN["Run simulation on cloud\nSave flood depth &\nvelocity rasters"]
+
+    classDef main      fill:#1a365d,color:#ffffff,stroke:#1a365d
+    classDef cat_grn   fill:#276749,color:#ffffff,stroke:#276749
+    classDef cat_blu   fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0
+    classDef item_grn  fill:#f0fff4,color:#22543d,stroke:#68d391
+    classDef model_hdr fill:#2c5282,color:#ffffff,stroke:#2c5282
+    classDef model_mid fill:#ebf8ff,color:#1a365d,stroke:#63b3ed
+    classDef model_run fill:#1a365d,color:#ffffff,stroke:#1a365d
 
     class FIM main
     class IND cat_grn
     class FM cat_blu
     class DEM,LULC,FL,SF item_grn
-    class LFP,TRI item_blu
+    class LFP,TRI model_hdr
+    class LFP_IN,TRI_IN model_mid
+    class LFP_RUN,TRI_RUN model_run
 ```
 
 ---
