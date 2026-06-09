@@ -22,40 +22,31 @@ The application is organized into two independent tracks:
 ## Workflow overview
 
 ```mermaid
-flowchart TB
-    AOI([Define Study Area\nAOI shapefile / GeoPackage])
+flowchart LR
+    FIM(["**FIMsim**"])
 
-    AOI --> TRACK
+    FIM --> IND["**Independent Hydraulic\nModel Inputs**"]
+    FIM --> FM["**Flood Mapping\nModels**"]
 
-    TRACK{Choose a track}
+    IND --> DEM["**DEM**\n3DEP · HAND\nGeoTIFF / ASCII"]
+    IND --> LULC["**LULC & Manning's n**\nNLCD · Sentinel-2\nRaster + Manning SHP"]
+    IND --> FL["**Flowline**\nNHD · USGS gages\nSHP · CSV"]
+    IND --> SF["**Streamflow Data**\nNWM · USGS\nDischarge CSV"]
 
-    %% ── Left track: Input Parameters ──────────────────────────────────────
-    TRACK -->|Input Parameters| IP[Prepare individual inputs\nindependently]
+    FM --> LFP["**LISFLOOD-FP**\nDownloads all inputs\nWrites .par · .bci · .bdy\nRuns on cloud"]
+    FM --> TRI["**TRITON**\nDownloads all inputs\nWrites .cfg · .extbc · .hyg\nRuns on cloud"]
 
-    IP --> DEM[DEM\n3DEP · HAND]
-    IP --> LULC[LULC & Manning's n\nNLCD · Sentinel-2]
-    IP --> FL[Flowlines\nNHD · USGS gages]
-    IP --> SF[Streamflow Data\nNWM · USGS]
+    classDef main     fill:#1a365d,color:#ffffff,stroke:#1a365d,rx:10
+    classDef cat_grn  fill:#276749,color:#ffffff,stroke:#276749,rx:6
+    classDef cat_blu  fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0,rx:6
+    classDef item_grn fill:#f0fff4,color:#22543d,stroke:#68d391,rx:6
+    classDef item_blu fill:#ebf8ff,color:#1a365d,stroke:#63b3ed,rx:6
 
-    DEM  --> O_DEM[GeoTIFF / ASCII\nper AOI]
-    LULC --> O_LULC[Raster + Manning SHP\neditable lookup table]
-    FL   --> O_FL[Flowline SHP\ngage CSV · feature IDs]
-    SF   --> O_SF[Discharge CSV\nper feature / gage]
-
-    %% ── Right track: Flood Mapping Models ─────────────────────────────────
-    TRACK -->|Flood Mapping Models| FM[Select a 2D flood model]
-
-    FM --> LFP[LISFLOOD-FP]
-    FM --> TRI[TRITON]
-
-    LFP --> LFP_IN[Downloads all inputs\nDEM · Manning · BCI · BDY]
-    TRI --> TRI_IN[Downloads all inputs\nDEM · Friction · BC · Hydrograph]
-
-    LFP_IN --> LFP_OUT[Writes model files\n.par · .bci · .bdy · ASCII grids]
-    TRI_IN --> TRI_OUT[Writes model files\n.cfg · .extbc · .hyg · ASCII grids]
-
-    LFP_OUT --> CLOUD([Submit to cloud\nfor simulation])
-    TRI_OUT --> CLOUD
+    class FIM main
+    class IND cat_grn
+    class FM cat_blu
+    class DEM,LULC,FL,SF item_grn
+    class LFP,TRI item_blu
 ```
 
 ---
