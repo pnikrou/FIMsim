@@ -1,21 +1,25 @@
 # FIMsim — Flood Inundation Model Simulation Tool
 
-> **v1.0** · Python 3.11 · PyQt6 · macOS / Windows / Linux
+> **v1.0** · Web Application · Desktop installers available for macOS and Windows
 
-FIMsim is a desktop application that automates the full geospatial pre-processing pipeline required to set up and run 2D flood simulation models. Instead of manually downloading elevation data, land cover rasters, river networks, and discharge time series from scattered sources — then reformatting each file for a specific model — FIMsim handles everything through a guided graphical interface. The user defines a study area, selects data sources, and the tool prepares all model-ready input files automatically.
+FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for two supported hydraulic models (LISFLOOD-FP and TRITON). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically.
 
 ---
 
 ## What the app does
 
-Setting up a flood model from scratch typically requires expertise across multiple GIS tools, hydrology databases, and model-specific file formats. FIMsim removes that barrier by connecting directly to authoritative data sources (USGS, NOAA, NHD, Esri) and writing the exact file formats each supported model expects.
+FIMsim addresses two separate but related challenges in flood modeling:
 
-The application is organized into two independent tracks:
+**1. Preparing individual model inputs independently**
+Hydrologists often need specific geospatial datasets — a DEM for one project, LULC for another, streamflow records for analysis — without running a full simulation. FIMsim provides four standalone tools that each produce one type of input file, ready to use in any model or workflow.
 
-| Track | Purpose |
+**2. Running a complete flood simulation end to end**
+When the goal is a full flood inundation map, FIMsim can take over the entire pipeline. After the user defines a study area, it downloads every required input, writes all model-specific configuration files, and submits the simulation to run on cloud infrastructure — no local software installation or GIS expertise required.
+
+| Track | What it does |
 |---|---|
-| **Input Parameters** | Prepare individual geospatial datasets as standalone outputs — each tool produces one input type, independent of any model |
-| **Flood Mapping Models** | Select a model and FIMsim handles everything — it downloads all required inputs, prepares all model files, and can submit the simulation to run on cloud infrastructure |
+| **Independent Hydraulic Model Inputs** | Four standalone tools — each prepares one input type (DEM, LULC & Manning's n, Flowlines, Streamflow Data) independently of any model |
+| **Flood Mapping Models** | Two complete simulation pipelines — each downloads all required inputs, writes all model files, and runs the simulation on cloud infrastructure |
 
 ---
 
@@ -90,26 +94,29 @@ FIMsim connects to the following public data services. An internet connection is
 
 ## Getting started
 
-```bash
-# 1 — Clone the repository
-git clone https://github.com/parvanehnikrou/FIMsim.git
-cd FIMsim
+### Web application
+FIMsim is deployed as a web application — no installation required. Open it in any browser and start a project immediately.
 
-# 2 — Create and activate a Python 3.11 environment
+> 🔗 **Live app:** *(link coming soon)*
+
+### Desktop installers
+For users who prefer a local installation, standalone installers are available on the [Releases](../../releases) page — no Python or conda setup required.
+
+| Platform | File |
+|---|---|
+| macOS | `FIMsim-mac.dmg` — drag to Applications |
+| Windows | `FIMsim-setup-windows.exe` — run installer wizard |
+
+### Run from source (contributors)
+```bash
+git clone https://github.com/pnikrou/FIMsim.git
+cd FIMsim
 conda create -n fimsim python=3.11 -y
 conda activate fimsim
-
-# 3 — Install geospatial dependencies (GDAL, PROJ, GEOS)
 conda install -c conda-forge geopandas pyogrio rasterio pyproj shapely scipy numpy pandas openpyxl h5py requests -y
-
-# 4 — Install remaining packages
 pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs pynhd pygeoogc gmsh certifi
-
-# 5 — Launch the app
 python main.py
 ```
-
-> **No Python needed for end users** — pre-built installers for Mac (`.dmg`) and Windows (`.exe`) are available on the [Releases](../../releases) page.
 
 ---
 
