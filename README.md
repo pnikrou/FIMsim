@@ -30,44 +30,36 @@ When the goal is a full flood inundation map, FIMsim can take over the entire pi
 flowchart TD
     FIM(["FIMsim"])
 
-    FIM --> IND["Independent Hydraulic\nModel Inputs"]
-    FIM --> FM["Flood Mapping\nModels"]
+    FIM --> IND["— — — Independent Hydraulic Model Inputs — — —"]
+    FIM --> FM["— — — — — Flood Mapping Models — — — — —"]
 
-    %% ── Input Parameters ────────────────────────────────────────────
-    IND --> DEM["DEM"]
-    IND --> LULC["LULC & Manning's n"]
-    IND --> FL["Flowline"]
-    IND --> SF["Streamflow Data"]
+    %% ── Input Parameters ───────────────────────────────────────────
+    IND --> DEM["⛰️ DEM\n1m–30m elevation raster\nUSGS 3DEP · TACC HAND"]
+    IND --> LULC["🌿 LULC & Manning's n\nLand cover + roughness values\nNLCD · Sentinel-2"]
+    IND --> FL["〰️ Flowline\nMain river / all reaches\nNHD · USGS gages"]
+    IND --> SF["📈 Streamflow Data\nDischarge hydrograph\nNWM retrospective · USGS"]
 
-    %% ── LISFLOOD-FP: 3 steps ────────────────────────────────────────
+    %% ── LISFLOOD-FP ────────────────────────────────────────────────
     FM --> LFP["LISFLOOD-FP"]
+    LFP --> LFP_IN["Downloads all inputs\nDEM & Manning ASCII grids · .bci · .bdy · .par"]
+    LFP_IN --> LFP_RUN["Run simulation on cloud\nSave flood depth & velocity rasters"]
 
-    LFP --> LFP_IN["Download all inputs\nDEM & Manning → ASCII grids\n.bci · .bdy · .par"]
-
-    LFP_IN --> LFP_RUN["Run simulation on cloud\nSave flood depth &\nvelocity rasters"]
-
-    %% ── TRITON: 3 steps ─────────────────────────────────────────────
+    %% ── TRITON ─────────────────────────────────────────────────────
     FM --> TRI["TRITON"]
+    TRI --> TRI_IN["Downloads all inputs\nDEM & Friction .asc grids · .extbc · .hyg · .cfg"]
+    TRI_IN --> TRI_RUN["Run simulation on cloud\nSave flood depth & velocity rasters"]
 
-    TRI --> TRI_IN["Download all inputs\nDEM & Friction → .asc grids\n.extbc · .hyg · .cfg"]
-
-    TRI_IN --> TRI_RUN["Run simulation on cloud\nSave flood depth &\nvelocity rasters"]
-
-    classDef main      fill:#1a365d,color:#ffffff,stroke:#1a365d
-    classDef cat_grn   fill:#276749,color:#ffffff,stroke:#276749
-    classDef cat_blu   fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0
-    classDef item_grn  fill:#f0fff4,color:#22543d,stroke:#68d391
-    classDef model_hdr fill:#2c5282,color:#ffffff,stroke:#2c5282
-    classDef model_mid fill:#ebf8ff,color:#1a365d,stroke:#63b3ed
-    classDef model_run fill:#1a365d,color:#ffffff,stroke:#1a365d
+    classDef main     fill:#1a365d,color:#ffffff,stroke:#1a365d
+    classDef cat_grn  fill:#276749,color:#ffffff,stroke:#276749
+    classDef cat_blu  fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0
+    classDef item_grn fill:#f0fff4,color:#22543d,stroke:#68d391
+    classDef model    fill:#ebf8ff,color:#1a365d,stroke:#63b3ed
 
     class FIM main
     class IND cat_grn
     class FM cat_blu
     class DEM,LULC,FL,SF item_grn
-    class LFP,TRI model_hdr
-    class LFP_IN,TRI_IN model_mid
-    class LFP_RUN,TRI_RUN model_run
+    class LFP,LFP_IN,LFP_RUN,TRI,TRI_IN,TRI_RUN model
 ```
 
 ---
