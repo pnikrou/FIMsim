@@ -2,7 +2,7 @@
 
 > **v1.0** · Web Application · Desktop installers available for macOS and Windows
 
-FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for two supported hydraulic models (LISFLOOD-FP and TRITON). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically.
+FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for two supported hydraulic models (LISFLOOD-FP and TRITON). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically. For users who prefer a local setup, standalone desktop installers for macOS and Windows are also available — no Python installation or technical configuration required.
 
 ---
 
@@ -26,6 +26,7 @@ When the goal is a full flood inundation map, FIMsim can take over the entire pi
 ## Workflow overview
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '18px', 'fontFamily': 'Arial'}}}%%
 flowchart TD
     FIM(["FIMsim"])
 
