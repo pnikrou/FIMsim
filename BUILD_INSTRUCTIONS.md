@@ -1,109 +1,195 @@
-# Flood Model Preprocessing Tool — Setup & Build Instructions
+# FIMsim — Build & Distribution Guide
 
 ---
 
-## 0. What to copy to a new computer
+## Quick answer: yes, it produces a true installer
 
-Copy **only** the `lisflood_prep_app/` folder (the folder that contains `main.py`).
+With PyInstaller, **everything is bundled** inside the installer —
+Python, Qt libraries, GDAL/PROJ, rasterio, geopandas, scipy, h5py, gmsh, and
+all other packages.  End users:
 
-```
-lisflood_prep_app/
-├── main.py               ← entry point
-├── requirements.txt      ← all Python dependencies
-├── BUILD_INSTRUCTIONS.md
-├── build_app.spec        ← PyInstaller spec (only needed to build EXE)
-├── core/                 ← all backend logic
-├── gui/                  ← all GUI code
-└── data/                 ← bundled GeoJSON files (states, HUC6, HUC8)
-```
+- Download one file (`.dmg` on Mac, `.exe` on Windows)
+- Double-click → next → finish
+- Launch FIMsim from their desktop / Start Menu
 
-> **Do NOT copy** the `cache/` or `__pycache__/` folders — they are auto-generated
-> and machine-specific.
+No Python, no conda, no terminal required.
 
 ---
 
-## 1. Set up the Python environment
+## Files in this folder
 
-Python **3.11** is required (3.12+ has not been tested).
+| File | Purpose |
+|------|---------|
+| `build_app.spec` | PyInstaller spec (used on both Mac & Windows) |
+| `build_mac.sh` | One-command Mac build → `.app` + `.dmg` |
+| `build_windows.bat` | One-command Windows build → EXE folder |
+| `installer_windows.iss` | Inno Setup script → `FIMsim-setup.exe` |
+| `.github/workflows/build.yml` | GitHub Actions — builds both platforms automatically |
+
+---
+
+## Option A: Build on your Mac (produces Mac `.app` / `.dmg`)
+
+### Step 1 — Install PyInstaller into your conda env
+```bash
+conda activate lisflood_workflow
+pip install pyinstaller
+```
+
+### Step 2 — Run the build script
+```bash
+cd lisflood_prep_app
+chmod +x build_mac.sh
+./build_mac.sh
+```
+
+This takes 3–8 minutes.  Output:
+```
+dist/
+├── FIMsim.app          ← the Mac app bundle
+└── FIMsim-mac.dmg      ← drag-to-install disk image (if create-dmg installed)
+    or FIMsim-mac.zip   ← zip of the .app (if create-dmg not installed)
+```
+
+### Step 3 — Optional: nicer .dmg
+```bash
+brew install create-dmg    # one-time
+./build_mac.sh             # re-run; will now produce a proper .dmg
+```
+
+Share `FIMsim-mac.dmg` with Mac users.  They drag it to Applications — done.
+
+---
+
+## Option B: Build Windows `.exe` via GitHub Actions (recommended — no Windows needed)
+
+This is the easiest way to produce a Windows installer **without owning a Windows PC**.
+GitHub provides free Windows runner VMs.
+
+### Step 1 — Push your code to GitHub
 
 ```bash
-# Create a fresh conda environment
-conda create -n lisflood_app python=3.11
-conda activate lisflood_app
-
-# Install all dependencies
-pip install -r requirements.txt
+# One-time: create a GitHub repo and push
+cd /path/to/Chapter2         # the parent of lisflood_prep_app/
+git init
+git add lisflood_prep_app/
+git commit -m "Initial commit"
+# Create a repo on github.com, then:
+git remote add origin https://github.com/YOUR_USERNAME/fimsim.git
+git push -u origin main
 ```
 
-### What gets installed (`requirements.txt`)
+### Step 2 — Trigger the build by creating a version tag
 
-| Package | Purpose |
-|---------|---------|
-| `PyQt6` | Desktop GUI framework |
-| `matplotlib` | Maps, raster previews, hydrograph plots |
-| `numpy` | Array / numerical operations |
-| `scipy` | DEM nodata fill, TRITON Manning raster |
-| `pandas` | Tabular data, CSV I/O |
-| `openpyxl` | Excel file support (discharge XLSX import) |
-| `geopandas` | Vector GIS (AOI, flowlines, Manning shapefiles) |
-| `shapely` | Geometry operations |
-| `pyproj` | CRS / coordinate reprojection |
-| `rasterio` | Raster read/write/clip/warp |
-| `requests` | General HTTP downloads |
-| `pynhd` | NHD flowlines + USGS gage lookup (USA only) |
-| `xarray` | N-D arrays for NWM Zarr data |
-| `zarr` | NWM retrospective Zarr store on S3 |
-| `s3fs` | S3 filesystem access for NWM download |
-| `numcodecs` | Zarr codec support |
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions will automatically:
+1. Spin up a Windows VM
+2. Install conda + all packages
+3. Run PyInstaller → `dist\FIMsim\`
+4. Run Inno Setup → `FIMsim-setup-windows.exe`
+5. Spin up a Mac VM → produce `FIMsim-mac.dmg`
+6. Create a GitHub Release with both files attached
+
+### Step 3 — Download the installer
+
+Go to **github.com/YOUR_USERNAME/fimsim/releases** → download
+`FIMsim-setup-windows.exe` and share it.
+
+> You can also trigger a build manually without creating a tag:
+> GitHub → your repo → **Actions** tab → **Build FIMsim Installers** →
+> **Run workflow** button.
 
 ---
 
-## 2. Run the app
+## Option C: Build on a Windows PC directly
+
+If you have access to a Windows machine:
+
+```bat
+:: In Anaconda Prompt on Windows:
+conda create -n lisflood_workflow python=3.11
+conda activate lisflood_workflow
+
+:: Install geospatial packages (GDAL/PROJ binaries)
+conda install -c conda-forge geopandas pyogrio rasterio pyproj shapely scipy numpy pandas openpyxl h5py requests
+
+:: Install remaining packages
+pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs pynhd pygeoogc gmsh certifi pyinstaller
+
+:: Build the app
+cd lisflood_prep_app
+build_windows.bat
+```
+
+Then open `installer_windows.iss` in **Inno Setup Compiler**
+([free download](https://jrsoftware.org/isdl.php)) and click **Build > Compile**.
+
+Output: `dist\FIMsim-setup-windows.exe`
+
+---
+
+## Build output sizes (approximate)
+
+| Platform | Folder size | Installer size |
+|----------|-------------|----------------|
+| Windows | ~350 MB | ~180 MB (compressed) |
+| macOS | ~400 MB | ~200 MB (.dmg) |
+
+Large because GDAL, Qt, rasterio, scipy, gmsh all bundle their own shared libraries.
+This is normal for geospatial desktop apps.
+
+---
+
+## Running the app from source (development)
 
 ```bash
+conda activate lisflood_workflow
 cd lisflood_prep_app
 python main.py
 ```
 
 ---
 
-## 3. Build a standalone executable with PyInstaller
+## Troubleshooting the build
 
-PyInstaller is **only** needed when creating a distributable EXE/app bundle.
-Install it separately so it does not pollute the run-time environment:
+### "ModuleNotFoundError: No module named X" at runtime
+Add the missing package to `hiddenimports` in `build_app.spec`, then rebuild.
 
+### App crashes silently on launch (Mac)
+Run from Terminal to see error output:
 ```bash
-pip install pyinstaller
-cd lisflood_prep_app
-pyinstaller build_app.spec
+./dist/FIMsim.app/Contents/MacOS/FIMsim
 ```
 
-The output will be in `dist/LISFLOOD_FP_PrepTool/`.
-Zip that folder and share it — users just unzip and run `LISFLOOD_FP_PrepTool.exe`
-(Windows) or `LISFLOOD_FP_PrepTool` (Mac/Linux). No Python installation needed.
+### App crashes silently on launch (Windows)
+Temporarily set `console=True` in `build_app.spec` → `exe = EXE(... console=True ...)`,
+rebuild, run the `.exe` from Command Prompt to see the traceback.
+
+### GDAL / PROJ errors ("Unable to open EPSG support file")
+The pyproj/rasterio PROJ data is not bundled correctly. Check that
+`collect_all('pyproj')` and `collect_all('rasterio')` are in the spec (they are).
+
+### Build is very slow (> 15 min)
+Normal for the first build — PyInstaller collects thousands of files from
+numpy/scipy/GDAL/Qt. Subsequent builds are faster if you do not delete `build/`.
 
 ---
 
-## 4. Building a single-file EXE (Windows only, slower startup)
+## What gets bundled (user never installs these)
 
-Change the `COLLECT` block in `build_app.spec` to an `EXE` with `onefile=True`:
-
-```python
-exe = EXE(
-    pyz, a.scripts, a.binaries, a.zipfiles, a.datas,
-    name='LISFLOOD_FP_PrepTool',
-    console=False,
-    onefile=True,
-)
-```
-
----
-
-## Notes
-
-- The app requires an **internet connection** for downloading DEM (3DEP), LULC (ESRI),
-  NHD flowlines (pynhd), and NWM retrospective streamflow (NOAA Zarr).
-- **3DEP DEM** covers the **USA only**. For other countries, provide your own DEM.
-- **LULC** download covers **global** extents via ESRI Sentinel-2 service.
-- **NWM retrospective** covers **USA, 1979–2020**. Dates after 2020-12-31 will
-  automatically switch to the NWM operational forecast (~10-day horizon).
+- Python 3.11 runtime
+- PyQt6 + Qt 6 libraries
+- GDAL + PROJ (rasterio, pyogrio, pyproj)
+- GEOS (shapely)
+- geopandas, numpy, scipy, pandas
+- matplotlib (maps, hydrograph plots)
+- h5py + HDF5 library (HEC-RAS files)
+- gmsh + API (mesh generation)
+- xarray, zarr, s3fs (NWM data download)
+- requests, certifi (HTTPS downloads)
+- pynhd, pygeoogc (NHD / WMS queries)
+- All app GeoJSON data files (US states, HUC6, HUC8)

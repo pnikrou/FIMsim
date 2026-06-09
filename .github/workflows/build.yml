@@ -1,0 +1,157 @@
+name: Build FIMsim Installers
+
+# Trigger: push a tag like "v1.0.0" → builds both Mac and Windows
+# Or run manually from GitHub Actions tab
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:      # manual trigger button in GitHub UI
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Windows .exe (via PyInstaller + Inno Setup)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3.11"
+          activate-environment: fimsim-build
+          auto-activate-base: false
+
+      - name: Install Python dependencies
+        shell: bash -el {0}
+        run: |
+          conda activate fimsim-build
+          # Install geospatial packages via conda (GDAL/PROJ binaries)
+          conda install -y -c conda-forge \
+            geopandas pyogrio rasterio pyproj shapely \
+            scipy numpy pandas openpyxl \
+            h5py requests
+          # Install remaining packages via pip
+          pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
+                      pynhd pygeoogc gmsh certifi charset-normalizer \
+                      pyinstaller
+
+      - name: Build with PyInstaller
+        shell: bash -el {0}
+        run: |
+          conda activate fimsim-build
+          pyinstaller build_app.spec --noconfirm
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          # Download and install Inno Setup silently
+          $url = "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe"
+          Invoke-WebRequest -Uri $url -OutFile innosetup.exe
+          Start-Process -Wait -FilePath innosetup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+          # Compile the installer script
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_windows.iss
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FIMsim-windows-installer
+          path: dist/FIMsim-setup-windows.exe
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # macOS .dmg
+  # ────────────────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3.11"
+          activate-environment: fimsim-build
+          auto-activate-base: false
+
+      - name: Install Python dependencies
+        shell: bash -el {0}
+        run: |
+          conda activate fimsim-build
+          conda install -y -c conda-forge \
+            geopandas pyogrio rasterio pyproj shapely \
+            scipy numpy pandas openpyxl \
+            h5py requests
+          pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
+                      pynhd pygeoogc gmsh certifi charset-normalizer \
+                      pyinstaller
+
+      - name: Build with PyInstaller
+        shell: bash -el {0}
+        run: |
+          conda activate fimsim-build
+          pyinstaller build_app.spec --noconfirm
+
+      - name: Install create-dmg and package
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "FIMsim" \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "FIMsim.app" 150 185 \
+            --app-drop-link 450 185 \
+            --no-internet-enable \
+            "dist/FIMsim-mac.dmg" \
+            "dist/FIMsim.app"
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FIMsim-mac-dmg
+          path: dist/FIMsim-mac.dmg
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Create GitHub Release with both installers attached
+  # ────────────────────────────────────────────────────────────────────────────
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FIMsim-windows-installer
+          path: artifacts/
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FIMsim-mac-dmg
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "FIMsim ${{ github.ref_name }}"
+          body: |
+            ## FIMsim — Flood Inundation Model Simulation Tool ${{ github.ref_name }}
+
+            ### Downloads
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | Windows 10/11 (64-bit) | `FIMsim-setup-windows.exe` | Run installer, no Python needed |
+            | macOS 12+ | `FIMsim-mac.dmg` | Drag to Applications, no Python needed |
+
+            ### What's included
+            All Python dependencies (PyQt6, GDAL, rasterio, geopandas, scipy, h5py, gmsh …)
+            are bundled inside. No conda, no terminal, no setup required.
+          files: |
+            artifacts/FIMsim-setup-windows.exe
+            artifacts/FIMsim-mac.dmg
+          draft: false
+          prerelease: false
