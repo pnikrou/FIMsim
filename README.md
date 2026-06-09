@@ -25,49 +25,7 @@ When the goal is a full flood inundation map, FIMsim can take over the entire pi
 
 ## Workflow overview
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '18px', 'fontFamily': 'Arial'}}}%%
-flowchart TD
-    FIM(["FIMsim"])
-
-    FIM --> IND["Independent Hydraulic Model Inputs"]
-    FIM --> FM["Flood Mapping Models"]
-
-    %% ── Input Parameters: name → output formats ────────────────────
-    IND --> DEM["DEM"]
-    IND --> LULC["LULC & Manning's n"]
-    IND --> FL["Flowline"]
-    IND --> SF["Streamflow Data"]
-
-    DEM  --> DEM_OUT["GeoTIFF · ASCII · GeoPackage"]
-    LULC --> LULC_OUT["Raster TIF · Manning SHP · ASCII"]
-    FL   --> FL_OUT["Flowline SHP · Gage CSV"]
-    SF   --> SF_OUT["Discharge CSV per feature"]
-
-    %% ── LISFLOOD-FP ────────────────────────────────────────────────
-    FM --> LFP["LISFLOOD-FP"]
-    LFP --> LFP_IN["Downloads all inputs\nDEM & Manning ASCII grids\n.bci · .bdy · .par"]
-    LFP_IN --> LFP_RUN["Run simulation on cloud\nSave flood depth & velocity rasters"]
-
-    %% ── TRITON ─────────────────────────────────────────────────────
-    FM --> TRI["TRITON"]
-    TRI --> TRI_IN["Downloads all inputs\nDEM & Friction ASCII grids\n.extbc · .hyg · .cfg"]
-    TRI_IN --> TRI_RUN["Run simulation on cloud\nSave flood depth & velocity rasters"]
-
-    classDef main      fill:#1a365d,color:#ffffff,stroke:#1a365d
-    classDef cat_grn   fill:#276749,color:#ffffff,stroke:#276749
-    classDef cat_blu   fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0
-    classDef item_grn  fill:#f0fff4,color:#22543d,stroke:#68d391
-    classDef item_out  fill:#e6fffa,color:#234e52,stroke:#81e6d9
-    classDef model     fill:#ebf8ff,color:#1a365d,stroke:#63b3ed
-
-    class FIM main
-    class IND cat_grn
-    class FM cat_blu
-    class DEM,LULC,FL,SF item_grn
-    class DEM_OUT,LULC_OUT,FL_OUT,SF_OUT item_out
-    class LFP,LFP_IN,LFP_RUN,TRI,TRI_IN,TRI_RUN model
-```
+![FIMsim Workflow](assets/workflow.png)
 
 ---
 
