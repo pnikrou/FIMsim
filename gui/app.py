@@ -1,4 +1,4 @@
-"""Main application window — model selector + LISFLOOD-FP and TRITON workflows."""
+"""Main application window — home selector + LISFLOOD-FP and TRITON workflows."""
 import json
 
 from PyQt6.QtWidgets import (
@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
 
         log_fn = self._append_log
 
-        # ── Page 0: Mode selector ────────────────────────────────────────────
+        # ── Page 0: Home selector ─────────────────────────────────────────────
         self._selector = ModelSelectorWidget()
         self._selector.mode_selected.connect(self._on_mode_selected)
         self._stack.addWidget(self._selector)               # index 0
@@ -99,12 +99,12 @@ class MainWindow(QMainWindow):
         self._mode_dem.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_dem)               # index 1
 
-        # ── Page 2: LULC + Manning standalone mode ──────────────────────────
+        # ── Page 2: LULC + Manning standalone mode ───────────────────────────
         self._mode_lulc = ModeLULCManningWidget(log_fn)
         self._mode_lulc.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_lulc)              # index 2
 
-        # ── Page 3: Flowline & Flow Data standalone mode ─────────────────────
+        # ── Page 3: Flowline standalone mode ─────────────────────────────────
         self._mode_flowline = ModeFlowlineWidget(log_fn)
         self._mode_flowline.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_flowline)          # index 3
@@ -114,11 +114,11 @@ class MainWindow(QMainWindow):
         self._mode_hecras.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_hecras)            # index 4
 
-        # ── Page 5: LISFLOOD-FP tabs ─────────────────────────────────────────
+        # ── Page 5: LISFLOOD-FP tabs ──────────────────────────────────────────
         self._lfp_tabs, self._lfp_steps = self._build_lisflood_tabs(log_fn)
         self._stack.addWidget(self._lfp_tabs)               # index 5
 
-        # ── Page 6: TRITON tabs ──────────────────────────────────────────────
+        # ── Page 6: TRITON tabs ───────────────────────────────────────────────
         self._triton_tabs, self._triton_steps = self._build_triton_tabs(log_fn)
         self._stack.addWidget(self._triton_tabs)            # index 6
 
@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
         self._append_log(
             "Welcome to FIMsim  |  Flood Inundation Model Simulation Tool  v1.0"
         )
-        self._append_log("Select a mode on the welcome screen to begin.")
+        self._append_log("Select a category on the home screen to begin.")
 
     # ── Build LISFLOOD-FP tab widget ─────────────────────────────────────────
 
@@ -327,6 +327,7 @@ class MainWindow(QMainWindow):
     _on_model_selected = _on_mode_selected
 
     def _go_to_selector(self):
+        """Return from a mode back to the category model-selector page."""
         for w in (self._mode_dem, self._mode_lulc, self._mode_flowline,
                   self._mode_hecras, self._mode_streamflow):
             try:
@@ -335,6 +336,7 @@ class MainWindow(QMainWindow):
                 pass
         self._stack.setCurrentIndex(_PAGE_SELECTOR)
         self._active_model = None
+        # Keep the category title in the window title
         self.setWindowTitle(
             "FIMsim  |  Flood Inundation Model Simulation Tool  v1.0"
         )

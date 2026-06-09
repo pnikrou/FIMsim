@@ -1,169 +1,255 @@
-"""Welcome / mode-selector screen — 5 cards for the supported modes."""
+"""Home screen — two category cards; clicking one reveals its mode options below."""
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QPushButton, QFrame,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont
 
 
-# Two shared palettes — every "standalone tool" card on the top row uses
-# _TOP_*; every "full model package" card on the bottom row uses _BOT_*.
-# This is what gives each row a consistent shade.
-_TOP_BTN, _TOP_BG, _TOP_BORDER = "#276749", "#f0fff4", "#9ae6b4"   # green
-_BOT_BTN, _BOT_BG, _BOT_BORDER = "#2b6cb0", "#ebf8ff", "#90cdf4"   # blue
+# ── Palette ───────────────────────────────────────────────────────────────────
+_GREEN_DARK   = "#276749"
+_GREEN_BG     = "#f0fff4"
+_GREEN_BORDER = "#9ae6b4"
+_GREEN_SEL    = "#c6f6d5"   # selected background
 
+_BLUE_DARK    = "#2b6cb0"
+_BLUE_BG      = "#ebf8ff"
+_BLUE_BORDER  = "#90cdf4"
+_BLUE_SEL     = "#bee3f8"   # selected background
 
-# Card metadata: each entry is a dict with title, mode_key, colours,
-# 'rows' (key:value summary lines), and 'footer' (italic note about scope).
-_CARDS = [
-    # ── Top row: standalone preprocessing tools (amber shade) ────────────
-    {
-        "title": "DEM", "mode_key": "dem",
-        "btn": _TOP_BTN, "bg": _TOP_BG, "border": _TOP_BORDER,
-        "rows": [
-            ("Source",   "3DEP (USGS) · HAND (TACC)"),
-            ("Cell size","User-defined"),
-            ("Format",   "TIF · GPKG · ASC"),
-        ],
-        "footer": "Works on multiple AOIs and multi-feature shapefiles.",
-    },
-    {
-        "title": "LULC & Manning's n", "mode_key": "lulc_manning",
-        "btn": _TOP_BTN, "bg": _TOP_BG, "border": _TOP_BORDER,
-        "rows": [
-            ("Source",   "NLCD (USGS) · Sentinel-2 (Esri)"),
-            ("Cell size","User-defined"),
-            ("Format",   "TIF · GPKG · ASC · SHP"),
-            ("Manning",  "Min/Max bounds + editable Avg"),
-        ],
-        "footer": "Works on multiple AOIs and multi-feature shapefiles.",
-    },
-    {
-        "title": "Flowline", "mode_key": "flowline",
-        "btn": _TOP_BTN, "bg": _TOP_BG, "border": _TOP_BORDER,
-        "rows": [
-            ("Flowlines", "NHD main river or all reaches → SHP"),
-            ("Gages",     "USGS gages in AOI → CSV"),
-            ("IDs",       "Feature IDs + stream order → CSV"),
-        ],
-    },
-    {
-        "title": "Streamflow Data", "mode_key": "streamflow",
-        "btn": _TOP_BTN, "bg": _TOP_BG, "border": _TOP_BORDER,
-        "rows": [
-            ("Sources",   "NWM Retrospective · NWM Forecast · USGS Gage"),
-            ("Input",     "Feature ID(s) or gage number(s), or CSV file"),
-            ("Output",    "Discharge time series CSV per feature"),
-        ],
-    },
-    # ── Bottom row: full model-package workflows (blue shade) ────────────
-    # Each card uses the SAME structure: a single "Outputs" line.  This is
-    # what makes the three look like siblings.
-    {
-        "title": "HEC-RAS Files", "mode_key": "hecras",
-        "btn": _BOT_BTN, "bg": _BOT_BG, "border": _BOT_BORDER,
-        "rows": [
-            ("Outputs", "DEM (TIF) · Manning (SHP) · "
-                        "Flowline (SHP) · Geometry polygon (SHP)"),
-        ],
-        "footer": "Full input set for a HEC-RAS model.",
-    },
-    {
-        "title": "LISFLOOD-FP Files", "mode_key": "lisflood",
-        "btn": _BOT_BTN, "bg": _BOT_BG, "border": _BOT_BORDER,
-        "rows": [
-            ("Outputs", "*.par · *.bci · *.bdy · "
-                        "ASCII grids (DEM and Manning)"),
-        ],
-        "footer": "Full input set for a LISFLOOD-FP model.",
-    },
-    {
-        "title": "TRITON Files", "mode_key": "triton",
-        "btn": _BOT_BTN, "bg": _BOT_BG, "border": _BOT_BORDER,
-        "rows": [
-            ("Outputs", "*.cfg · *.extbc · *.hyg · "
-                        "ASCII grids (DEM and Manning)"),
-        ],
-        "footer": "Full input set for a TRITON model.",
-    },
+# ── Mode definitions ──────────────────────────────────────────────────────────
+_INPUT_MODES = [
+    {"title": "DEM",              "mode_key": "dem",          "desc": "3DEP · HAND · TIF / ASC"},
+    {"title": "LULC & Manning",   "mode_key": "lulc_manning", "desc": "NLCD · Sentinel-2 · Manning table"},
+    {"title": "Flowline",         "mode_key": "flowline",     "desc": "NHD flowlines · USGS gages"},
+    {"title": "Streamflow Data",  "mode_key": "streamflow",   "desc": "NWM Retro / Forecast · USGS"},
+]
+
+_MODEL_MODES = [
+    {"title": "LISFLOOD-FP", "mode_key": "lisflood", "desc": "7-step wizard → .par .bci .bdy"},
+    {"title": "TRITON",      "mode_key": "triton",   "desc": "7-step wizard → .cfg .extbc .hyg"},
+    {"title": "HEC-RAS",     "mode_key": "hecras",   "desc": "8-step wizard → geometry + mesh"},
 ]
 
 
 class ModelSelectorWidget(QWidget):
-    """Emits mode_selected('dem' | 'lulc_manning' | 'flowline' | 'streamflow' | 'hecras' | 'lisflood' | 'triton')."""
-    mode_selected = pyqtSignal(str)
-
-    # Backward-compat alias for existing code that imports model_selected
-    model_selected = mode_selected
+    """Emits mode_selected(mode_key) when a mode Start button is clicked."""
+    mode_selected  = pyqtSignal(str)
+    model_selected = mode_selected          # backward-compat alias
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._selected_category = None      # "input_data" | "flood_mapping" | None
         self._setup_ui()
+
+    # ── UI construction ───────────────────────────────────────────────────────
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(30, 20, 30, 20)
-        root.setSpacing(16)
+        root.setContentsMargins(48, 32, 48, 24)
+        root.setSpacing(0)
 
-        # 7 cards in a 4+3 grid:
-        #   top row:    DEM, LULC & Manning, Flowline, Streamflow Data
-        #   bottom row: HEC-RAS, LISFLOOD-FP, TRITON
-        grid = QGridLayout()
-        grid.setSpacing(16)
-        for i, card in enumerate(_CARDS[:4]):
-            grid.addWidget(self._make_card(card), 0, i)
-        for i, card in enumerate(_CARDS[4:7]):
-            grid.addWidget(self._make_card(card), 1, i)
-        root.addLayout(grid)
+        # App title
+        title = QLabel("FIMsim")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setFont(QFont("Arial", 26, QFont.Weight.Bold))
+        title.setStyleSheet("color:#1a365d; border:none;")
+        root.addWidget(title)
+
+        sub = QLabel("Flood Inundation Model Simulation Tool  ·  v1.0")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setStyleSheet("color:#718096; font-size:12px; border:none; margin-bottom:4px;")
+        root.addWidget(sub)
+
+        # Divider
+        line = QFrame(); line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color:#e2e8f0; margin:14px 0 20px 0;")
+        root.addWidget(line)
+
+        prompt = QLabel("Select a category to get started:")
+        prompt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        prompt.setStyleSheet("color:#4a5568; font-size:13px; border:none; margin-bottom:16px;")
+        root.addWidget(prompt)
+
+        # ── Two top-level category cards ──────────────────────────────────────
+        cat_row = QHBoxLayout()
+        cat_row.setSpacing(28)
+        cat_row.addStretch(1)
+        self._card_input  = self._make_category_card(
+            key="input_data",
+            title="Preparing Input Data",
+            description="Download and process geospatial inputs\n(DEM, LULC, flowlines, streamflow)",
+            accent=_GREEN_DARK, bg=_GREEN_BG, border=_GREEN_BORDER,
+        )
+        self._card_model  = self._make_category_card(
+            key="flood_mapping",
+            title="Flood Mapping",
+            description="Generate complete input packages\nfor a 2D flood simulation model",
+            accent=_BLUE_DARK, bg=_BLUE_BG, border=_BLUE_BORDER,
+        )
+        cat_row.addWidget(self._card_input)
+        cat_row.addWidget(self._card_model)
+        cat_row.addStretch(1)
+        root.addLayout(cat_row)
+
+        # ── Sub-options panel (hidden until a category is clicked) ─────────────
+        # Wrapper keeps a fixed vertical slot so layout doesn't jump
+        self._sub_panel = QWidget()
+        sub_layout = QVBoxLayout(self._sub_panel)
+        sub_layout.setContentsMargins(0, 20, 0, 0)
+        sub_layout.setSpacing(10)
+
+        # Arrow label + category title
+        self._arrow_lbl = QLabel()
+        self._arrow_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._arrow_lbl.setStyleSheet("color:#718096; font-size:12px; border:none;")
+        sub_layout.addWidget(self._arrow_lbl)
+
+        # Mode cards row (rebuilt on each selection)
+        self._mode_row_widget = QWidget()
+        self._mode_row_layout = QHBoxLayout(self._mode_row_widget)
+        self._mode_row_layout.setSpacing(16)
+        self._mode_row_layout.setContentsMargins(0, 0, 0, 0)
+        sub_layout.addWidget(self._mode_row_widget)
+
+        self._sub_panel.setVisible(False)
+        root.addWidget(self._sub_panel)
 
         root.addStretch(1)
 
-    def _make_card(self, card_data: dict):
-        title       = card_data["title"]
-        mode_key    = card_data["mode_key"]
-        btn_color   = card_data["btn"]
-        bg_color    = card_data["bg"]
-        border_color = card_data["border"]
-        rows        = card_data.get("rows", [])
-        footer      = card_data.get("footer", "")
+    # ── Category card (the big clickable tiles at the top) ────────────────────
 
+    def _make_category_card(self, *, key, title, description, accent, bg, border):
         card = QFrame()
-        card.setMinimumWidth(280)
-        card.setMaximumWidth(380)
-        card.setStyleSheet(
-            f"QFrame {{ background:{bg_color}; border:2px solid {border_color}; "
-            f"border-radius:10px; padding:10px; }}"
-        )
-        layout = QVBoxLayout(card)
-        layout.setSpacing(8)
+        card.setFixedWidth(340)
+        card.setMinimumHeight(130)
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card.setObjectName(f"cat_{key}")
+        card.setProperty("cat_key", key)
+        card.setProperty("accent", accent)
+        card.setProperty("bg", bg)
+        card.setProperty("border", border)
+        self._apply_card_style(card, selected=False)
 
-        # Title
+        layout = QVBoxLayout(card)
+        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+
         lbl_title = QLabel(title)
-        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_title.setFont(QFont("Arial", 15, QFont.Weight.Bold))
-        lbl_title.setStyleSheet(f"color:{btn_color}; border:none;")
+        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_title.setStyleSheet(f"color:{accent}; border:none;")
         layout.addWidget(lbl_title)
 
-        # Key:value summary rows in a small inner box
-        for key, val in rows:
-            html = (
-                f"<span style='color:#444; font-weight:bold;'>{key}:</span> "
-                f"<span style='color:#222;'>{val}</span>"
+        lbl_desc = QLabel(description)
+        lbl_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("color:#4a5568; font-size:11px; border:none;")
+        layout.addWidget(lbl_desc)
+
+        # Make the whole card clickable via mousePressEvent on the frame
+        card.mousePressEvent = lambda _ev, k=key: self._on_category_clicked(k)
+
+        return card
+
+    def _apply_card_style(self, card, selected: bool):
+        bg     = card.property("bg")
+        border = card.property("border")
+        accent = card.property("accent")
+        if selected:
+            # Highlighted: stronger border, slightly darker bg
+            card.setStyleSheet(
+                f"QFrame {{ background:{bg}; border:3px solid {accent}; "
+                f"border-radius:12px; }}"
             )
-            lbl = QLabel(html)
-            lbl.setStyleSheet("border:none; font-size:11px;")
-            lbl.setWordWrap(True)
-            layout.addWidget(lbl)
+        else:
+            card.setStyleSheet(
+                f"QFrame {{ background:{bg}; border:2px solid {border}; "
+                f"border-radius:12px; }}"
+            )
+
+    # ── Category click → show sub-options ────────────────────────────────────
+
+    def _on_category_clicked(self, key: str):
+        # Toggle: clicking the already-selected category collapses it
+        if self._selected_category == key:
+            self._selected_category = None
+            self._apply_card_style(self._card_input,  selected=False)
+            self._apply_card_style(self._card_model,  selected=False)
+            self._sub_panel.setVisible(False)
+            return
+
+        self._selected_category = key
+
+        # Update card highlight states
+        self._apply_card_style(self._card_input, selected=(key == "input_data"))
+        self._apply_card_style(self._card_model, selected=(key == "flood_mapping"))
+
+        # Rebuild the mode cards row
+        self._rebuild_mode_row(key)
+        self._sub_panel.setVisible(True)
+
+    def _rebuild_mode_row(self, category: str):
+        # Clear old mode cards
+        while self._mode_row_layout.count():
+            item = self._mode_row_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        modes  = _INPUT_MODES if category == "input_data" else _MODEL_MODES
+        accent = _GREEN_DARK  if category == "input_data" else _BLUE_DARK
+        bg     = _GREEN_BG    if category == "input_data" else _BLUE_BG
+        border = _GREEN_BORDER if category == "input_data" else _BLUE_BORDER
+        label  = "Preparing Input Data" if category == "input_data" else "Flood Mapping"
+
+        self._arrow_lbl.setText(f"▼  {label}")
+        self._arrow_lbl.setStyleSheet(
+            f"color:{accent}; font-size:12px; font-weight:bold; border:none;"
+        )
+
+        self._mode_row_layout.addStretch(1)
+        for m in modes:
+            self._mode_row_layout.addWidget(
+                self._make_mode_card(m, accent=accent, bg=bg, border=border)
+            )
+        self._mode_row_layout.addStretch(1)
+
+    # ── Small mode card ───────────────────────────────────────────────────────
+
+    def _make_mode_card(self, mode_data: dict, *, accent, bg, border):
+        card = QFrame()
+        card.setMinimumWidth(200)
+        card.setMaximumWidth(280)
+        card.setStyleSheet(
+            f"QFrame {{ background:{bg}; border:2px solid {border}; "
+            f"border-radius:10px; padding:12px; }}"
+        )
+        layout = QVBoxLayout(card)
+        layout.setSpacing(6)
+
+        lbl_title = QLabel(mode_data["title"])
+        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        lbl_title.setStyleSheet(f"color:{accent}; border:none;")
+        layout.addWidget(lbl_title)
+
+        lbl_desc = QLabel(mode_data.get("desc", ""))
+        lbl_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("color:#555; font-size:11px; border:none;")
+        layout.addWidget(lbl_desc)
 
         layout.addStretch()
 
         btn = QPushButton("Start  ▶")
         btn.setStyleSheet(
-            f"font-weight:bold; padding:10px 16px; font-size:12px; "
-            f"background:{btn_color}; color:white; border-radius:6px; border:none;"
+            f"font-weight:bold; padding:8px 14px; font-size:12px; "
+            f"background:{accent}; color:white; border-radius:6px; border:none;"
         )
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.clicked.connect(lambda _checked, k=mode_key: self.mode_selected.emit(k))
+        k = mode_data["mode_key"]
+        btn.clicked.connect(lambda _checked, mk=k: self.mode_selected.emit(mk))
         layout.addWidget(btn)
 
         return card
