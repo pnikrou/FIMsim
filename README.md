@@ -23,24 +23,24 @@ The application is organized into two independent tracks:
 
 ```mermaid
 flowchart TD
-    FIM(["**FIMsim**"])
+    FIM(["FIMsim"])
 
-    FIM --> IND["**Independent Hydraulic\nModel Inputs**"]
-    FIM --> FM["**Flood Mapping\nModels**"]
+    FIM --> IND["Independent Hydraulic\nModel Inputs"]
+    FIM --> FM["Flood Mapping\nModels"]
 
-    IND --> DEM["**DEM**\n3DEP · HAND\nGeoTIFF / ASCII"]
-    IND --> LULC["**LULC & Manning's n**\nNLCD · Sentinel-2\nRaster + Manning SHP"]
-    IND --> FL["**Flowline**\nNHD · USGS gages\nSHP · CSV"]
-    IND --> SF["**Streamflow Data**\nNWM · USGS\nDischarge CSV"]
+    IND --> DEM["DEM"]
+    IND --> LULC["LULC & Manning's n"]
+    IND --> FL["Flowline"]
+    IND --> SF["Streamflow Data"]
 
-    FM --> LFP["**LISFLOOD-FP**\nDownloads all inputs\nWrites .par · .bci · .bdy\nRuns on cloud"]
-    FM --> TRI["**TRITON**\nDownloads all inputs\nWrites .cfg · .extbc · .hyg\nRuns on cloud"]
+    FM --> LFP["LISFLOOD-FP\nDownloads all inputs\nRuns on cloud"]
+    FM --> TRI["TRITON\nDownloads all inputs\nRuns on cloud"]
 
-    classDef main     fill:#1a365d,color:#ffffff,stroke:#1a365d,rx:10
-    classDef cat_grn  fill:#276749,color:#ffffff,stroke:#276749,rx:6
-    classDef cat_blu  fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0,rx:6
-    classDef item_grn fill:#f0fff4,color:#22543d,stroke:#68d391,rx:6
-    classDef item_blu fill:#ebf8ff,color:#1a365d,stroke:#63b3ed,rx:6
+    classDef main     fill:#1a365d,color:#ffffff,stroke:#1a365d,font-size:20px,padding:16px
+    classDef cat_grn  fill:#276749,color:#ffffff,stroke:#276749
+    classDef cat_blu  fill:#2b6cb0,color:#ffffff,stroke:#2b6cb0
+    classDef item_grn fill:#f0fff4,color:#22543d,stroke:#68d391
+    classDef item_blu fill:#ebf8ff,color:#1a365d,stroke:#63b3ed
 
     class FIM main
     class IND cat_grn
