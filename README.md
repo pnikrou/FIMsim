@@ -22,7 +22,7 @@ The application is organized into two independent tracks:
 ## Workflow overview
 
 ```mermaid
-flowchart LR
+flowchart TD
     FIM(["**FIMsim**"])
 
     FIM --> IND["**Independent Hydraulic\nModel Inputs**"]
