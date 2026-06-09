@@ -15,7 +15,7 @@ _RUNNING_STYLE = (
 )
 
 
-def set_running(btn, text="⏳  Working…"):
+def set_running(btn, text="Working…"):
     """Mark button as 'working' — disable + change colour + text."""
     btn._original_text = btn.text()
     btn.setText(text)
@@ -25,6 +25,6 @@ def set_running(btn, text="⏳  Working…"):
 
 def set_ready(btn, text=None):
     """Restore button to its ready state."""
-    btn.setText(text or getattr(btn, "_original_text", "✔  Run"))
+    btn.setText(text or getattr(btn, "_original_text", "Run"))
     btn.setStyleSheet(_READY_STYLE)
     btn.setEnabled(True)

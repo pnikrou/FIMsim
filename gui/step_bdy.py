@@ -64,12 +64,12 @@ class StepBDYWidget(QWidget):
             is_fixed = self._ctx.get("upstream_mode") == "fixed_discharge"
             self._fixed_note.setVisible(is_fixed)
             self._run_btn.setText(
-                "✔  Skip (Fixed Discharge — No BDY Needed)"
-                if is_fixed else "✔  Create BDY File"
+                "Skip (Fixed Discharge — No BDY Needed)"
+                if is_fixed else "Create BDY File"
             )
         else:
             self._fixed_note.setVisible(False)
-            self._run_btn.setText("✔  Create BDY File(s)")
+            self._run_btn.setText("Create BDY File(s)")
 
         self._clear_results()
         self._rebuild_for_aoi_count()
@@ -167,7 +167,7 @@ class StepBDYWidget(QWidget):
 
         # Run button + progress + status
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Create BDY File")
+        self._run_btn = QPushButton("Create BDY File")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -341,7 +341,7 @@ class StepBDYWidget(QWidget):
             report = check_csv_gaps(file_path, interval_hours)
         except Exception as ex:
             self._error_lbl.setText(
-                f"❌ <b>Error reading CSV{(' for ' + aoi_label) if aoi_label else ''}:</b> {ex}"
+                f"<b>Error reading CSV{(' for ' + aoi_label) if aoi_label else ''}:</b> {ex}"
             )
             self._error_lbl.setVisible(True)
             return None
@@ -418,7 +418,7 @@ class StepBDYWidget(QWidget):
         gap_handling = "interpolate"
 
         if bdy_source in ("csv", "existing") and not file_path:
-            self._error_lbl.setText("❌ Please select a file first.")
+            self._error_lbl.setText("Please select a file first.")
             self._error_lbl.setVisible(True)
             return
 
@@ -432,7 +432,8 @@ class StepBDYWidget(QWidget):
         self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
-        self._status_lbl.setText("⏳ Preparing BDY file…")
+        self._status_lbl.setText("Preparing BDY file…")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         self._status_lbl.setVisible(True)
         set_running(self._run_btn)
 
@@ -460,7 +461,7 @@ class StepBDYWidget(QWidget):
             file_path = cfg.get("file_path") or None
             if src in ("csv", "existing") and not file_path:
                 self._error_lbl.setText(
-                    f"❌ AOI '{feat.get('name', '?')}': source is "
+                    f"AOI '{feat.get('name', '?')}': source is "
                     f"{'CSV' if src == 'csv' else 'existing BDY'} but no "
                     f"file is selected."
                 )
@@ -482,7 +483,7 @@ class StepBDYWidget(QWidget):
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._status_lbl.setText(
-            f"⏳ Preparing BDY for {len(self._aoi_features)} AOI(s)…"
+            f"Preparing BDY for {len(self._aoi_features)} AOI(s)…"
         )
         self._status_lbl.setVisible(True)
         set_running(self._run_btn)
@@ -506,14 +507,15 @@ class StepBDYWidget(QWidget):
         if m:
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(0)
-            self._status_lbl.setText(f"⏳ Preparing BDY {i} / {total} …")
+            self._status_lbl.setText(f"Preparing BDY {i} / {total} …")
+            self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
             return
         m = _BDY_DONE_RE.match(msg)
         if m:
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(100)
             self._status_lbl.setText(
-                f"✅ BDY {i} / {total} finished."
+                f"BDY {i} / {total} finished."
                 + (f"  Starting BDY {i + 1} / {total} …"
                    if i < total else "")
             )
@@ -648,7 +650,8 @@ class StepBDYWidget(QWidget):
         self._progress.setValue(100)
         # Match DEM / Manning wording.
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"🎉 All {n} AOI(s) processed.")
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         set_ready(self._run_btn)
         self._show_report(ctx)
         self._build_results(ctx)
@@ -660,7 +663,7 @@ class StepBDYWidget(QWidget):
         set_ready(self._run_btn)
         first_line = msg.split("\n")[0]
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {first_line}<br>"
+            f"<b>Error:</b> {first_line}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -687,7 +690,7 @@ class StepBDYWidget(QWidget):
                         f"<i>fixed discharge — no BDY needed</i><br>"
                     )
             self._report.setText(
-                f"<b>✅ BDY file(s) prepared successfully.</b><br><br>"
+                f"<b>BDY file(s) prepared successfully.</b><br><br>"
                 f"<b>Per-AOI outputs:</b><br>{rows}"
             )
             self._report.setVisible(True)
@@ -703,7 +706,7 @@ class StepBDYWidget(QWidget):
 
         if not bdy_written:
             html = (
-                "<b>✅ BDY step complete.</b><br><br>"
+                "<b>BDY step complete.</b><br><br>"
                 "<b>Note:</b> Fixed discharge upstream — no BDY file needed."
             )
             self._report.setText(html)
@@ -719,7 +722,7 @@ class StepBDYWidget(QWidget):
                 "user_bdy_copy": "Existing BDY (resampled & renamed)",
             }.get(bdy_source, bdy_source)
             html = (
-                f"<b>✅ BDY file(s) prepared successfully.</b><br><br>"
+                f"<b>BDY file(s) prepared successfully.</b><br><br>"
                 f"<b>Data source:</b> {source_label}<br>"
                 f"<b>Event window:</b> {event_start}  to  {event_end}<br>"
                 f"<b>Time interval:</b> {ctx.get('series_interval_hours', '')} h<br>"

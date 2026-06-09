@@ -315,8 +315,9 @@ class MainWindow(QMainWindow):
             widget = self._standalone_widget(mode)
             if widget:
                 widget.nav_changed.connect(self._update_nav_from_standalone)
-                # Trigger initial state
-                self._update_nav_from_standalone(0, widget._stack.count())
+                # Trigger initial state (works for both _stack and _tabs)
+                idx, count = self._widget_nav_state(widget)
+                self._update_nav_from_standalone(idx, count)
         self._update_nav()
         self._append_log(f"Mode selected: {label}")
         if is_tab_mode:
@@ -418,6 +419,18 @@ class MainWindow(QMainWindow):
             "streamflow":   self._mode_streamflow,
         }.get(mode)
 
+    @staticmethod
+    def _widget_nav_state(w) -> tuple:
+        """Return (current_idx, page_count) for a standalone mode widget.
+        Works for both QStackedWidget (_stack) and QTabWidget (_tabs)."""
+        if w is None:
+            return 0, 1
+        if hasattr(w, "_tabs"):
+            return w._tabs.currentIndex(), w._tabs.count()
+        if hasattr(w, "_stack"):
+            return w._stack.currentIndex(), w._stack.count()
+        return 0, 1
+
     def _update_nav_from_standalone(self, idx: int, count: int):
         self._prev_btn.setEnabled(idx > 0)
         self._prev_btn.setVisible(True)
@@ -446,14 +459,9 @@ class MainWindow(QMainWindow):
             self._next_btn.setEnabled(idx < n - 1)
         elif is_standalone:
             w = self._standalone_widget(self._active_model)
-            if w:
-                idx = w._stack.currentIndex()
-                n   = w._stack.count()
-                self._prev_btn.setEnabled(idx > 0)
-                self._next_btn.setEnabled(idx < n - 1)
-            else:
-                self._prev_btn.setEnabled(False)
-                self._next_btn.setEnabled(False)
+            idx, n = self._widget_nav_state(w)
+            self._prev_btn.setEnabled(idx > 0)
+            self._next_btn.setEnabled(idx < n - 1)
         else:
             self._prev_btn.setEnabled(False)
             self._next_btn.setEnabled(False)
@@ -530,7 +538,7 @@ class MainWindow(QMainWindow):
                     tabs.setCurrentIndex(next_idx)
             else:
                 self._append_log(
-                    f"✅ All steps complete! {model.upper()} input files are ready.")
+                    f"All steps complete! {model.upper()} input files are ready.")
             self._update_nav()
         return _slot
 

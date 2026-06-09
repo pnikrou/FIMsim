@@ -172,7 +172,7 @@ def run_lisflood_par_for_all_aois(
     except Exception:
         pass
 
-    log_fn(f"🎉 PAR prepared for all {n} AOI(s).")
+    log_fn(f"PAR prepared for all {n} AOI(s).")
     return ctx
 
 
@@ -305,7 +305,7 @@ def run_lisflood_bdy_for_all_aois(
     except Exception:
         pass
 
-    log_fn(f"🎉 BDY prepared for all {n} AOI(s).")
+    log_fn(f"BDY prepared for all {n} AOI(s).")
     return ctx
 
 
@@ -428,7 +428,7 @@ def run_lisflood_bci_for_all_aois(
     except Exception:
         pass
 
-    log_fn(f"🎉 BCI prepared for all {n} AOI(s).")
+    log_fn(f"BCI prepared for all {n} AOI(s).")
     return ctx
 
 
@@ -548,7 +548,7 @@ def run_lisflood_manning_for_all_aois(
     except Exception:
         pass
 
-    log_fn(f"🎉 Manning prepared for all {n} AOI(s).")
+    log_fn(f"Manning prepared for all {n} AOI(s).")
     return ctx
 
 
@@ -708,7 +708,7 @@ def run_lisflood_triton_dem_all(
     except Exception:
         pass
 
-    log_fn(f"🎉 All {n} AOI(s) processed successfully.")
+    log_fn(f"All {n} AOI(s) processed successfully.")
     return ctx
 
 
@@ -785,7 +785,7 @@ def run_dem_mode(
             "folder": f.folder_path,
             "dem_path": str(out_path),
         })
-    log_fn(f"🎉 All {n} AOI(s) processed successfully.")
+    log_fn(f"All {n} AOI(s) processed successfully.")
     return summary
 
 
@@ -927,7 +927,7 @@ def run_lulc_mode(
                 lulc_out_path = str(out_lulc)
             except Exception as _conv_err:
                 log_fn(
-                    f"  ⚠ Could not polygonize LULC to SHP ({_conv_err}). "
+                    f"  Could not polygonize LULC to SHP ({_conv_err}). "
                     "Keeping TIF as the LULC output."
                 )
         elif _fmt != "tif":
@@ -937,7 +937,7 @@ def run_lulc_mode(
                 lulc_out_path = str(out_lulc)
             except Exception as _conv_err:
                 log_fn(
-                    f"  ⚠ Could not export LULC to {_fmt.upper()} ({_conv_err}). "
+                    f"  Could not export LULC to {_fmt.upper()} ({_conv_err}). "
                     "Keeping TIF as the LULC output."
                 )
 
@@ -973,7 +973,7 @@ def run_lulc_mode(
                     feature_out["manning_path"] = str(manning_shp)
                 except Exception as _mn_conv_err:
                     log_fn(
-                        f"  ⚠ Could not polygonize Manning to SHP ({_mn_conv_err}). "
+                        f"  Could not polygonize Manning to SHP ({_mn_conv_err}). "
                         "Keeping TIF as the Manning output."
                     )
                     feature_out["manning_path"] = str(manning_tif)
@@ -985,7 +985,7 @@ def run_lulc_mode(
                     feature_out["manning_path"] = str(manning_out)
                 except Exception as _mn_conv_err:
                     log_fn(
-                        f"  ⚠ Could not export Manning to {_mn_fmt.upper()} "
+                        f"  Could not export Manning to {_mn_fmt.upper()} "
                         f"({_mn_conv_err}). Keeping TIF as the Manning output."
                     )
                     feature_out["manning_path"] = str(manning_tif)
@@ -999,7 +999,7 @@ def run_lulc_mode(
         log_fn(f"✓ Done [{i}/{n}]: {lulc_rel}")
         summary["features"].append(feature_out)
 
-    log_fn(f"🎉 All {n} AOI(s) processed successfully.")
+    log_fn(f"All {n} AOI(s) processed successfully.")
     return summary
 
 
@@ -1077,7 +1077,7 @@ def run_hecras_mode(
             manning_shp = raster_to_shapefile(str(manning_tif), str(manning_shp),
                                               field_name="manning_n", log_fn=log_fn)
         except Exception as _e:
-            log_fn(f"  ⚠ Could not polygonize Manning to SHP ({_e}). Skipping manning_n.shp.")
+            log_fn(f"  Could not polygonize Manning to SHP ({_e}). Skipping manning_n.shp.")
             manning_shp = None
 
         # 3. NHD main-river flowline as shapefile
@@ -1125,7 +1125,7 @@ def run_hecras_mode(
         })
         hecras_rel = f"{project_dir.name}/{f.folder_name}/HECRAS_files/"
         log_fn(f"✓ Done [{i}/{n}]: {hecras_rel}")
-    log_fn(f"🎉 All {n} AOI(s) processed successfully.")
+    log_fn(f"All {n} AOI(s) processed successfully.")
     return summary
 
 
@@ -1206,7 +1206,7 @@ def run_hecras_dem(
         summary["dem_per_aoi"].append(entry)
         summary["features"].append(entry)
         log_fn(f"✓ DEM [{i}/{n}] finished: '{f.name}'")
-    log_fn(f"🎉 DEM prepared for all {n} AOI(s).")
+    log_fn(f"DEM prepared for all {n} AOI(s).")
     return summary
 
 
@@ -1268,7 +1268,7 @@ def run_hecras_manning(
             manning_shp = raster_to_shapefile(str(manning_tif), str(manning_shp),
                                               field_name="manning_n", log_fn=log_fn)
         except Exception as _e:
-            log_fn(f"  ⚠ Could not polygonize Manning ({_e}). Keeping TIF only.")
+            log_fn(f"  Could not polygonize Manning ({_e}). Keeping TIF only.")
             manning_shp = None
 
         for sib in folder.glob("_aoi_buf_mn.*"):
@@ -1289,7 +1289,7 @@ def run_hecras_manning(
         summary["manning_per_aoi"].append(entry)
         summary["features"].append(entry)
         log_fn(f"✓ Manning [{i}/{n}] finished: '{f.name}'")
-    log_fn(f"🎉 Manning prepared for all {n} AOI(s).")
+    log_fn(f"Manning prepared for all {n} AOI(s).")
     return summary
 
 
@@ -1444,16 +1444,16 @@ def run_hecras_flowline(
                     entry["upstream_reach_id"] = reach_id
                     log_fn(f"  NWM upstream reach ID: {reach_id}")
             else:
-                log_fn("  ⚠ DEM not found — skipping elevation-based detection.")
+                log_fn("  DEM not found — skipping elevation-based detection.")
 
         except Exception as ex:
-            log_fn(f"  ⚠ Flowline failed for '{f.name}': {ex}")
+            log_fn(f"  Flowline failed for '{f.name}': {ex}")
 
         summary["flowline_per_aoi"].append(entry)
         summary["features"].append(entry)
         log_fn(f"✓ Flowline [{i}/{n}] finished: '{f.name}'")
 
-    log_fn(f"🎉 Flowline prepared for all {n} AOI(s).")
+    log_fn(f"Flowline prepared for all {n} AOI(s).")
     return summary
 
 
@@ -1551,13 +1551,13 @@ def run_hecras_flowdata(
                 if out_csvs:
                     entry["csv_path"] = out_csvs[0]
         except Exception as ex:
-            log_fn(f"  ⚠ Flowdata failed for '{f.name}': {ex}")
+            log_fn(f"  Flowdata failed for '{f.name}': {ex}")
 
         summary["flowdata_per_aoi"].append(entry)
         summary["features"].append(entry)
         log_fn(f"✓ Flowdata [{i}/{n}] finished: '{f.name}'")
 
-    log_fn(f"🎉 Discharge data prepared for all {n} AOI(s).")
+    log_fn(f"Discharge data prepared for all {n} AOI(s).")
     return summary
 
 

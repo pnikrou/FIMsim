@@ -73,13 +73,20 @@ class ModeStreamflowWidget(QWidget):
 
     def _build_config_page(self) -> QWidget:
         page = QWidget()
+        # Raise the default font for all child labels / combos / edits
+        page.setStyleSheet("QLabel { font-size:13px; } "
+                           "QLineEdit { font-size:13px; } "
+                           "QComboBox { font-size:13px; } "
+                           "QDateTimeEdit { font-size:13px; } "
+                           "QPushButton { font-size:12px; } "
+                           "QCheckBox { font-size:13px; }")
         v = QVBoxLayout(page)
         v.setSpacing(12)
         v.setContentsMargins(14, 14, 14, 14)
 
         title_lbl = QLabel("Streamflow Data Download")
-        title_lbl.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        title_lbl.setStyleSheet("color:#2d3748;")
+        title_lbl.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        title_lbl.setStyleSheet("color:#2d3748; font-size:14px;")
         v.addWidget(title_lbl)
 
         # ── Section 1: NWM Retrospective ─────────────────────────────────────
@@ -119,7 +126,7 @@ class ModeStreamflowWidget(QWidget):
         retro_note = QLabel(
             "★ CSV: one COMID per line, no header required."
         )
-        retro_note.setStyleSheet("color:#718096; font-size:10px;")
+        retro_note.setStyleSheet("color:#718096; font-size:11px;")
         rf.addWidget(retro_note)
 
         dt_row = QHBoxLayout()
@@ -128,7 +135,7 @@ class ModeStreamflowWidget(QWidget):
         self._retro_start.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._retro_start.setCalendarPopup(True)
         self._retro_start.setDateTime(
-            QDateTime.fromString("2010-01-01 00:00", "yyyy-MM-dd HH:mm")
+            QDateTime.fromString("2026-05-01 00:00", "yyyy-MM-dd HH:mm")
         )
         dt_row.addWidget(self._retro_start)
         dt_row.addSpacing(12)
@@ -137,7 +144,7 @@ class ModeStreamflowWidget(QWidget):
         self._retro_end.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._retro_end.setCalendarPopup(True)
         self._retro_end.setDateTime(
-            QDateTime.fromString("2010-12-31 23:00", "yyyy-MM-dd HH:mm")
+            QDateTime.fromString("2026-05-31 23:00", "yyyy-MM-dd HH:mm")
         )
         dt_row.addWidget(self._retro_end)
         dt_row.addStretch()
@@ -146,7 +153,7 @@ class ModeStreamflowWidget(QWidget):
         cov_note = QLabel(
             "★ Retrospective covers 1979-02-01 to 2020-12-31."
         )
-        cov_note.setStyleSheet("color:#718096; font-size:10px;")
+        cov_note.setStyleSheet("color:#718096; font-size:11px;")
         rf.addWidget(cov_note)
 
         ivl_row = QHBoxLayout()
@@ -197,12 +204,26 @@ class ModeStreamflowWidget(QWidget):
         fore_ids_row.addWidget(fore_browse)
         ff.addLayout(fore_ids_row)
 
+        fore_csv_note = QLabel("★ CSV: one COMID per line, no header required.")
+        fore_csv_note.setStyleSheet("color:#718096; font-size:11px;")
+        ff.addWidget(fore_csv_note)
+
+        fore_cov_note = QLabel(
+            "★ NWM Forecast provides operational medium-range predictions "
+            "(~10-day horizon) using the latest model run."
+        )
+        fore_cov_note.setWordWrap(True)
+        fore_cov_note.setStyleSheet("color:#718096; font-size:11px;")
+        ff.addWidget(fore_cov_note)
+
         fore_dt_row = QHBoxLayout()
         fore_dt_row.addWidget(QLabel("Start date:"))
         self._fore_start = QDateTimeEdit()
         self._fore_start.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._fore_start.setCalendarPopup(True)
-        self._fore_start.setDateTime(QDateTime.currentDateTime())
+        self._fore_start.setDateTime(
+            QDateTime.fromString("2026-05-01 00:00", "yyyy-MM-dd HH:mm")
+        )
         fore_dt_row.addWidget(self._fore_start)
         fore_dt_row.addSpacing(12)
         fore_dt_row.addWidget(QLabel("End date:"))
@@ -210,7 +231,7 @@ class ModeStreamflowWidget(QWidget):
         self._fore_end.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._fore_end.setCalendarPopup(True)
         self._fore_end.setDateTime(
-            QDateTime.currentDateTime().addDays(7)
+            QDateTime.fromString("2026-05-31 23:00", "yyyy-MM-dd HH:mm")
         )
         fore_dt_row.addWidget(self._fore_end)
         fore_dt_row.addStretch()
@@ -256,7 +277,7 @@ class ModeStreamflowWidget(QWidget):
         usgs_note = QLabel(
             "★ CSV: one gage ID per line, no header required."
         )
-        usgs_note.setStyleSheet("color:#718096; font-size:10px;")
+        usgs_note.setStyleSheet("color:#718096; font-size:11px;")
         uf.addWidget(usgs_note)
 
         usgs_dt_row = QHBoxLayout()
@@ -265,7 +286,7 @@ class ModeStreamflowWidget(QWidget):
         self._usgs_start.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._usgs_start.setCalendarPopup(True)
         self._usgs_start.setDateTime(
-            QDateTime.fromString("2020-01-01 00:00", "yyyy-MM-dd HH:mm")
+            QDateTime.fromString("2026-05-01 00:00", "yyyy-MM-dd HH:mm")
         )
         usgs_dt_row.addWidget(self._usgs_start)
         usgs_dt_row.addSpacing(12)
@@ -274,7 +295,7 @@ class ModeStreamflowWidget(QWidget):
         self._usgs_end.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._usgs_end.setCalendarPopup(True)
         self._usgs_end.setDateTime(
-            QDateTime.fromString("2020-12-31 23:00", "yyyy-MM-dd HH:mm")
+            QDateTime.fromString("2026-05-31 23:00", "yyyy-MM-dd HH:mm")
         )
         usgs_dt_row.addWidget(self._usgs_end)
         usgs_dt_row.addStretch()
@@ -294,7 +315,7 @@ class ModeStreamflowWidget(QWidget):
 
         # ── Run button ────────────────────────────────────────────────────────
         run_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Download Streamflow Data")
+        self._run_btn = QPushButton("Download Streamflow Data")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:8px 22px; background:#276749; "
             "color:white; border-radius:4px; font-size:13px;"
@@ -531,6 +552,7 @@ class ModeStreamflowWidget(QWidget):
         self._last_results = results
         n = len(results)
         self._status_lbl.setText(f"Download complete: {n} time series saved.")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         self._results_summary_lbl.setText(f"Downloaded {n} time series")
         self._build_results(results)
         self._results_frame.setVisible(True)

@@ -155,7 +155,7 @@ class StepManningWidget(QWidget):
 
         # ── Run button + progress + status ──
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Prepare Manning File")
+        self._run_btn = QPushButton("Prepare Manning File")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -448,7 +448,7 @@ class StepManningWidget(QWidget):
             return
         kw.update(ctx_path=self._ctx_path, ctx=self._ctx)
 
-        self._status_lbl.setText("⏳ Preparing Manning file…")
+        self._status_lbl.setText("Preparing Manning file…")
         self._status_lbl.setVisible(True)
 
         self._worker = Worker(prepare_manning, **kw)
@@ -468,7 +468,7 @@ class StepManningWidget(QWidget):
                 return
             per_aoi.append(kw)
         self._status_lbl.setText(
-            f"⏳ Preparing Manning for {len(self._aoi_features)} AOI(s)…"
+            f"Preparing Manning for {len(self._aoi_features)} AOI(s)…"
         )
         self._status_lbl.setVisible(True)
 
@@ -547,7 +547,7 @@ class StepManningWidget(QWidget):
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(0)
             self._status_lbl.setText(
-                f"⏳ Preparing Manning {i} / {total} …"
+                f"Preparing Manning {i} / {total} …"
             )
             return
 
@@ -556,7 +556,7 @@ class StepManningWidget(QWidget):
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(100)
             self._status_lbl.setText(
-                f"✅ Manning {i} / {total} finished."
+                f"Manning {i} / {total} finished."
                 + (f"  Starting Manning {i + 1} / {total} …"
                    if i < total else "")
             )
@@ -846,7 +846,9 @@ class StepManningWidget(QWidget):
         self._progress.setValue(100)
         # Match DEM step's wording so the two pages feel consistent.
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"✅ Manning processed for {n} AOI(s)")
+        self._status_lbl.setText(f"Manning processed for {n} AOI(s)")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         self._status_lbl.setStyleSheet(
             "padding:6px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
             "border-radius:4px; color:#276749; font-weight:bold; font-size:12px;"
@@ -863,13 +865,13 @@ class StepManningWidget(QWidget):
         set_ready(self._run_btn)
         first_line = msg.split("\n")[0]
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {first_line}<br>"
+            f"<b>Error:</b> {first_line}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
 
     def _show_err(self, msg: str):
-        self._error_lbl.setText(f"❌ {msg}")
+        self._error_lbl.setText(f"{msg}")
         self._error_lbl.setVisible(True)
 
     def _show_report(self, ctx):
@@ -888,7 +890,7 @@ class StepManningWidget(QWidget):
                         f"Varying → <code>{entry.get('manning_ascii', '?')}</code><br>"
                     )
             self._report.setText(
-                f"<b>✅ Manning Map(s) prepared successfully.</b><br><br>"
+                f"<b>Manning Map(s) prepared successfully.</b><br><br>"
                 f"<b>Per-AOI outputs:</b><br>{rows}"
             )
             self._report.setVisible(True)
@@ -899,14 +901,14 @@ class StepManningWidget(QWidget):
         if fric_mode == "fixed":
             fpfric = ctx.get("par_fpfric", "")
             html = (
-                f"<b>✅ Manning Map(s) prepared successfully.</b><br><br>"
+                f"<b>Manning Map(s) prepared successfully.</b><br><br>"
                 f"<b>Mode:</b> Fixed value<br>"
                 f"<b>Manning n:</b> {fpfric}"
             )
         else:
             manning_ascii = ctx.get("manning_ascii_path", "")
             html = (
-                f"<b>✅ Manning Map(s) prepared successfully.</b><br><br>"
+                f"<b>Manning Map(s) prepared successfully.</b><br><br>"
                 f"<b>Mode:</b> Varying from LULC<br>"
                 f"<b>Manning ASCII:</b> {manning_ascii}"
             )

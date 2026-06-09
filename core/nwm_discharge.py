@@ -103,7 +103,7 @@ def download_nwm_retrospective(
     fids_in_store = set(int(x) for x in ds["feature_id"].values)
     missing = [f for f in fids if f not in fids_in_store]
     if missing:
-        log_fn(f"  ⚠ {len(missing)} feature_id(s) NOT in NWM v2.1: {missing[:10]}…")
+        log_fn(f"  {len(missing)} feature_id(s) NOT in NWM v2.1: {missing[:10]}…")
     keep = [f for f in fids if f in fids_in_store]
     if not keep:
         raise RuntimeError("None of the requested feature IDs are in the NWM v2.1 store.")

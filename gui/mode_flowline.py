@@ -121,7 +121,7 @@ class ModeFlowlineWidget(QWidget):
 
         # Run button
         btn_row = QHBoxLayout()
-        self._fl_run_btn = QPushButton("✔  Download Flowlines for all AOIs")
+        self._fl_run_btn = QPushButton("Download Flowlines for all AOIs")
         self._fl_run_btn.setStyleSheet(
             "font-weight:bold; padding:8px 22px; background:#2b6cb0; "
             "color:white; border-radius:4px; font-size:13px;"
@@ -288,7 +288,7 @@ class ModeFlowlineWidget(QWidget):
         self._fl_progress.setValue(0)
         self._fl_progress.setVisible(True)
         self._fl_status_lbl.setText(
-            f"⏳ Downloading flowlines for {len(self._features)} AOI(s) …"
+            f"Downloading flowlines for {len(self._features)} AOI(s) …"
         )
         self._fl_status_lbl.setVisible(True)
         set_running(self._fl_run_btn)
@@ -299,7 +299,7 @@ class ModeFlowlineWidget(QWidget):
             if mat:
                 i, total = int(mat.group(1)), int(mat.group(2))
                 self._fl_progress.setValue(int(i / total * 100))
-                self._fl_status_lbl.setText(f"⏳ Flowlines {i}/{total} done.")
+                self._fl_status_lbl.setText(f"Flowlines {i}/{total} done.")
 
         self._worker = Worker(
             run_flowline_mode,
@@ -320,14 +320,17 @@ class ModeFlowlineWidget(QWidget):
         self._fl_progress.setValue(100)
         n = len(summary.get("features", []))
         self._fl_status_lbl.setText(
-            f"✅ Flowlines processed for {n} AOI(s)"
+            f"Flowlines processed for {n} AOI(s)"
         )
         self._fl_status_lbl.setStyleSheet(
-            "color:#2d3748; font-size:12px; padding:2px 0px;"
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._fl_completion_lbl.setText(
-            f"<b>✅ Flowlines processed for {n} AOI(s)</b>"
+            f"<b>Flowlines processed for {n} AOI(s)</b>"
             "<br><small><i>Click an AOI name below to view its flowline map.</i></small>"
+        )
+        self._fl_completion_lbl.setStyleSheet(
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._fl_completion_lbl.setVisible(True)
         self._build_fl_results(summary)
@@ -339,7 +342,7 @@ class ModeFlowlineWidget(QWidget):
         progress.setVisible(False)
         self._log(f"ERROR: {msg}")
         error_lbl.setText(
-            f"❌ <b>Error:</b> {msg.splitlines()[0]}<br>"
+            f"<b>Error:</b> {msg.splitlines()[0]}<br>"
             "<small>(See log panel for full details)</small>"
         )
         error_lbl.setVisible(True)
@@ -439,8 +442,9 @@ class ModeFlowlineWidget(QWidget):
                 pass
 
         # Derive upstream/downstream endpoints from the main river line.
-        # NHD lines run from upstream to downstream, so the first coordinate
-        # of the merged line is the upstream end and the last is downstream.
+        # NHD lines run from upstream to downstream; we collect every
+        # coordinate from every geometry and use the very first and very
+        # last point across all rows as the upstream / downstream markers.
         upstream_xy, downstream_xy = None, None
         gdf_for_pts = main_gdf
         if gdf_for_pts is None and main_path and Path(main_path).exists():
@@ -451,18 +455,25 @@ class ModeFlowlineWidget(QWidget):
                 pass
         if gdf_for_pts is not None and not gdf_for_pts.empty:
             try:
-                from shapely.ops import linemerge as _linemerge
-                geoms = [g for g in gdf_for_pts.geometry if g is not None]
-                merged = _linemerge(geoms)
-                if hasattr(merged, "geoms"):   # MultiLineString
-                    coords_first = list(merged.geoms[0].coords)
-                    coords_last  = list(merged.geoms[-1].coords)
-                    upstream_xy   = coords_first[0]
-                    downstream_xy = coords_last[-1]
-                else:                           # LineString
-                    coords = list(merged.coords)
-                    upstream_xy   = coords[0]
-                    downstream_xy = coords[-1]
+                all_coords = []
+                for geom in gdf_for_pts.geometry:
+                    if geom is None or geom.is_empty:
+                        continue
+                    if geom.geom_type == "LineString":
+                        all_coords.extend(list(geom.coords))
+                    elif geom.geom_type == "MultiLineString":
+                        for seg in geom.geoms:
+                            all_coords.extend(list(seg.coords))
+                    elif geom.geom_type == "GeometryCollection":
+                        for part in geom.geoms:
+                            if part.geom_type == "LineString":
+                                all_coords.extend(list(part.coords))
+                            elif part.geom_type == "MultiLineString":
+                                for seg in part.geoms:
+                                    all_coords.extend(list(seg.coords))
+                if len(all_coords) >= 2:
+                    upstream_xy   = all_coords[0]
+                    downstream_xy = all_coords[-1]
             except Exception:
                 pass
 

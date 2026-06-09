@@ -161,7 +161,7 @@ class StepBCIWidget(QWidget):
 
         # Run button + progress + status
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Write BC.bci")
+        self._run_btn = QPushButton("Write BC.bci")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -377,7 +377,7 @@ class StepBCIWidget(QWidget):
         kw = self._build_create_bci_kwargs(cfg)
         kw.update(ctx_path=self._ctx_path, ctx=self._ctx)
 
-        self._status_lbl.setText("⏳ Preparing BC.bci…")
+        self._status_lbl.setText("Preparing BC.bci…")
         self._status_lbl.setVisible(True)
 
         self._worker = Worker(create_bci, **kw)
@@ -390,7 +390,7 @@ class StepBCIWidget(QWidget):
         per_aoi = [self._build_create_bci_kwargs(c.get_config())
                    for c in self._cards]
         self._status_lbl.setText(
-            f"⏳ Preparing BC.bci for {len(self._aoi_features)} AOI(s)…"
+            f"Preparing BC.bci for {len(self._aoi_features)} AOI(s)…"
         )
         self._status_lbl.setVisible(True)
         self._worker = Worker(
@@ -439,7 +439,7 @@ class StepBCIWidget(QWidget):
         if m:
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(0)
-            self._status_lbl.setText(f"⏳ Preparing BCI {i} / {total} …")
+            self._status_lbl.setText(f"Preparing BCI {i} / {total} …")
             return
 
         m = _BCI_DONE_RE.match(msg)
@@ -447,7 +447,7 @@ class StepBCIWidget(QWidget):
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(100)
             self._status_lbl.setText(
-                f"✅ BCI {i} / {total} finished."
+                f"BCI {i} / {total} finished."
                 + (f"  Starting BCI {i + 1} / {total} …"
                    if i < total else "")
             )
@@ -612,7 +612,9 @@ class StepBCIWidget(QWidget):
         self._progress.setValue(100)
         # Match DEM / Manning wording.
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"✅ BCI processed for {n} AOI(s)")
+        self._status_lbl.setText(f"BCI processed for {n} AOI(s)")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         self._status_lbl.setStyleSheet(
             "padding:6px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
             "border-radius:4px; color:#276749; font-weight:bold; font-size:12px;"
@@ -629,7 +631,7 @@ class StepBCIWidget(QWidget):
         set_ready(self._run_btn)
         first_line = msg.split("\n")[0]
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {first_line}<br>"
+            f"<b>Error:</b> {first_line}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -650,7 +652,7 @@ class StepBCIWidget(QWidget):
                     + f" → <code>{entry.get('bci_path', '?')}</code><br>"
                 )
             self._report.setText(
-                f"<b>✅ BC.bci file(s) prepared successfully.</b><br><br>"
+                f"<b>BC.bci file(s) prepared successfully.</b><br><br>"
                 f"<b>Per-AOI outputs:</b><br>{rows}"
             )
             self._report.setVisible(True)
@@ -690,7 +692,7 @@ class StepBCIWidget(QWidget):
             up_line = "<b>Upstream:</b> Varying discharge (QVAR)<br>"
 
         html = (
-            "<b>✅ BC.bci file(s) prepared successfully.</b><br><br>"
+            "<b>BC.bci file(s) prepared successfully.</b><br><br>"
             + detect_line
             + up_line
             + f"<b>Downstream:</b> {dn_type}<br>"

@@ -269,7 +269,7 @@ class StepTritonCfgWidget(QWidget):
 
         # ── Run ──────────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Write TRITON CFG file")
+        self._run_btn = QPushButton("Write TRITON CFG file")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -383,7 +383,7 @@ class StepTritonCfgWidget(QWidget):
         self._log(f"ERROR: {msg}")
         set_ready(self._run_btn)
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {msg.split(chr(10))[0]}<br>"
+            f"<b>Error:</b> {msg.split(chr(10))[0]}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -401,7 +401,7 @@ class StepTritonCfgWidget(QWidget):
         def _fl(label, path):
             p      = Path(path) if path else None
             exists = p and p.exists()
-            icon   = "✅" if exists else "⚠️"
+            icon   = "" if exists else ""
             return f"{icon} <b>{label}:</b> {path}<br>"
 
         cfg_path     = ctx.get("triton_cfg_path", "")
@@ -417,7 +417,7 @@ class StepTritonCfgWidget(QWidget):
         if fric_mode == "varying":
             lines.append(_fl("Friction ASCII", str(Path(triton_dir) / f"{project_name}.asc")))
         else:
-            lines.append(f"✅ <b>const_mann:</b> {fpfric}<br>")
+            lines.append(f"<b>const_mann:</b> {fpfric}<br>")
         lines += [
             _fl("External BC", extbc_path),
             _fl("Source locations", src_loc_path),
@@ -428,7 +428,7 @@ class StepTritonCfgWidget(QWidget):
         sim_h = f"{float(sim_s) / 3600:.1f} h" if sim_s else "n/a"
 
         html = (
-            "<b>🎉 TRITON preprocessing complete.</b><br><br>"
+            "<b>TRITON preprocessing complete.</b><br><br>"
             f"<b>Input directory:</b> {triton_dir}<br>"
             f"<b>Simulation duration:</b> {sim_s} s  ({sim_h})<br>"
             f"<b>num_sources:</b> {ns}  |  <b>num_extbc:</b> {nb}  |  "

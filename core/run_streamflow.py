@@ -51,7 +51,7 @@ def run_streamflow_mode(
         if source in ("nwm_retro", "nwm_forecast"):
             feature_ids = _coerce_feature_ids(ids_raw)
             if not feature_ids:
-                log_fn(f"  ⚠ No feature IDs for source={source}, skipping.")
+                log_fn(f"  No feature IDs for source={source}, skipping.")
                 continue
 
             if source == "nwm_retro":
@@ -71,7 +71,7 @@ def run_streamflow_mode(
                         log_fn=log_fn,
                     )
                 except Exception as exc:
-                    log_fn(f"  ❌ NWM retrospective download failed: {exc}")
+                    log_fn(f"  NWM retrospective download failed: {exc}")
                     continue
 
                 # Split the wide CSV into one CSV per feature ID
@@ -80,7 +80,7 @@ def run_streamflow_mode(
                     for fid in feature_ids:
                         col = str(fid)
                         if col not in df_wide.columns:
-                            log_fn(f"  ⚠ Feature ID {fid} not found in result CSV.")
+                            log_fn(f"  Feature ID {fid} not found in result CSV.")
                             continue
                         df_single = df_wide[["datetime", col]].copy()
                         df_single.columns = ["datetime", "streamflow_m3s"]
@@ -105,7 +105,7 @@ def run_streamflow_mode(
                     except Exception:
                         pass
                 except Exception as exc:
-                    log_fn(f"  ❌ Error splitting NWM retro result: {exc}")
+                    log_fn(f"  Error splitting NWM retro result: {exc}")
 
             else:  # nwm_forecast
                 combined_csv = out_dir / f"nwm_forecast_combined.csv"
@@ -122,7 +122,7 @@ def run_streamflow_mode(
                         log_fn=log_fn,
                     )
                 except Exception as exc:
-                    log_fn(f"  ❌ NWM forecast download failed: {exc}")
+                    log_fn(f"  NWM forecast download failed: {exc}")
                     continue
 
                 try:
@@ -130,7 +130,7 @@ def run_streamflow_mode(
                     for fid in feature_ids:
                         col = str(fid)
                         if col not in df_wide.columns:
-                            log_fn(f"  ⚠ Feature ID {fid} not found in forecast CSV.")
+                            log_fn(f"  Feature ID {fid} not found in forecast CSV.")
                             continue
                         df_single = df_wide[["datetime", col]].copy()
                         df_single.columns = ["datetime", "streamflow_m3s"]
@@ -154,12 +154,12 @@ def run_streamflow_mode(
                     except Exception:
                         pass
                 except Exception as exc:
-                    log_fn(f"  ❌ Error splitting NWM forecast result: {exc}")
+                    log_fn(f"  Error splitting NWM forecast result: {exc}")
 
         elif source == "usgs":
             gage_ids = _coerce_gage_ids(ids_raw)
             if not gage_ids:
-                log_fn("  ⚠ No gage IDs for source=usgs, skipping.")
+                log_fn("  No gage IDs for source=usgs, skipping.")
                 continue
             log_fn(
                 f"Downloading USGS discharge for {len(gage_ids)} gage(s) …"
@@ -174,7 +174,7 @@ def run_streamflow_mode(
                     log_fn=log_fn,
                 )
             except Exception as exc:
-                log_fn(f"  ❌ USGS download failed: {exc}")
+                log_fn(f"  USGS download failed: {exc}")
                 continue
 
             # Map saved paths back to gage IDs
@@ -195,7 +195,7 @@ def run_streamflow_mode(
                             csv_path_str = v
                             break
                 if not csv_path_str:
-                    log_fn(f"  ⚠ No saved file found for USGS gage {gid}.")
+                    log_fn(f"  No saved file found for USGS gage {gid}.")
                     continue
                 csv_path = Path(csv_path_str)
                 n_ts = 0
@@ -219,7 +219,7 @@ def run_streamflow_mode(
                     "peak_flow_cms": peak,
                 })
         else:
-            log_fn(f"  ⚠ Unknown source '{source}', skipping.")
+            log_fn(f"  Unknown source '{source}', skipping.")
 
     log_fn(f"Streamflow download complete: {len(results)} time series saved.")
     return {"results": results}

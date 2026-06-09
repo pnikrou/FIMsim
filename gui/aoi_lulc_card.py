@@ -13,7 +13,7 @@ Follows the same accordion pattern as AOIDEMCard / AOIManningCard.
 """
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
-    QComboBox, QDoubleSpinBox, QWidget, QGroupBox,
+    QComboBox, QDoubleSpinBox, QWidget, QGroupBox, QSizePolicy,
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -54,10 +54,13 @@ class AOILulcCard(QFrame):
         "border-radius:6px; padding:6px; }"
     )
 
-    def __init__(self, aoi_name: str, parent=None):
+    def __init__(self, aoi_name: str, parent=None, show_buffer: bool = False,
+                 hecras_mode: bool = False):
         super().__init__(parent)
         self.setObjectName("card")
         self._aoi_name = aoi_name
+        self._show_buffer = show_buffer
+        self._hecras_mode = hecras_mode
         self._expanded = False
         self._build_ui()
         self.setStyleSheet(self.COLLAPSED_STYLE)
@@ -126,11 +129,19 @@ class AOILulcCard(QFrame):
             self._s2_year.addItem(y, y)
         form.addRow(self._s2_year_lbl, self._s2_year)
 
-        # LULC output format
+        # LULC output format (hidden in HEC-RAS mode — always TIF)
+        self._fmt_lbl = QLabel("LULC output format:")
         self._fmt_combo = QComboBox()
         for lbl, val in _FMT_ITEMS:
             self._fmt_combo.addItem(lbl, val)
-        form.addRow("LULC output format:", self._fmt_combo)
+        form.addRow(self._fmt_lbl, self._fmt_combo)
+        if self._hecras_mode:
+            self._fmt_lbl.setVisible(False)
+            self._fmt_combo.setVisible(False)
+            # Force TIF
+            idx = self._fmt_combo.findData("tif")
+            if idx >= 0:
+                self._fmt_combo.setCurrentIndex(idx)
 
         # Cell size
         self._cell_spin = QDoubleSpinBox()
@@ -150,11 +161,26 @@ class AOILulcCard(QFrame):
 
         mn_fmt_form = QFormLayout()
         mn_fmt_form.setContentsMargins(0, 0, 0, 0)
+        self._mn_fmt_lbl = QLabel("Manning output format:")
         self._mn_fmt_combo = QComboBox()
         for lbl, val in _MN_FMT_ITEMS:
             self._mn_fmt_combo.addItem(lbl, val)
-        mn_fmt_form.addRow("Manning output format:", self._mn_fmt_combo)
+        mn_fmt_form.addRow(self._mn_fmt_lbl, self._mn_fmt_combo)
         mn_layout.addLayout(mn_fmt_form)
+        if self._hecras_mode:
+            self._mn_fmt_lbl.setVisible(False)
+            self._mn_fmt_combo.setVisible(False)
+            # Force SHP — required by HEC-RAS RAS Mapper
+            idx = self._mn_fmt_combo.findData("shp")
+            if idx >= 0:
+                self._mn_fmt_combo.setCurrentIndex(idx)
+            hecras_note = QLabel(
+                "<small><i>Output: LULC → TIF (reference)  ·  "
+                "Manning → SHP (required by HEC-RAS RAS Mapper)</i></small>"
+            )
+            hecras_note.setStyleSheet("color:#718096;")
+            hecras_note.setWordWrap(True)
+            mn_layout.addWidget(hecras_note)
 
         info_lbl = QLabel(
             "<small><b>Manning's n table.</b>  Min/Max are reference bounds "
@@ -169,6 +195,17 @@ class AOILulcCard(QFrame):
         mn_layout.addWidget(self._manning_table)
 
         pl.addWidget(mn_gb)
+
+        # ── Buffer (optional) ─────────────────────────────────────────────────
+        self._buffer_spin = QDoubleSpinBox()
+        self._buffer_spin.setRange(0.0, 50000.0)
+        self._buffer_spin.setDecimals(0)
+        self._buffer_spin.setValue(100.0)
+        self._buffer_spin.setSuffix(" m")
+        self._buffer_lbl = QLabel("Buffer (each side):")
+        form.addRow(self._buffer_lbl, self._buffer_spin)
+        self._buffer_lbl.setVisible(self._show_buffer)
+        self._buffer_spin.setVisible(self._show_buffer)
 
         self._panel.setVisible(False)
         outer.addWidget(self._panel)
@@ -250,7 +287,7 @@ class AOILulcCard(QFrame):
         return True   # no required fields — all have defaults
 
     def get_config(self) -> dict:
-        return {
+        cfg = {
             "lulc_source":    self._src_combo.currentData(),
             "cell_size_m":    self._cell_spin.value(),
             "lulc_format":    self._fmt_combo.currentData(),
@@ -260,6 +297,9 @@ class AOILulcCard(QFrame):
             "manning_format": self._mn_fmt_combo.currentData(),
             "manning_mapping": self._manning_table.get_mapping(),
         }
+        if self._show_buffer:
+            cfg["buffer_m"] = float(self._buffer_spin.value())
+        return cfg
 
     def set_config(self, cfg: dict):
         # Source (triggers table swap + year-row visibility + cell size default)
@@ -278,6 +318,11 @@ class AOILulcCard(QFrame):
         if fmt_idx >= 0:
             self._fmt_combo.setCurrentIndex(fmt_idx)
         self._cell_spin.setValue(float(cfg.get("cell_size_m", 30.0)))
+        if self._show_buffer and "buffer_m" in cfg:
+            try:
+                self._buffer_spin.setValue(float(cfg["buffer_m"]))
+            except Exception:
+                pass
         mn_idx = self._mn_fmt_combo.findData(cfg.get("manning_format", "tif"))
         if mn_idx >= 0:
             self._mn_fmt_combo.setCurrentIndex(mn_idx)

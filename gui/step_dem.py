@@ -177,7 +177,7 @@ class StepDEMWidget(QWidget):
 
         # Run button + progress + status
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Prepare DEM(s)")
+        self._run_btn = QPushButton("Prepare DEM(s)")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -506,7 +506,7 @@ class StepDEMWidget(QWidget):
             if 1 <= i <= len(self._features):
                 feat = self._features[i - 1]
                 self._status_lbl.setText(
-                    f"⏳ Downloading DEM {i} / {total} — <i>{feat.name}</i>"
+                    f"Downloading DEM {i} / {total} — <i>{feat.name}</i>"
                 )
                 self._status_lbl.setVisible(True)
             return
@@ -516,7 +516,7 @@ class StepDEMWidget(QWidget):
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(100)
             self._status_lbl.setText(
-                f"✅ DEM {i} / {total} finished."
+                f"DEM {i} / {total} finished."
                 + (f"  Starting DEM {i + 1} / {total} …"
                    if i < total else "")
             )
@@ -542,7 +542,7 @@ class StepDEMWidget(QWidget):
             return
         if not self._features:
             self._error_lbl.setText(
-                "❌ No AOIs are confirmed.  Go back to the AOI step and "
+                "No AOIs are confirmed.  Go back to the AOI step and "
                 "confirm at least one feature first."
             )
             self._error_lbl.setVisible(True)
@@ -573,7 +573,7 @@ class StepDEMWidget(QWidget):
                 paths = cfg.get("user_dem_path") or []
                 if not paths:
                     self._error_lbl.setText(
-                        f"❌ AOI '{feat.name}' is set to 'I have a DEM "
+                        f"AOI '{feat.name}' is set to 'I have a DEM "
                         f"raster' but no file was selected."
                     )
                     self._error_lbl.setVisible(True)
@@ -581,7 +581,7 @@ class StepDEMWidget(QWidget):
                 for p in paths:
                     if not Path(p).exists():
                         self._error_lbl.setText(
-                            f"❌ DEM file not found for AOI '{feat.name}': {p}"
+                            f"DEM file not found for AOI '{feat.name}': {p}"
                         )
                         self._error_lbl.setVisible(True)
                         return
@@ -613,7 +613,9 @@ class StepDEMWidget(QWidget):
         self._ctx = ctx
         self._progress.setValue(100)
         n = len(self._features)
-        self._status_lbl.setText(f"✅ DEM processed for {n} AOI(s)")
+        self._status_lbl.setText(f"DEM processed for {n} AOI(s)")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         self._status_lbl.setStyleSheet(
             "padding:6px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
             "border-radius:4px; color:#276749; font-weight:bold; font-size:12px;"
@@ -630,7 +632,7 @@ class StepDEMWidget(QWidget):
         set_ready(self._run_btn)
         first_line = msg.split("\n")[0]
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {first_line}<br>"
+            f"<b>Error:</b> {first_line}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -653,7 +655,7 @@ class StepDEMWidget(QWidget):
             )
 
         html = (
-            f"<b>✅ DEM(s) prepared successfully.</b><br><br>"
+            f"<b>DEM(s) prepared successfully.</b><br><br>"
             f"<b>Cell size:</b> {res} m<br>"
             f"<b>Per-AOI outputs:</b><br>{rows_html}"
         )

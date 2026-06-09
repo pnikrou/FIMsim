@@ -131,7 +131,7 @@ class StepPARWidget(QWidget):
 
         # Run button + progress + status
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Write PAR File")
+        self._run_btn = QPushButton("Write PAR File")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -314,7 +314,8 @@ class StepPARWidget(QWidget):
 
     def _run_single(self):
         cfg = self._single_panel.get_config()
-        self._status_lbl.setText("⏳ Writing PAR file…")
+        self._status_lbl.setText("Writing PAR file…")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         self._status_lbl.setVisible(True)
         self._worker = Worker(
             create_par,
@@ -329,7 +330,7 @@ class StepPARWidget(QWidget):
     def _run_multi(self):
         per_aoi = [c.get_config() for c in self._cards]
         self._status_lbl.setText(
-            f"⏳ Writing PAR for {len(self._aoi_features)} AOI(s)…"
+            f"Writing PAR for {len(self._aoi_features)} AOI(s)…"
         )
         self._status_lbl.setVisible(True)
         self._worker = Worker(
@@ -351,14 +352,15 @@ class StepPARWidget(QWidget):
         if m:
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(0)
-            self._status_lbl.setText(f"⏳ Writing PAR {i} / {total} …")
+            self._status_lbl.setText(f"Writing PAR {i} / {total} …")
+            self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
             return
         m = _PAR_DONE_RE.match(msg)
         if m:
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(100)
             self._status_lbl.setText(
-                f"✅ PAR {i} / {total} finished."
+                f"PAR {i} / {total} finished."
                 + (f"  Starting PAR {i + 1} / {total} …"
                    if i < total else "")
             )
@@ -371,7 +373,8 @@ class StepPARWidget(QWidget):
         self._ctx = ctx
         self._progress.setValue(100)
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"🎉 All {n} AOI(s) processed.")
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
+        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         set_ready(self._run_btn)
         self._show_report(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
@@ -382,7 +385,7 @@ class StepPARWidget(QWidget):
         set_ready(self._run_btn)
         first_line = msg.split("\n")[0]
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {first_line}<br>"
+            f"<b>Error:</b> {first_line}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -399,7 +402,7 @@ class StepPARWidget(QWidget):
                     f"<code>{entry.get('par_path', '?')}</code><br>"
                 )
             html = (
-                "<b>🎉 PAR file(s) prepared successfully — all "
+                "<b>PAR file(s) prepared successfully — all "
                 "preprocessing steps complete!</b><br><br>"
                 "<b>Per-AOI PAR files:</b><br>"
                 + rows +
@@ -408,7 +411,7 @@ class StepPARWidget(QWidget):
             )
             self._report.setText(html)
             self._report.setVisible(True)
-            self._log("✅ All steps complete! LISFLOOD-FP input files are ready.")
+            self._log("All steps complete! LISFLOOD-FP input files are ready.")
             return
 
         # ── Single-AOI report (the rich version that lists every input file)
@@ -419,7 +422,7 @@ class StepPARWidget(QWidget):
         def _file_line(label, path):
             p = Path(path) if path else None
             exists = p and p.exists()
-            icon = "✅" if exists else "⚠️"
+            icon = "" if exists else ""
             return f"{icon} <b>{label}:</b> {path}<br>"
 
         par_path   = ctx.get("par_path",          str(Path(lisflood_dir) / f"{project_name}.par"))
@@ -436,21 +439,21 @@ class StepPARWidget(QWidget):
             lines.append(_file_line("Manning n ASCII grid", lulc_ascii))
         else:
             lines.append(
-                f"✅ <b>Manning n:</b> Fixed value ({fpfric}) — "
+                f"<b>Manning n:</b> Fixed value ({fpfric}) — "
                 "written into PAR file<br>"
             )
         lines.append(_file_line("BCI boundary conditions", bci_path))
         if bdy_written and bdy_path:
             lines.append(_file_line("BDY hydrograph", bdy_path))
         else:
-            lines.append("✅ <b>BDY hydrograph:</b> Not required (fixed discharge)<br>")
+            lines.append("<b>BDY hydrograph:</b> Not required (fixed discharge)<br>")
 
         helper_csv = Path(project_dir) / f"{project_name}_upstream_timeseries.csv"
         if helper_csv.exists():
             lines.append(f"📊 <b>Discharge timeseries CSV:</b> {helper_csv}<br>")
 
         html = (
-            "<b>🎉 All preprocessing steps complete!</b><br><br>"
+            "<b>All preprocessing steps complete!</b><br><br>"
             "All LISFLOOD-FP input files are ready in:<br>"
             f"<b>{lisflood_dir}</b><br><br>"
             "<b>Required input files:</b><br>"
@@ -460,4 +463,4 @@ class StepPARWidget(QWidget):
         )
         self._report.setText(html)
         self._report.setVisible(True)
-        self._log(f"✅ All steps complete! Files in: {lisflood_dir}")
+        self._log(f"All steps complete! Files in: {lisflood_dir}")

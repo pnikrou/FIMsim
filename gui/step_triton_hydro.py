@@ -160,7 +160,7 @@ class StepTritonHydroWidget(QWidget):
 
         # ── Run button ────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Write hydrograph file")
+        self._run_btn = QPushButton("Write hydrograph file")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -228,7 +228,7 @@ class StepTritonHydroWidget(QWidget):
         try:
             per_source = self._collect_sources()
         except ValueError as ex:
-            self._error_lbl.setText(f"❌ <b>Input error:</b> {ex}")
+            self._error_lbl.setText(f"<b>Input error:</b> {ex}")
             self._error_lbl.setVisible(True)
             return
 
@@ -344,7 +344,7 @@ class StepTritonHydroWidget(QWidget):
         self._progress.setVisible(False)
         set_ready(self._run_btn)
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {msg.split(chr(10))[0]}<br>"
+            f"<b>Error:</b> {msg.split(chr(10))[0]}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -359,7 +359,7 @@ class StepTritonHydroWidget(QWidget):
         helper_csv   = ctx.get("triton_hydro_helper_csv", "")
 
         html = (
-            "<b>✅ .hyg written.</b><br><br>"
+            "<b>.hyg written.</b><br><br>"
             f"<b>Event window:</b> {event_start} → {event_end}<br>"
             f"<b>Interval:</b> {interval} h<br>"
             f"<b>num_sources:</b> {ns}<br>"

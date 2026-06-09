@@ -10,8 +10,8 @@ Orchestrators are expected to emit messages in one of these forms
 
     ▶ Running [1/23]: 'test' ...
     ✓ Done    [1/23]: 'test' → case/subfolder/DEM_3DEP_test.tif
-    🎉 All 23 AOI(s) processed successfully.
-    ⏳ Preparing …
+    All 23 AOI(s) processed successfully.
+    Preparing …
 
 Any message starting with one of those markers updates the banner; other
 log lines are ignored here (they still go to the main log panel).
@@ -62,7 +62,7 @@ def set_starting(box: QTextEdit, n_features: int):
         "kind":  "intro",
         "step":  0,
         "html":  (
-            f"<span style='color:#744210;'><b>⏳ Preparing to process "
+            f"<span style='color:#744210;'><b>Preparing to process "
             f"{n_features} AOI(s)…</b></span>"
         ),
     }]
@@ -118,7 +118,7 @@ def update_banner(box: QTextEdit, msg: str) -> bool:
         _render(box)
         return True
 
-    if msg.startswith("🎉"):
+    if msg.startswith(""):
         safe = html.escape(msg)
         box._banner_entries.append({
             "kind": "final",
@@ -131,7 +131,7 @@ def update_banner(box: QTextEdit, msg: str) -> bool:
         _render(box)
         return True
 
-    if msg.startswith("⚠"):
+    if msg.startswith(""):
         safe = html.escape(msg)
         box._banner_entries.append({
             "kind": "warn", "step": None,

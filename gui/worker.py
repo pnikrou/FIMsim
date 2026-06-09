@@ -77,7 +77,7 @@ class Worker(QThread):
             result = self._fn(**kw)
             self.finished.emit(result if result is not None else {})
         except WorkerCancelled:
-            self.message.emit("⚠️  Operation cancelled.")
+            self.message.emit("Operation cancelled.")
             self.cancelled.emit()
         except Exception as exc:
             self.error.emit(f"{exc}\n\n{traceback.format_exc()}")

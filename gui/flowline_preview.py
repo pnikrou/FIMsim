@@ -219,16 +219,26 @@ class FlowlinePreviewCanvas(FigureCanvas):
                     )
 
         # ── Upstream / downstream endpoint markers ────────────────────────────
-        # Reproject from the main-river CRS (EPSG:4326) to AOI CRS if needed.
+        # The upstream/downstream coords come from the main-river GDF which
+        # may be in EPSG:4326 (geographic) or any other CRS.  We need to
+        # reproject them to the AOI CRS so they overlay correctly.
+        # Strategy: check if the GDF has a known CRS; if it differs from the
+        # AOI CRS, reproject; otherwise plot directly.
+        main_gdf_crs = None
+        if main_fl is not None and main_fl.crs is not None:
+            main_gdf_crs = main_fl.crs
+        elif all_fl is not None and all_fl.crs is not None:
+            main_gdf_crs = all_fl.crs
+
         def _reproject_pt(xy):
             if xy is None:
                 return None
             try:
-                if aoi.crs is not None and not aoi.crs.is_geographic:
+                src_crs = main_gdf_crs if main_gdf_crs is not None else "EPSG:4326"
+                tgt_crs = aoi.crs if aoi.crs is not None else "EPSG:4326"
+                if str(src_crs) != str(tgt_crs):
                     from pyproj import Transformer
-                    tf = Transformer.from_crs(
-                        "EPSG:4326", aoi.crs, always_xy=True
-                    )
+                    tf = Transformer.from_crs(src_crs, tgt_crs, always_xy=True)
                     return tf.transform(float(xy[0]), float(xy[1]))
             except Exception:
                 pass

@@ -23,12 +23,17 @@ rasterio
 # ── Hydrology data access ──────────────────────────────────────────────────────
 requests       # General HTTP
 pynhd          # NHD flowlines + USGS gage lookup (USA)
+pygeoogc       # WMS client — used directly for NLCD download (also a pynhd dependency)
 
 # ── NWM retrospective download (NOAA Zarr on S3) ───────────────────────────────
 xarray
 zarr
 s3fs
 numcodecs
+
+# ── HEC-RAS mesh generation & HDF5 file I/O ───────────────────────────────────
+h5py           # Read/write HEC-RAS HDF5 geometry and results files
+gmsh           # Triangular mesh generation for HEC-RAS 2D (Tab 7: Build Mesh)
 
 # ── Build tool (only needed to create standalone executables, not to run) ──────
 # pyinstaller  # Uncomment and install separately when building an installer

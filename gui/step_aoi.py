@@ -102,7 +102,7 @@ class StepAOIWidget(QWidget):
 
         # Run button
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Load AOI")
+        self._run_btn = QPushButton("Load AOI")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -157,7 +157,7 @@ class StepAOIWidget(QWidget):
         try:
             aoi_gdf, summaries = inspect_aoi(aoi_path)
         except Exception as ex:
-            self._error_lbl.setText(f"❌ <b>Error reading AOI:</b> {ex}")
+            self._error_lbl.setText(f"<b>Error reading AOI:</b> {ex}")
             self._error_lbl.setVisible(True)
             return
 
@@ -192,7 +192,7 @@ class StepAOIWidget(QWidget):
         self._log(f"ERROR: {msg}")
         set_ready(self._run_btn)
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {msg.split(chr(10))[0]}"
+            f"<b>Error:</b> {msg.split(chr(10))[0]}"
         )
         self._error_lbl.setVisible(True)
 
@@ -228,7 +228,7 @@ class StepAOIWidget(QWidget):
                 feat_note = f"<b>Selected feature:</b> index {fi} (out of {gpd.read_file(ctx['aoi_path']).shape[0]} in file)<br>"
 
             html = (
-                f"<b>✅ AOI loaded successfully.</b><br><br>"
+                f"<b>AOI loaded successfully.</b><br><br>"
                 f"<b>File:</b> {Path(ctx['aoi_path']).name}<br>"
                 f"<b>CRS:</b> {aoi_gdf.crs}<br>"
                 + feat_note +
@@ -236,6 +236,6 @@ class StepAOIWidget(QWidget):
                 f"<b>Area:</b> {area_km2:.2f} km²"
             )
         except Exception as e:
-            html = f"<b>✅ AOI loaded.</b>  (Could not compute area: {e})"
+            html = f"<b>AOI loaded.</b>  (Could not compute area: {e})"
         self._report.setText(html)
         self._report.setVisible(True)

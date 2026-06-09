@@ -179,7 +179,7 @@ def _save_feature_ids_csv(flowlines_gdf, out_csv: Path, log_fn) -> Path:
         None,
     )
     if comid_col is None:
-        log_fn(f"  ⚠ No COMID column found — writing empty {out_csv.name}")
+        log_fn(f"  No COMID column found — writing empty {out_csv.name}")
         pd.DataFrame(columns=["feature_id"]).to_csv(out_csv, index=False)
         return out_csv
 
@@ -238,12 +238,12 @@ def _download_usgs_discharge(
 
             ts_list = data.get("value", {}).get("timeSeries", [])
             if not ts_list:
-                log_fn(f"  ⚠ No time series returned for gage {site}")
+                log_fn(f"  No time series returned for gage {site}")
                 continue
 
             values = ts_list[0].get("values", [{}])[0].get("value", [])
             if not values:
-                log_fn(f"  ⚠ Empty value list for gage {site}")
+                log_fn(f"  Empty value list for gage {site}")
                 continue
 
             rows = []
@@ -258,7 +258,7 @@ def _download_usgs_discharge(
                     continue
 
             if not rows:
-                log_fn(f"  ⚠ No valid readings for gage {site}")
+                log_fn(f"  No valid readings for gage {site}")
                 continue
 
             df = pd.DataFrame(rows).set_index("datetime")
@@ -273,7 +273,7 @@ def _download_usgs_discharge(
             saved.append(str(out_csv))
 
         except Exception as ex:
-            log_fn(f"  ⚠ USGS download failed for gage {site}: {ex}")
+            log_fn(f"  USGS download failed for gage {site}: {ex}")
 
     return saved
 
@@ -387,7 +387,7 @@ def run_flowline_mode(
         log_fn(f"✓ Done [{i}/{n}]: {f.folder_name}/")
         summary["features"].append(feat_out)
 
-    log_fn(f"🎉 Flowline step complete — {n} AOI(s) processed.")
+    log_fn(f"Flowline step complete — {n} AOI(s) processed.")
     return summary
 
 
@@ -457,7 +457,7 @@ def run_flowdata_mode(
         if flow_source in ("retrospective", "forecast"):
             fids = _coerce_feature_ids(cfg.get("feature_ids", ""))
             if not fids:
-                log_fn("  ⚠ No NWM feature IDs supplied — skipping.")
+                log_fn("  No NWM feature IDs supplied — skipping.")
             else:
                 src = flow_source
                 tmp_csv = out_folder / f"_nwm_tmp_{f.folder_name}.csv"
@@ -495,13 +495,13 @@ def run_flowdata_mode(
                         feat_out["files"][f"nwm_{col}"] = str(out_csv)
                     tmp_csv.unlink(missing_ok=True)
                 except Exception as ex:
-                    log_fn(f"  ⚠ NWM download failed for '{f.name}': {ex}")
+                    log_fn(f"  NWM download failed for '{f.name}': {ex}")
                     tmp_csv.unlink(missing_ok=True)
 
         elif flow_source == "usgs":
             gage_ids = _coerce_gage_ids(cfg.get("gage_ids", ""))
             if not gage_ids:
-                log_fn("  ⚠ No USGS gage IDs supplied — skipping.")
+                log_fn("  No USGS gage IDs supplied — skipping.")
             else:
                 saved = _download_usgs_discharge(
                     gage_ids,
@@ -517,5 +517,5 @@ def run_flowdata_mode(
         log_fn(f"✓ Done [{i}/{n}]: {f.folder_name}/")
         summary["features"].append(feat_out)
 
-    log_fn(f"🎉 Flow Data step complete — {n} AOI(s) processed.")
+    log_fn(f"Flow Data step complete — {n} AOI(s) processed.")
     return summary

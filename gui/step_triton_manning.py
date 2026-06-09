@@ -144,7 +144,7 @@ class StepTritonManningWidget(QWidget):
 
         # ── Run button ─────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Prepare Friction File")
+        self._run_btn = QPushButton("Prepare Friction File")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -346,7 +346,7 @@ class StepTritonManningWidget(QWidget):
         set_ready(self._run_btn)
         first_line = msg.split("\n")[0]
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {first_line}<br>"
+            f"<b>Error:</b> {first_line}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -361,7 +361,7 @@ class StepTritonManningWidget(QWidget):
         if fric_mode == "fixed":
             fpfric = ctx.get("par_fpfric", "")
             html = (
-                f"<b>✅ Friction prepared (fixed value).</b><br><br>"
+                f"<b>Friction prepared (fixed value).</b><br><br>"
                 f"<b>Manning n:</b> {fpfric}<br>"
                 f"<b>Note:</b> Fixed n will be written directly into friction.asc "
                 f"as a uniform matrix."
@@ -394,7 +394,7 @@ class StepTritonManningWidget(QWidget):
                 source_line = f"<b>Source:</b> {source_label}<br>"
 
             html = (
-                f"<b>✅ Friction file prepared (spatially varying).</b><br><br>"
+                f"<b>Friction file prepared (spatially varying).</b><br><br>"
                 + source_line
                 + (f"<b>LULC GeoTIFF:</b> {lulc_tif}<br>" if lulc_tif else "")
                 + (f"<b>Manning n GeoTIFF:</b> {manning_tif}<br>" if manning_tif else "")

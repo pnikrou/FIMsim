@@ -151,7 +151,7 @@ class ModeLULCManningWidget(QWidget):
 
         # Run button
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Download LULC & Assign Manning for all AOIs")
+        self._run_btn = QPushButton("Download LULC & Assign Manning for all AOIs")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:8px 22px; background:#2b6cb0; "
             "color:white; border-radius:4px; font-size:13px;"
@@ -389,7 +389,7 @@ class ModeLULCManningWidget(QWidget):
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._status_lbl.setText(
-            f"⏳ Starting LULC download for {len(self._features)} AOI(s) …"
+            f"Starting LULC download for {len(self._features)} AOI(s) …"
         )
         self._status_lbl.setVisible(True)
         self._clear_results()
@@ -412,7 +412,7 @@ class ModeLULCManningWidget(QWidget):
                     self._progress.setValue(int(i / total * 95))
                 feat_name = m.split("]: ")[-1].strip() if "]: " in m else ""
                 self._status_lbl.setText(
-                    f"⏳ Processing AOI(s) … last finished: {feat_name or m}"
+                    f"Processing AOI(s) … last finished: {feat_name or m}"
                 )
 
         self._worker = Worker(
@@ -431,12 +431,17 @@ class ModeLULCManningWidget(QWidget):
         self._progress.setValue(100)
         n = len(summary.get("features", []))
         self._status_lbl.setText(
-            f"✅ LULC + Manning processed for {n} AOI(s)"
+            f"LULC + Manning processed for {n} AOI(s)"
         )
-        self._status_lbl.setStyleSheet("color:#2d3748; font-size:12px; padding:2px 0px;")
+        self._status_lbl.setStyleSheet(
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
+        )
         self._completion_lbl.setText(
-            f"<b>✅ LULC + Manning processed for {n} AOI(s)</b>"
+            f"<b>LULC + Manning processed for {n} AOI(s)</b>"
             "<br><small><i>Click an AOI name below to view its maps.</i></small>"
+        )
+        self._completion_lbl.setStyleSheet(
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._completion_lbl.setVisible(True)
         self._build_results(summary)
@@ -446,7 +451,7 @@ class ModeLULCManningWidget(QWidget):
         self._progress.setVisible(False)
         self._log(f"ERROR: {msg}")
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {msg.splitlines()[0]}<br>"
+            f"<b>Error:</b> {msg.splitlines()[0]}<br>"
             "<small>(See log panel for full details)</small>"
         )
         self._error_lbl.setVisible(True)

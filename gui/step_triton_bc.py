@@ -203,7 +203,7 @@ class StepTritonBCWidget(QWidget):
 
         # ── Run ──────────────────────────────────────────────────────────────
         run_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Write BC files")
+        self._run_btn = QPushButton("Write BC files")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -420,15 +420,15 @@ class StepTritonBCWidget(QWidget):
             inflow_sources = self._collect_inflow_sources()
             bc_entries     = self._collect_bc_entries()
         except ValueError as ex:
-            self._error_lbl.setText(f"❌ <b>Input error:</b> {ex}")
+            self._error_lbl.setText(f"<b>Input error:</b> {ex}")
             self._error_lbl.setVisible(True)
             return
         if not inflow_sources:
-            self._error_lbl.setText("❌ <b>Add at least one inflow source.</b>")
+            self._error_lbl.setText("<b>Add at least one inflow source.</b>")
             self._error_lbl.setVisible(True)
             return
         if not bc_entries:
-            self._error_lbl.setText("❌ <b>Add at least one external BC row.</b>")
+            self._error_lbl.setText("<b>Add at least one external BC row.</b>")
             self._error_lbl.setVisible(True)
             return
 
@@ -485,7 +485,7 @@ class StepTritonBCWidget(QWidget):
         set_ready(self._run_btn)
         self._nhd_btn.setEnabled(True)
         self._error_lbl.setText(
-            f"❌ <b>Error:</b> {msg.split(chr(10))[0]}<br>"
+            f"<b>Error:</b> {msg.split(chr(10))[0]}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
@@ -498,7 +498,7 @@ class StepTritonBCWidget(QWidget):
         river        = ctx.get("main_river_name", "")
         reach        = ctx.get("upstream_reach_id", "")
         html = (
-            "<b>✅ BC files written.</b><br><br>"
+            "<b>BC files written.</b><br><br>"
             f"<b>Inflow sources (num_sources):</b> {ns}<br>"
             f"<b>External BCs (num_extbc):</b> {nb}<br>"
         )

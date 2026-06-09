@@ -19,8 +19,9 @@ from PyQt6.QtCore import pyqtSignal
 class DEMConfigPanel(QWidget):
     config_changed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, show_buffer: bool = False):
         super().__init__(parent)
+        self._show_buffer = show_buffer
         self._build_ui()
 
     def _build_ui(self):
@@ -91,6 +92,17 @@ class DEMConfigPanel(QWidget):
         self._browse_btn.setVisible(False)
         self._note.setVisible(False)
 
+        # ── Buffer (optional — shown only when show_buffer=True) ──
+        self._buffer_spin = QDoubleSpinBox()
+        self._buffer_spin.setRange(0.0, 50000.0)
+        self._buffer_spin.setDecimals(0)
+        self._buffer_spin.setValue(100.0)
+        self._buffer_spin.setSuffix(" m")
+        self._buffer_lbl = QLabel("Buffer (each side):")
+        form.addRow(self._buffer_lbl, self._buffer_spin)
+        self._buffer_lbl.setVisible(self._show_buffer)
+        self._buffer_spin.setVisible(self._show_buffer)
+
         # ── wire signals
         self._rb_download.toggled.connect(self._on_source_changed)
         self._rb_existing.toggled.connect(self._on_source_changed)
@@ -132,11 +144,14 @@ class DEMConfigPanel(QWidget):
         existing = self._rb_existing.isChecked()
         raw = self._dem_path_edit.text().strip()
         paths = [p.strip() for p in raw.split(";") if p.strip()]
-        return {
+        cfg = {
             "has_dem":       existing,
             "user_dem_path": paths,    # always a list (possibly empty)
             "dem_res_m":     float(self._cell_spin.value()),
         }
+        if self._show_buffer:
+            cfg["buffer_m"] = float(self._buffer_spin.value())
+        return cfg
 
     def set_config(self, cfg: dict):
         if not cfg:
@@ -154,5 +169,10 @@ class DEMConfigPanel(QWidget):
         if "dem_res_m" in cfg:
             try:
                 self._cell_spin.setValue(float(cfg["dem_res_m"]))
+            except Exception:
+                pass
+        if self._show_buffer and "buffer_m" in cfg:
+            try:
+                self._buffer_spin.setValue(float(cfg["buffer_m"]))
             except Exception:
                 pass

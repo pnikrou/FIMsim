@@ -138,7 +138,7 @@ class StepProjectWidget(QWidget):
 
         # ── Run button ────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("✔  Create / Open Project")
+        self._run_btn = QPushButton("Create / Open Project")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -185,7 +185,7 @@ class StepProjectWidget(QWidget):
             self._exist_dir_edit.setText(d)
 
     def _show_error(self, msg: str):
-        self._error_lbl.setText(f"❌  {msg}")
+        self._error_lbl.setText(f" {msg}")
         self._error_lbl.setVisible(True)
         self._report.setVisible(False)
 
@@ -358,7 +358,7 @@ class StepProjectWidget(QWidget):
         model_label = "LISFLOOD files" if self._model == "lisflood" else "TRITON files"
         model_dir_val = ctx.get(self._ctx_key, ctx.get("model_dir", ""))
         html = (
-            f"<b>✅ Project folder successfully {action}.</b><br><br>"
+            f"<b>Project folder successfully {action}.</b><br><br>"
             f"<b>Project name:</b> {ctx.get('project_name', '')}<br>"
             f"<b>Project folder:</b> {ctx.get('project_dir', '')}<br>"
             f"<b>{model_label} folder:</b> {model_dir_val}"

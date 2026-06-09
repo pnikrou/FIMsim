@@ -26,10 +26,11 @@ class AOIDEMCard(QFrame):
         "border-radius:6px; padding:6px; }"
     )
 
-    def __init__(self, aoi_name: str, parent=None):
+    def __init__(self, aoi_name: str, parent=None, show_buffer: bool = False):
         super().__init__(parent)
         self.setObjectName("card")
         self._aoi_name = aoi_name
+        self._show_buffer = show_buffer
         self._expanded = False
         self._build_ui()
         self._apply_collapsed_style()
@@ -64,7 +65,7 @@ class AOIDEMCard(QFrame):
 
         outer.addLayout(header)
 
-        self._panel = DEMConfigPanel(self)
+        self._panel = DEMConfigPanel(self, show_buffer=self._show_buffer)
         self._panel.setVisible(False)
         self._panel.config_changed.connect(self._forward_config_changed)
         outer.addWidget(self._panel)
@@ -116,10 +117,10 @@ class AOIDEMCard(QFrame):
                 if len(paths) == 1:
                     src = (
                         f"<i>Source:</i> uploaded "
-                        f"<code>{Path(paths[0]).name}</code> ✅"
+                        f"<code>{Path(paths[0]).name}</code> "
                     )
                 else:
-                    src = f"<i>Source:</i> uploaded {len(paths)} tiles ✅"
+                    src = f"<i>Source:</i> uploaded {len(paths)} tiles "
             else:
                 src = (
                     "<span style='color:#c53030;'>"

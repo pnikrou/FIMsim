@@ -165,7 +165,7 @@ def download_hand_tile(huc6: str, out_path: Path, log_fn=print) -> Path:
     try:
         raise last_exc
     except requests.exceptions.SSLError as ex:
-        log_fn(f"    ⚠ SSL verification failed ({ex}); retrying without TLS "
+        log_fn(f"    SSL verification failed ({ex}); retrying without TLS "
                f"verification.")
         if out_path.exists():
             try:
@@ -266,7 +266,7 @@ def fetch_hand_window(huc6: str, aoi_gdf, out_path: Path, log_fn=print) -> Path:
         return out_path
     except Exception as ex:
         log_fn(
-            f"    ⚠ Windowed read failed ({ex}); falling back to full tile "
+            f"    Windowed read failed ({ex}); falling back to full tile "
             f"download (slow)."
         )
         # Fallback: download the full tile.

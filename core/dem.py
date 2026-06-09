@@ -365,7 +365,7 @@ def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
         with rasterio.open(dem_path, "w", **masked_meta) as dst:
             dst.write(masked)
     except Exception as ex:
-        log_fn(f"  ⚠ Final polygon mask step skipped ({ex}).")
+        log_fn(f"  Final polygon mask step skipped ({ex}).")
 
     log_fn(f"DEM GeoTIFF saved: {dem_path}")
 
@@ -685,7 +685,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                         densify_pts=21,
                     )
                 except Exception as ex:
-                    log_fn(f"  ⚠ {p.name}: bounds reprojection failed ({ex}) — "
+                    log_fn(f"  {p.name}: bounds reprojection failed ({ex}) — "
                            f"keeping it anyway.")
                     overlapping.append(p)
                     continue
@@ -782,7 +782,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                 )
                 if _attempt < _MAX_RETRIES and _is_tile_read_err:
                     log_fn(
-                        f"  ⚠ Corrupt tile detected on attempt "
+                        f"  Corrupt tile detected on attempt "
                         f"{_attempt + 1}/{_MAX_RETRIES + 1} — "
                         f"purging cache and re-downloading all tiles…"
                     )

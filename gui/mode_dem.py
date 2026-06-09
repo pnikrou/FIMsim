@@ -270,7 +270,7 @@ class ModeDEMWidget(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self._run_btn = QPushButton("✔  Download / prepare DEM for all AOIs")
+        self._run_btn = QPushButton("Download / prepare DEM for all AOIs")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
         )
@@ -430,7 +430,7 @@ class ModeDEMWidget(QWidget):
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._status_lbl.setText(
-            f"⏳ Preparing to download DEM for {len(self._features)} AOI(s)…"
+            f"Preparing to download DEM for {len(self._features)} AOI(s)…"
         )
         self._status_lbl.setVisible(True)
         cfgs = [c.get_config() for c in self._aoi_dem_cards] or [
@@ -465,7 +465,7 @@ class ModeDEMWidget(QWidget):
             if 1 <= i <= len(self._features):
                 feat = self._features[i - 1]
                 self._status_lbl.setText(
-                    f"⏳ Downloading DEM {i} / {total} — <i>{feat.name}</i>"
+                    f"Downloading DEM {i} / {total} — <i>{feat.name}</i>"
                 )
                 self._status_lbl.setVisible(True)
             return
@@ -476,7 +476,7 @@ class ModeDEMWidget(QWidget):
             i, total = int(m.group(1)), int(m.group(2))
             self._progress.setValue(100)
             self._status_lbl.setText(
-                f"✅ DEM {i} / {total} finished."
+                f"DEM {i} / {total} finished."
                 + (f"  Starting DEM {i + 1} / {total} …"
                    if i < total else "")
             )
@@ -498,10 +498,10 @@ class ModeDEMWidget(QWidget):
         set_ready(self._run_btn)
         self._progress.setValue(100)
         self._status_lbl.setText(
-            f"✅ All {len(self._features)} AOI(s) processed."
+            f"All {len(self._features)} AOI(s) processed."
         )
         self._status_lbl.setStyleSheet(
-            "color:#2d3748; font-size:12px; padding:2px 0px;"
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         # Store for the info table populated on AOI click
         self._run_summary = summary
@@ -510,7 +510,7 @@ class ModeDEMWidget(QWidget):
             if i < len(self._features):
                 self._feat_by_name[f["name"]] = self._features[i]
         self._summary_lbl.setText(
-            f"<b>✅ DEM processed for "
+            f"<b>DEM processed for "
             f"{len(summary.get('features', []))} AOI(s)</b>"
             "<br><small><i>Click an AOI name below to preview its DEM.</i></small>"
         )
@@ -682,7 +682,7 @@ class ModeDEMWidget(QWidget):
         set_ready(self._run_btn)
         self._log(f"ERROR: {msg}")
         first_line = msg.splitlines()[0]
-        self._status_lbl.setText(f"❌ {first_line}")
+        self._status_lbl.setText(f"{first_line}")
         self._status_lbl.setStyleSheet(
             "padding:6px 10px; background:#fff5f5; border:1px solid #fc8181; "
             "border-radius:4px; color:#c53030; font-weight:bold; font-size:12px;"

@@ -142,7 +142,7 @@ class AOIManningCard(QFrame):
             cfg = self._panel.get_config()
             self._status_lbl.setText(
                 f"Fixed n = {cfg['fixed_value']:.4f}"
-                + (" ✅" if self._panel.is_ready() else "")
+                + (" " if self._panel.is_ready() else "")
             )
         else:
             cfg = self._panel.get_config()
@@ -152,11 +152,11 @@ class AOIManningCard(QFrame):
             elif src == "download":
                 ds = "NLCD" if cfg["dataset_idx"] == 0 else "Sentinel-2"
                 self._status_lbl.setText(
-                    f"Varying — {ds} {cfg['year']} ✅"
+                    f"Varying — {ds} {cfg['year']} "
                 )
             else:
                 if self._panel.is_ready():
-                    self._status_lbl.setText("Varying — uploaded LULC ✅")
+                    self._status_lbl.setText("Varying — uploaded LULC ")
                 else:
                     self._status_lbl.setText(
                         "<span style='color:#c53030;'>Varying — analyse the raster</span>"

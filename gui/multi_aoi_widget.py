@@ -409,7 +409,7 @@ class MultiAOIWidget(QWidget):
             "Browse for a shapefile or GeoPackage and pick the feature(s) you want.  "
             "To add more AOIs from another file, click "
             "<b>“➕ Add another AOI file”</b>.  "
-            "When you're done, click <b>“✔ Add to confirmed AOIs”</b> — "
+            "When you're done, click <b>“Add to confirmed AOIs”</b> — "
             "then click <b>“Next step ▶”</b> at the bottom to continue."
         )
         intro.setWordWrap(True)
@@ -445,7 +445,7 @@ class MultiAOIWidget(QWidget):
         conf_row = QHBoxLayout()
         self._status = QLabel("0 AOI features selected.")
         self._status.setStyleSheet("color:#555;")
-        self._confirm_btn = QPushButton("✔  Add to confirmed AOIs")
+        self._confirm_btn = QPushButton("Add to confirmed AOIs")
         self._confirm_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -743,7 +743,7 @@ class MultiAOIWidget(QWidget):
 
         self._confirmed_features.extend(truly_new)
         self._log(
-            f"✅ {len(truly_new)} new AOI(s) confirmed.  "
+            f"{len(truly_new)} new AOI(s) confirmed.  "
             f"Total confirmed: {len(self._confirmed_features)}."
         )
 
@@ -1075,7 +1075,7 @@ class MultiAOIWidget(QWidget):
                 "Please confirm at least one AOI before proceeding to the "
                 "next step.<br><br>"
                 "Browse for an AOI file (.shp or .gpkg), select the feature(s) you "
-                "want, then click <b>“✔ Add to confirmed AOIs”</b>.",
+                "want, then click <b>“Add to confirmed AOIs”</b>.",
             )
             return False
         self.aoi_ready.emit(self._confirmed_features)
