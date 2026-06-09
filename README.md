@@ -144,8 +144,3 @@ FIMsim/
 <!-- TRITON mode -->
 <!-- HEC-RAS mode -->
 
----
-
-## License
-
-This project was developed as part of PhD research at the Department of Civil Engineering, University of Alabama.
