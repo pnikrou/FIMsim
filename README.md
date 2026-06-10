@@ -90,34 +90,4 @@ pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs pynhd pygeoogc gm
 python main.py
 ```
 
----
-
-## Project structure
-
-```
-FIMsim/
-├── main.py               ← entry point
-├── requirements.txt      ← all Python dependencies
-├── gui/                  ← all interface widgets and pages
-├── core/                 ← all data-download and file-writing logic
-├── data/                 ← bundled GeoJSON files (US states, HUC6, HUC8)
-├── build_app.spec        ← PyInstaller spec for building installers
-└── .github/workflows/    ← CI — auto-builds Mac + Windows installers on tag push
-```
-
----
-
-## Mode documentation
-
-> Detailed documentation for each mode will be added below.
-
-<!-- INPUT PARAMETERS -->
-<!-- DEM mode -->
-<!-- LULC & Manning mode -->
-<!-- Flowline mode -->
-<!-- Streamflow Data mode -->
-
-<!-- FLOOD MAPPING MODELS -->
-<!-- LISFLOOD-FP mode -->
-<!-- TRITON mode -->
 
