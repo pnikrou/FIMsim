@@ -10,15 +10,15 @@ FIMsim is a web-based tool designed to eliminate the technical barrier of settin
 
 FIMsim addresses two separate but related challenges in flood modeling:
 
-**1. Preparing individual model inputs independently**
-Hydrologists often need specific geospatial datasets — a DEM for one project, LULC for another, streamflow records for analysis — without running a full simulation. FIMsim provides four standalone tools that each produce one type of input file, ready to use in any model or workflow.
+**1. Preparing individual model inputs independently:**
+Hydrologists often need specific geospatial datasets — a DEM for one project, LULC for another, streamflow records for analysis — without running a full simulation. FIMsim provides four standalone tools that each produce one type of input file in different formats, ready to use in any model or workflow.
 
-**2. Running a complete flood simulation end to end**
+**2. Running a complete flood simulation end to end:**
 When the goal is a full flood inundation map, FIMsim can take over the entire pipeline. After the user defines a study area, it downloads every required input, writes all model-specific configuration files, and submits the simulation to run on cloud infrastructure — no local software installation or GIS expertise required.
 
 | Track | What it does |
 |---|---|
-| **Independent Hydraulic Model Inputs** | Four standalone tools — each prepares one input type (DEM, LULC & Manning's n, Flowlines, Streamflow Data) independently of any model |
+| **Independent Hydraulic Model Inputs** | Four standalone tools for downloading and processing individual geospatial inputs (DEM, LULC & Manning's n, Flowlines, Streamflow Data), each usable independently of any specific flood model |
 | **Flood Mapping Models** | Two complete simulation pipelines — each downloads all required inputs, writes all model files, and runs the simulation on cloud infrastructure |
 
 ---
