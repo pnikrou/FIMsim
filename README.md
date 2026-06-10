@@ -25,7 +25,7 @@ When the goal is a full flood inundation map, FIMsim can take over the entire pi
 
 ## Workflow overview
 
-<img src="assets/workflow.png" width="110%" alt="FIMsim Workflow">
+<img src="assets/workflow.png" width="130%" alt="FIMsim Workflow">
 
 ---
 
