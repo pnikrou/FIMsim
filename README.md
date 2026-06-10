@@ -58,11 +58,9 @@ FIMsim connects to the following public data services. An internet connection is
 ## Key features
 
 - **Multi-AOI batch processing** — define multiple study areas in a single shapefile or GeoPackage; all downloads and outputs are handled per AOI automatically
-- **Background downloads** — all data downloads run in background threads so the interface stays responsive
-- **Persistent project context** — each project saves its state to `workflow_context.json` so work can be resumed at any step
 - **Editable Manning's n table** — the LULC step generates a land-cover lookup table with Min / Avg / Max roughness values that the user can edit before export
 - **Upstream / downstream detection** — the flowline step automatically identifies the upstream and downstream endpoints of the main river and marks them on the map
-- **Hydrograph preview** — the streamflow step plots discharge time series for visual inspection before saving
+- **Map preview** — at each step, the app plots the results for visual inspection before saving
 
 ---
 
