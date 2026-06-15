@@ -1,4 +1,4 @@
-"""Step 6 — Download NHD flowlines, find main river, write BC.bci."""
+"""Step 6 — Download NHD flowlines, find main river, write <AOI>.bci."""
 import math
 import ssl
 from pathlib import Path
@@ -146,7 +146,7 @@ def create_bci(
     log_fn=print,
 ):
     """Download NHD flowlines (or use manual coordinates), determine boundary
-    points, and write BC.bci.
+    points, and write <AOI>.bci.
 
     When use_nhd=True the function downloads NHD flowlines, identifies the
     main river via stream order and DEM elevation, and derives the upstream /
@@ -343,12 +343,14 @@ def create_bci(
         ctx["downstream_x"] = float(manual_downstream_x)
         ctx["downstream_y"] = float(manual_downstream_y)
 
-    # ── Write BC.bci ──────────────────────────────────────────────────────────
-    # Use ``next_free_path`` so a re-run produces BC (1).bci, BC (2).bci …
-    # instead of overwriting the previous file.  The PAR step reads the
-    # actual filename from ctx and writes it into the .par file.
+    # ── Write <AOI name>.bci ────────────────────────────────────────────────────
+    # The .bci file is named after this AOI so each AOI's boundary file is
+    # uniquely identifiable.  ``next_free_path`` versions a re-run as
+    # "<AOI> (1).bci", "<AOI> (2).bci" … instead of overwriting the previous
+    # file.  The PAR step reads the actual filename from ctx and writes it
+    # into the .par file.
     from core.export import next_free_path
-    bci_path = next_free_path(lisflood_dir, "BC", "bci")
+    bci_path = next_free_path(lisflood_dir, aoi_name, "bci")
 
     if upstream_mode == "fixed_discharge":
         up_line = (
@@ -369,7 +371,7 @@ def create_bci(
         )
 
     bci_path.write_text(up_line + "\n" + dn_line + "\n", encoding="utf-8")
-    log_fn(f"BC.bci written: {bci_path}")
+    log_fn(f"{bci_path.name} written: {bci_path}")
 
     # ── Update context ────────────────────────────────────────────────────────
     ctx["upstream_mode"]        = upstream_mode
@@ -379,7 +381,9 @@ def create_bci(
     ctx["downstream_hfix"]      = downstream_hfix
     ctx["upstream_reach_id"]    = upstream_reach_id
     ctx["bci_path"]             = str(bci_path)
-    ctx["bdy_path"]             = str(lisflood_dir / "BC.bdy")
+    # Placeholder companion .bdy path (named after this AOI); the BDY step
+    # overwrites this with the real file once it runs.
+    ctx["bdy_path"]             = str(lisflood_dir / f"{aoi_name}.bdy")
     ctx["bci_written"]          = True
     save_context(ctx_path, ctx)
     return ctx

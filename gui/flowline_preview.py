@@ -97,7 +97,7 @@ class FlowlinePreviewCanvas(FigureCanvas):
         ax.set_aspect("equal", adjustable="datalim")
         ax.set_xticks([]); ax.set_yticks([])
         if title:
-            ax.set_title(title, fontsize=9, pad=3)
+            ax.set_title(title, fontsize=10, pad=3)
 
         # ── AOI polygon ───────────────────────────────────────────────────────
         try:

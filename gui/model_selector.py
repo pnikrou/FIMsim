@@ -29,7 +29,6 @@ _INPUT_MODES = [
 _MODEL_MODES = [
     {"title": "LISFLOOD-FP", "mode_key": "lisflood", "desc": "7-step wizard → .par .bci .bdy"},
     {"title": "TRITON",      "mode_key": "triton",   "desc": "7-step wizard → .cfg .extbc .hyg"},
-    {"title": "HEC-RAS",     "mode_key": "hecras",   "desc": "8-step wizard → geometry + mesh"},
 ]
 
 

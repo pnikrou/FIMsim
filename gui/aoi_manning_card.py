@@ -45,6 +45,10 @@ class AOIManningCard(QFrame):
         self._expanded = False
         self._build_ui()
         self._apply_collapsed_style()
+        # Show the panel's default selection (Varying · Sentinel-2 · latest
+        # year) as a preview on the collapsed card right away, so the user
+        # sees each AOI's defaults without having to open it.
+        self._refresh_status()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -92,7 +96,8 @@ class AOIManningCard(QFrame):
         outer.addLayout(header)
 
         # ── Embedded ManningConfigPanel (visible only when expanded) ──
-        # Starts with no Fixed/Varying selected — the user must pick.
+        # Defaults to Varying → Sentinel-2 → latest year (set inside the
+        # panel); the collapsed card previews that via _refresh_status().
         self._panel = ManningConfigPanel(self)
         self._panel.setVisible(False)
         self._panel.config_changed.connect(self._forward_config_changed)

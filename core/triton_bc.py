@@ -435,9 +435,12 @@ def prepare_triton_bc(
     project_dir  = Path(ctx["project_dir"])
     triton_dir   = Path(ctx["triton_dir"])
     project_name = ctx.get("project_name", "triton")
+    # Name the boundary files after this AOI (mirrors LISFLOOD's <AOI>.bci),
+    # so each AOI's TRITON input set is uniquely identifiable.
+    aoi_name     = ctx.get("aoi_name") or project_name
 
-    extbc_filename   = extbc_filename   or f"{project_name}.extbc"
-    src_loc_filename = src_loc_filename or f"{project_name}_inflow_loc.txt"
+    extbc_filename   = extbc_filename   or f"{aoi_name}.extbc"
+    src_loc_filename = src_loc_filename or f"{aoi_name}_inflow_loc.txt"
 
     # Copy stage files for type-1 entries + rewrite `value`
     processed = []

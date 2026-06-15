@@ -208,7 +208,6 @@ class StepManningWidget(QWidget):
         #   middle → LULC raster canvas            (~40 %)
         #   right  → Manning raster canvas          (~40 %)
         self._gb_preview = QGroupBox("LULC & Manning preview")
-        self._gb_preview.setStyleSheet("QGroupBox { font-weight:bold; }")
         self._gb_preview.setMinimumHeight(440)
         pv = QVBoxLayout(self._gb_preview)
         pv.setSpacing(6)
@@ -864,7 +863,7 @@ class StepManningWidget(QWidget):
         self._progress.setValue(100)
         # Match DEM step's wording so the two pages feel consistent.
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"Manning processed for {n} AOI(s)")
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
         self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
         self._build_results(ctx)

@@ -68,7 +68,7 @@ class LandingWidget(QWidget):
                 "Build a complete input package for a\n"
                 "supported 2D flood simulation model."
             ),
-            items=["LISFLOOD-FP", "TRITON", "HEC-RAS"],
+            items=["LISFLOOD-FP", "TRITON"],
             accent="#2b6cb0",
             bg="#ebf8ff",
             border="#90cdf4",

@@ -21,7 +21,7 @@ def create_project(base_dir: str, project_name: str,
     subdir_name : str or None
         Optional model-specific subfolder to create inside the project.
         Set to None or empty for "generic" mode (no model subfolder) — used
-        by the standalone DEM / LULC / HEC-RAS modes that organise output
+        by the standalone DEM / LULC modes that organise output
         per-AOI instead.
 
     Returns (ctx_path, ctx_dict).

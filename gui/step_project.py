@@ -22,7 +22,7 @@ class StepProjectWidget(QWidget):
         """
         model: "lisflood" → creates lisflood_files/ subfolder
                "triton"   → creates triton_files/ subfolder
-               "generic"  → no model-specific subfolder (used by DEM/LULC/HEC-RAS modes)
+               "generic"  → no model-specific subfolder (used by DEM/LULC modes)
         """
         super().__init__(parent)
         self._log = log_fn

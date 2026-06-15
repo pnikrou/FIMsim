@@ -54,13 +54,11 @@ class AOILulcCard(QFrame):
         "border-radius:6px; padding:6px; }"
     )
 
-    def __init__(self, aoi_name: str, parent=None, show_buffer: bool = False,
-                 hecras_mode: bool = False):
+    def __init__(self, aoi_name: str, parent=None, show_buffer: bool = False):
         super().__init__(parent)
         self.setObjectName("card")
         self._aoi_name = aoi_name
         self._show_buffer = show_buffer
-        self._hecras_mode = hecras_mode
         self._expanded = False
         self._build_ui()
         self.setStyleSheet(self.COLLAPSED_STYLE)
@@ -129,19 +127,12 @@ class AOILulcCard(QFrame):
             self._s2_year.addItem(y, y)
         form.addRow(self._s2_year_lbl, self._s2_year)
 
-        # LULC output format (hidden in HEC-RAS mode — always TIF)
+        # LULC output format
         self._fmt_lbl = QLabel("LULC output format:")
         self._fmt_combo = QComboBox()
         for lbl, val in _FMT_ITEMS:
             self._fmt_combo.addItem(lbl, val)
         form.addRow(self._fmt_lbl, self._fmt_combo)
-        if self._hecras_mode:
-            self._fmt_lbl.setVisible(False)
-            self._fmt_combo.setVisible(False)
-            # Force TIF
-            idx = self._fmt_combo.findData("tif")
-            if idx >= 0:
-                self._fmt_combo.setCurrentIndex(idx)
 
         # Cell size
         self._cell_spin = QDoubleSpinBox()
@@ -167,20 +158,6 @@ class AOILulcCard(QFrame):
             self._mn_fmt_combo.addItem(lbl, val)
         mn_fmt_form.addRow(self._mn_fmt_lbl, self._mn_fmt_combo)
         mn_layout.addLayout(mn_fmt_form)
-        if self._hecras_mode:
-            self._mn_fmt_lbl.setVisible(False)
-            self._mn_fmt_combo.setVisible(False)
-            # Force SHP — required by HEC-RAS RAS Mapper
-            idx = self._mn_fmt_combo.findData("shp")
-            if idx >= 0:
-                self._mn_fmt_combo.setCurrentIndex(idx)
-            hecras_note = QLabel(
-                "<small><i>Output: LULC → TIF (reference)  ·  "
-                "Manning → SHP (required by HEC-RAS RAS Mapper)</i></small>"
-            )
-            hecras_note.setStyleSheet("color:#718096;")
-            hecras_note.setWordWrap(True)
-            mn_layout.addWidget(hecras_note)
 
         info_lbl = QLabel(
             "<small><b>Manning's n table.</b>  Min/Max are reference bounds "

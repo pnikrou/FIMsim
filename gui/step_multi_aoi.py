@@ -134,10 +134,11 @@ class StepMultiAOIWidget(QWidget):
                                  str(mf / ("dem.asc" if is_triton else "dem.ascii")))
             self._ctx.setdefault("manning_ascii_path",
                                  str(mf / "lulc.ascii"))
+            # .bci / .bdy are named after the AOI by the BCI / BDY steps.
             self._ctx.setdefault("bci_path",
-                                 str(mf / "BC.bci"))
+                                 str(mf / f"{f0.name}.bci"))
             self._ctx.setdefault("bdy_path",
-                                 str(mf / "BC.bdy"))
+                                 str(mf / f"{f0.name}.bdy"))
             self._ctx.setdefault(
                 "par_path",
                 str(mf / f"{self._ctx.get('project_name', 'model')}.par"),

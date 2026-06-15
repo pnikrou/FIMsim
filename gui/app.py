@@ -32,7 +32,6 @@ from gui.step_triton_cfg     import StepTritonCfgWidget
 # ── Standalone mode widgets ──────────────────────────────────────────────────
 from gui.mode_dem            import ModeDEMWidget
 from gui.mode_lulc_manning   import ModeLULCManningWidget
-from gui.mode_hecras         import ModeHECRASWidget
 from gui.mode_flowline       import ModeFlowlineWidget
 from gui.mode_streamflow     import ModeStreamflowWidget
 
@@ -42,10 +41,9 @@ _PAGE_SELECTOR     = 0
 _PAGE_DEM          = 1
 _PAGE_LULC_MANNING = 2
 _PAGE_FLOWLINE     = 3
-_PAGE_HECRAS       = 4
-_PAGE_LISFLOOD     = 5
-_PAGE_TRITON       = 6
-_PAGE_STREAMFLOW   = 7
+_PAGE_LISFLOOD     = 4
+_PAGE_TRITON       = 5
+_PAGE_STREAMFLOW   = 6
 
 
 class MainWindow(QMainWindow):
@@ -109,23 +107,18 @@ class MainWindow(QMainWindow):
         self._mode_flowline.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_flowline)          # index 3
 
-        # ── Page 4: HEC-RAS standalone mode ──────────────────────────────────
-        self._mode_hecras = ModeHECRASWidget(log_fn)
-        self._mode_hecras.mode_finished.connect(self._go_to_selector)
-        self._stack.addWidget(self._mode_hecras)            # index 4
-
-        # ── Page 5: LISFLOOD-FP tabs ──────────────────────────────────────────
+        # ── Page 4: LISFLOOD-FP tabs ──────────────────────────────────────────
         self._lfp_tabs, self._lfp_steps = self._build_lisflood_tabs(log_fn)
-        self._stack.addWidget(self._lfp_tabs)               # index 5
+        self._stack.addWidget(self._lfp_tabs)               # index 4
 
-        # ── Page 6: TRITON tabs ───────────────────────────────────────────────
+        # ── Page 5: TRITON tabs ───────────────────────────────────────────────
         self._triton_tabs, self._triton_steps = self._build_triton_tabs(log_fn)
-        self._stack.addWidget(self._triton_tabs)            # index 6
+        self._stack.addWidget(self._triton_tabs)            # index 5
 
-        # ── Page 7: Streamflow Data standalone mode ───────────────────────────
+        # ── Page 6: Streamflow Data standalone mode ───────────────────────────
         self._mode_streamflow = ModeStreamflowWidget(log_fn)
         self._mode_streamflow.mode_finished.connect(self._go_to_selector)
-        self._stack.addWidget(self._mode_streamflow)        # index 7
+        self._stack.addWidget(self._mode_streamflow)        # index 6
 
         splitter.addWidget(self._stack)
         splitter.addWidget(self._log_panel)
@@ -270,7 +263,6 @@ class MainWindow(QMainWindow):
         "dem":          _PAGE_DEM,
         "lulc_manning": _PAGE_LULC_MANNING,
         "flowline":     _PAGE_FLOWLINE,
-        "hecras":       _PAGE_HECRAS,
         "lisflood":     _PAGE_LISFLOOD,
         "triton":       _PAGE_TRITON,
         "streamflow":   _PAGE_STREAMFLOW,
@@ -282,8 +274,6 @@ class MainWindow(QMainWindow):
                          "Prepare LULC and Manning's n for one or more AOIs"),
         "flowline":     ("Flowline",
                          "NHD flowlines, USGS gages, and feature IDs per AOI"),
-        "hecras":       ("HEC-RAS Files",
-                         "Prepare DEM, Manning, flowline and geometry files for HEC-RAS"),
         "lisflood":     ("LISFLOOD-FP",
                          "Prepare all input files for a LISFLOOD-FP flood simulation"),
         "triton":       ("TRITON",
@@ -329,7 +319,7 @@ class MainWindow(QMainWindow):
     def _go_to_selector(self):
         """Return from a mode back to the category model-selector page."""
         for w in (self._mode_dem, self._mode_lulc, self._mode_flowline,
-                  self._mode_hecras, self._mode_streamflow):
+                  self._mode_streamflow):
             try:
                 w.nav_changed.disconnect()
             except Exception:
@@ -361,8 +351,6 @@ class MainWindow(QMainWindow):
             self._mode_lulc.reset()
         elif mode == "flowline":
             self._mode_flowline.reset()
-        elif mode == "hecras":
-            self._mode_hecras.reset()
         elif mode == "streamflow":
             self._mode_streamflow.reset()
         elif mode == "lisflood":
@@ -417,7 +405,6 @@ class MainWindow(QMainWindow):
             "dem":          self._mode_dem,
             "lulc_manning": self._mode_lulc,
             "flowline":     self._mode_flowline,
-            "hecras":       self._mode_hecras,
             "streamflow":   self._mode_streamflow,
         }.get(mode)
 
@@ -447,7 +434,7 @@ class MainWindow(QMainWindow):
         on_selector = (self._stack.currentIndex() == _PAGE_SELECTOR)
         is_tab_mode = self._active_model in ("lisflood", "triton") and tabs is not None
         is_standalone = self._active_model in (
-            "dem", "lulc_manning", "flowline", "hecras", "streamflow"
+            "dem", "lulc_manning", "flowline", "streamflow"
         )
         show_nav = not on_selector
         self._prev_btn.setVisible(show_nav and (is_tab_mode or is_standalone))
@@ -560,8 +547,7 @@ class MainWindow(QMainWindow):
         for w in (self._triton_steps or []):
             yield w
         for w in (self._mode_dem, self._mode_lulc,
-                  self._mode_flowline, self._mode_hecras,
-                  self._mode_streamflow):
+                  self._mode_flowline, self._mode_streamflow):
             if w is not None:
                 yield w
 

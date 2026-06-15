@@ -1,4 +1,4 @@
-"""Step 5 — Boundary Conditions (BC.bci) — LISFLOOD-FP.
+"""Step 5 — Boundary Conditions (<AOI>.bci) — LISFLOOD-FP.
 
 Controller that picks the right layout for the BCI step:
 
@@ -21,6 +21,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 
 from core.bci import create_bci
 from core.orchestrate import run_lisflood_bci_for_all_aois
+from core.multi_aoi import model_files_subdir
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
 from gui.bci_config_panel import BCIConfigPanel
@@ -118,7 +119,7 @@ class StepBCIWidget(QWidget):
         single_page = QWidget()
         sp_layout = QVBoxLayout(single_page)
         sp_layout.setContentsMargins(0, 0, 0, 0)
-        gb = QGroupBox("5. Boundary Conditions (BC.bci)")
+        gb = QGroupBox("5. Boundary Conditions (<AOI>.bci)")
         gb_layout = QVBoxLayout(gb)
         self._single_panel = BCIConfigPanel(self)
         self._single_panel.config_changed.connect(self._on_single_config_changed)
@@ -161,7 +162,7 @@ class StepBCIWidget(QWidget):
 
         # Run button + progress + status
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("Write BC.bci")
+        self._run_btn = QPushButton("Write .bci file(s)")
         self._run_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
             "color:white; border-radius:4px;"
@@ -380,12 +381,14 @@ class StepBCIWidget(QWidget):
                 return
             self._run_single()
         else:
-            # Multi-AOI: warn for each AOI's BC.bci
+            # Multi-AOI: warn for each AOI's "<AOI>.bci" (in its lisflood-files)
             check = []
             for f in self._aoi_features:
                 folder = f.get("folder_path", "")
-                if folder:
-                    check.append(str(Path(folder) / "BC.bci"))
+                aoi_name = f.get("folder_name") or f.get("name", "")
+                if folder and aoi_name:
+                    mf_dir = model_files_subdir(folder, is_triton=False)
+                    check.append(str(Path(mf_dir) / f"{aoi_name}.bci"))
             if not confirm_overwrite(self, check, "BCI"):
                 set_ready(self._run_btn)
                 self._progress.setVisible(False)
@@ -397,7 +400,7 @@ class StepBCIWidget(QWidget):
         kw = self._build_create_bci_kwargs(cfg)
         kw.update(ctx_path=self._ctx_path, ctx=self._ctx)
 
-        self._status_lbl.setText("Preparing BC.bci…")
+        self._status_lbl.setText("Preparing .bci…")
         self._status_lbl.setVisible(True)
 
         self._worker = Worker(create_bci, **kw)
@@ -410,7 +413,7 @@ class StepBCIWidget(QWidget):
         per_aoi = [self._build_create_bci_kwargs(c.get_config())
                    for c in self._cards]
         self._status_lbl.setText(
-            f"Preparing BC.bci for {len(self._aoi_features)} AOI(s)…"
+            f"Preparing .bci for {len(self._aoi_features)} AOI(s)…"
         )
         self._status_lbl.setVisible(True)
         self._worker = Worker(
@@ -480,7 +483,7 @@ class StepBCIWidget(QWidget):
             self._progress.setValue(50)
         elif "main river" in ml:
             self._progress.setValue(70)
-        elif "bc.bci written" in ml:
+        elif ".bci written" in ml:
             self._progress.setValue(95)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -630,9 +633,8 @@ class StepBCIWidget(QWidget):
         self._error_lbl.setVisible(False)
         self._ctx = ctx
         self._progress.setValue(100)
-        # Match DEM / Manning wording.
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"BCI processed for {n} AOI(s)")
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
         self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
         self._build_results(ctx)

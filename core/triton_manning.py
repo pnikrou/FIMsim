@@ -437,7 +437,9 @@ def prepare_triton_manning(
     mapping = lulc_class_to_n or LULC_TO_N
     manning_tif_path = project_dir / f"ManningN_{aoi_name}.tif"
     lulc_tif_path = None
-    friction_asc_path = triton_dir / "friction.asc"
+    # TRITON friction raster is named after this AOI (the .cfg's n_infile
+    # references it), e.g. "<AOI>.asc" — consistent with the sample inputs.
+    friction_asc_path = triton_dir / f"{aoi_name}.asc"
 
     if lulc_source == "user_manning":
         # User supplies a ready-made Manning raster
@@ -555,9 +557,9 @@ def prepare_triton_manning(
     # Write headerless ASCII friction file for TRITON.
     # Nodata cells (outside AOI) are filled with nearest-neighbour before writing —
     # TRITON has no nodata mechanism for this file; every cell must be a valid n.
-    log_fn(f"Writing headerless friction.asc (filling any nodata cells)…")
+    log_fn(f"Writing headerless {friction_asc_path.name} (filling any nodata cells)…")
     _write_headerless_ascii(manning_tif_path, friction_asc_path)
-    log_fn(f"friction.asc written: {friction_asc_path}")
+    log_fn(f"{friction_asc_path.name} written: {friction_asc_path}")
 
     # Update context
     ctx["triton_fric_mode"] = "varying"

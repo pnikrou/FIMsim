@@ -167,22 +167,11 @@ def _check_flow_coverage(df_flow, start_dt, end_dt, interval_hours, source_name,
     if dts.dt.tz is not None:
         dts = dts.dt.tz_convert(None)
 
-    actual_start = dts.min()
-    actual_end   = dts.max()
-
-    if (actual_start - start_ts) > gap_thr:
-        hrs = round((actual_start - start_ts).total_seconds() / 3600, 1)
-        w = (f"{source_name}: data starts at {actual_start.strftime('%Y-%m-%d %H:%M')} — "
-             f"first {hrs}h of the requested window has no data "
-             f"(requested from {start_ts.strftime('%Y-%m-%d')}).")
-        warns.append(w); log_fn(f"  ⚠ WARNING: {w}")
-
-    if (end_ts - actual_end) > gap_thr:
-        hrs = round((end_ts - actual_end).total_seconds() / 3600, 1)
-        w = (f"{source_name}: data ends at {actual_end.strftime('%Y-%m-%d %H:%M')} — "
-             f"last {hrs}h of the requested window has no data "
-             f"(requested until {end_ts.strftime('%Y-%m-%d')}).")
-        warns.append(w); log_fn(f"  ⚠ WARNING: {w}")
+    # NOTE: a record that simply starts/ends later than the requested window
+    # is NOT "missing data" — the gage's period of record just begins later,
+    # and the BDY file is trimmed to start at the first available timestamp.
+    # We therefore do NOT warn about the leading/trailing offset here (that
+    # would duplicate the trim notice).  Only genuine internal gaps below.
 
     # Internal gaps: compare actual row count vs expected
     expected_n = max(1, round((end_ts - start_ts).total_seconds() / 3600 / float(interval_hours))) + 1
@@ -455,15 +444,17 @@ def create_bdy(ctx_path, ctx: dict,
                gap_handling: str = "interpolate",  # "interpolate" | "as_is"
                gage_id: str = None,                # USGS source only
                log_fn=print):
-    """Create BC.bdy file.  Returns updated ctx."""
+    """Create the <AOI>.bdy file.  Returns updated ctx."""
 
     project_dir = Path(ctx["project_dir"])
     lisflood_dir = Path(ctx["lisflood_dir"])
     project_name = ctx["project_name"]
-    # Use ``next_free_path`` so a re-run produces BC (1).bdy, BC (2).bdy
-    # … instead of overwriting.
+    # Name the .bdy file after this AOI so each AOI's boundary file is
+    # uniquely identifiable.  ``next_free_path`` versions a re-run as
+    # "<AOI> (1).bdy", "<AOI> (2).bdy" … instead of overwriting.
+    aoi_name = ctx.get("aoi_name") or project_name
     from core.export import next_free_path
-    bdy_path = next_free_path(lisflood_dir, "BC", "bdy")
+    bdy_path = next_free_path(lisflood_dir, aoi_name, "bdy")
     upstream_mode = ctx.get("upstream_mode")
     upstream_reach_id = ctx.get("upstream_reach_id")
 
@@ -713,17 +704,20 @@ def create_bdy(ctx_path, ctx: dict,
         df_flow  = _resample_to_interval(ser, start_ts, end_ts, interval_hours)
         _bdy_warns = ctx.get("bdy_warnings", [])
         df_flow, trim_warns = _trim_nan_boundaries(df_flow, f"USGS gage {gage_id}", log_fn)
-        _bdy_warns.extend(trim_warns)
         if df_flow.empty:
             ctx["bdy_warnings"] = _bdy_warns
             raise RuntimeError(
                 f"USGS gage {gage_id}: no valid discharge data for the entire requested "
                 f"period ({start_dt} → {end_dt}). Cannot write BDY file."
             )
-        _bdy_warns.extend(
-            _check_flow_coverage(df_flow, start_dt, end_dt,
-                                 interval_hours, f"USGS gage {gage_id}", log_fn)
-        )
+        cov_warns = _check_flow_coverage(df_flow, start_dt, end_dt,
+                                         interval_hours, f"USGS gage {gage_id}", log_fn)
+        # A record that merely starts/ends later than requested is normal —
+        # only surface the leading/trailing trim notice when there are ALSO
+        # genuine internal gaps (otherwise no data is actually "missing").
+        if cov_warns:
+            _bdy_warns.extend(trim_warns)
+            _bdy_warns.extend(cov_warns)
         ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
@@ -753,17 +747,19 @@ def create_bdy(ctx_path, ctx: dict,
             src_label = "NWM"
         _bdy_warns = ctx.get("bdy_warnings", [])
         df_flow, trim_warns = _trim_nan_boundaries(df_flow, src_label, log_fn)
-        _bdy_warns.extend(trim_warns)
         if df_flow.empty:
             ctx["bdy_warnings"] = _bdy_warns
             raise RuntimeError(
                 f"{src_label}: no valid discharge data for the requested period "
                 f"({start_dt} → {end_dt}). Cannot write BDY file."
             )
-        _bdy_warns.extend(
-            _check_flow_coverage(df_flow, start_dt, end_dt,
-                                 interval_hours, src_label, log_fn)
-        )
+        cov_warns = _check_flow_coverage(df_flow, start_dt, end_dt,
+                                         interval_hours, src_label, log_fn)
+        # Only surface the leading/trailing trim notice when there are ALSO
+        # genuine internal gaps (a later record start/end is not missing data).
+        if cov_warns:
+            _bdy_warns.extend(trim_warns)
+            _bdy_warns.extend(cov_warns)
         ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"

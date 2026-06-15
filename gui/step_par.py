@@ -179,7 +179,6 @@ class StepPARWidget(QWidget):
 
         # PAR file content preview
         self._gb_preview = QGroupBox("PAR file preview")
-        self._gb_preview.setStyleSheet("QGroupBox { font-weight:bold; }")
         pv = QVBoxLayout(self._gb_preview)
         self._preview_placeholder = QLabel(
             "<i>Click an AOI above to view its PAR file content.</i>"

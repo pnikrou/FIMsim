@@ -3,7 +3,7 @@
 Renders the AOI polygon, the main-river flowline (when available), and
 two stars marking the upstream + downstream boundary points.  Used by
 step_bci to give the user a visual confirmation of what was written
-into ``BC.bci`` for each AOI.
+into ``<AOI>.bci`` for each AOI.
 """
 from typing import Optional, Tuple
 

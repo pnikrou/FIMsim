@@ -2,7 +2,7 @@
 
 Columns: Code | Class Name | Min n | Max n | Avg n (editable, clamped to [min,max])
 
-Used by both standalone modes (LULC/Manning, HEC-RAS) and the LISFLOOD/TRITON
+Used by the standalone LULC/Manning mode and the LISFLOOD/TRITON
 Manning steps.  Accepts either the NLCD or Sentinel-2 mapping dict from
 core/nlcd.py.
 """

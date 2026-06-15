@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 
 from core.bdy import create_bdy, check_csv_gaps
+from core.multi_aoi import model_files_subdir
 from core.orchestrate import run_lisflood_bdy_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
@@ -123,7 +124,7 @@ class StepBDYWidget(QWidget):
         single_page = QWidget()
         sp_layout = QVBoxLayout(single_page)
         sp_layout.setContentsMargins(0, 0, 0, 0)
-        gb = QGroupBox("6. Hydrograph / Boundary Conditions Time Series (BC.bdy)")
+        gb = QGroupBox("6. Hydrograph / Boundary Conditions Time Series (<AOI>.bdy)")
         gb_layout = QVBoxLayout(gb)
         self._single_panel = BDYConfigPanel(self)
         self._single_panel.config_changed.connect(self._on_single_config_changed)
@@ -424,8 +425,10 @@ class StepBDYWidget(QWidget):
             check = []
             for f in self._aoi_features:
                 folder = f.get("folder_path", "")
-                if folder:
-                    check.append(str(Path(folder) / "BC.bdy"))
+                aoi_name = f.get("folder_name") or f.get("name", "")
+                if folder and aoi_name:
+                    mf_dir = model_files_subdir(folder, is_triton=False)
+                    check.append(str(Path(mf_dir) / f"{aoi_name}.bdy"))
             if not confirm_overwrite(self, check, "BDY"):
                 return
             self._run_multi()
@@ -652,10 +655,9 @@ class StepBDYWidget(QWidget):
                 src = entry.get("bdy_source", "")
                 src_display = self._SRC_DISPLAY.get(src, src or "—")
                 reach_id = entry.get("upstream_reach_id") or ""
-                if reach_id and src in self._NWM_SRCS:
-                    btn_label = f"  {name}  (Feature ID: {reach_id})"
-                else:
-                    btn_label = f"  {name}"
+                # Line 1 is always just the AOI name; the Feature ID (NWM)
+                # goes on the second line beside the source explanation.
+                btn_label = f"  {name}"
                 btn = QPushButton(btn_label)
                 btn.setStyleSheet(
                     "QPushButton { text-align:left; background:transparent; "
@@ -668,7 +670,11 @@ class StepBDYWidget(QWidget):
                 )
                 rl.addWidget(btn)
 
-                detail_lbl = QLabel(src_display)
+                if reach_id and src in self._NWM_SRCS:
+                    detail_text = f"{src_display}. Feature ID: {reach_id}"
+                else:
+                    detail_text = src_display
+                detail_lbl = QLabel(detail_text)
                 detail_lbl.setStyleSheet(
                     "color:#718096; font-size:11px; padding-left:4px;"
                 )

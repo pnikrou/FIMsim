@@ -1,11 +1,11 @@
 """No-op overwrite check — kept as a stub so existing call sites can stay.
 
-The app no longer prompts the user before replacing files that the
-model expects at fixed names (``dem.ascii``, ``lulc.ascii``, ``BC.bci``,
-``BC.bdy``, ``<project>.par``).  Those files MUST be named exactly that
-way for LISFLOOD-FP / TRITON to find them, so a "save as name (1)" path
-would break the model.  The user is intentionally re-running the step,
-so we silently replace.
+The app no longer prompts the user before replacing the model input
+files (``dem.ascii``, ``lulc.ascii``, ``<AOI>.bci``, ``<AOI>.bdy``,
+``<project>.par``).  The .par file references its companion ``.bci`` /
+``.bdy`` by their actual (AOI-named) filenames, so re-running a step
+simply replaces that AOI's file.  The user is intentionally re-running
+the step, so we silently replace.
 
 Intermediate GeoTIFFs (``DEM_<aoi>.tif``, ``LULC_<aoi>.tif``,
 ``ManningN_<aoi>.tif`` …) already auto-rename to ``name (1).tif``,

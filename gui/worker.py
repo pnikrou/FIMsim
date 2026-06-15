@@ -46,6 +46,16 @@ class Worker(QThread):
     error = pyqtSignal(str)
     cancelled = pyqtSignal()
 
+    # Class-level registry of started-but-not-yet-finished workers.  A QThread
+    # that is garbage-collected while it is still running makes Qt call
+    # ``qFatal()`` → ``abort()`` (the "QThread: Destroyed while thread is still
+    # running" crash).  Call sites routinely reassign their worker attribute
+    # (e.g. the AOI panel re-spawns river/HUC/gage lookups each time a feature
+    # is selected), which would drop the only reference to a still-running
+    # thread.  Keeping every live worker in this set guarantees it stays
+    # referenced until its own ``run()`` has returned.
+    _alive = set()
+
     def __init__(self, fn, **kwargs):
         super().__init__()
         self._fn = fn
@@ -70,6 +80,33 @@ class Worker(QThread):
             raise WorkerCancelled("Worker cancelled by user.")
         self.message.emit(str(msg))
 
+    # ── Lifetime management ──────────────────────────────────────────────
+    def start(self, *args, **kwargs):
+        """Register this worker as alive before starting so it cannot be
+        garbage-collected while its thread is running."""
+        Worker._alive.add(self)
+        # Reap once the thread body has returned (any terminal signal fires
+        # as the last statement of ``run()``).  Use a UniqueConnection-safe
+        # single hookup by connecting here, where ``start`` runs exactly once.
+        self.finished.connect(self._reap)
+        self.error.connect(self._reap)
+        self.cancelled.connect(self._reap)
+        super().start(*args, **kwargs)
+
+    def _reap(self, *args):
+        """Drop the registry reference once the thread has fully stopped.
+
+        The terminal signal is emitted as the final statement of ``run()``,
+        so ``wait()`` here returns almost immediately and guarantees the
+        underlying thread is no longer running before we allow GC.
+        """
+        try:
+            self.wait(5000)
+        except Exception:
+            pass
+        Worker._alive.discard(self)
+
+    # ── Thread body ─────────────────────────────────────────────────────
     def run(self):
         try:
             kw = dict(self._kwargs)

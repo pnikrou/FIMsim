@@ -1,7 +1,7 @@
 """Lightweight matplotlib canvas that plots one AOI's BDY hydrograph.
 
 Reads the helper CSV (datetime, discharge_cms) that core/bdy.py writes
-alongside each AOI's BC.bdy file, and draws a simple discharge-vs-time
+alongside each AOI's <AOI>.bdy file, and draws a simple discharge-vs-time
 line plot.  Used by step_bdy after the run completes.
 """
 from typing import Optional

@@ -114,7 +114,7 @@ class RasterPreviewCanvas(FigureCanvas):
         im = ax.imshow(arr, extent=extent, cmap=cmap_obj, origin="upper")
         ax.set_xticks([]); ax.set_yticks([])
         if title:
-            ax.set_title(title, fontsize=8, pad=3)
+            ax.set_title(title, fontsize=10, pad=3)
 
         if colorbar_location == "bottom":
             cbar = self._fig.colorbar(

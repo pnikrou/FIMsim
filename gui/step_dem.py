@@ -630,8 +630,8 @@ class StepDEMWidget(QWidget):
         self._error_lbl.setVisible(False)
         self._ctx = ctx
         self._progress.setValue(100)
-        n = len(self._features)
-        self._status_lbl.setText(f"DEM processed for {n} AOI(s)")
+        n = max(len(self._features), 1)
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
         self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
         self._build_results(ctx)

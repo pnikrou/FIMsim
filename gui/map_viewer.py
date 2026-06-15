@@ -250,7 +250,7 @@ class USMapCanvas(FigureCanvasQTAgg):
                 my = (maxy - miny) * 0.10 or 0.01
                 ax_close.set_xlim(minx - mx, maxx + mx)
                 ax_close.set_ylim(miny - my, maxy + my)
-                ax_close.set_title(river_title, fontsize=8)
+                ax_close.set_title(river_title, fontsize=10)
             except Exception as ex:
                 ax_close.text(0.5, 0.5, f"AOI close-up failed:\n{ex}",
                               ha="center", va="center",

@@ -329,7 +329,9 @@ def prepare_triton_hydro(
     if end_ts <= start_ts:
         raise ValueError("end_dt must be after start_dt.")
 
-    hyg_filename = hyg_filename or f"{project_name}.hyg"
+    # Name the hydrograph after this AOI (mirrors LISFLOOD's <AOI>.bdy).
+    aoi_name     = ctx.get("aoi_name") or project_name
+    hyg_filename = hyg_filename or f"{aoi_name}.hyg"
     hyg_path     = triton_dir / hyg_filename
 
     # ── build df_flow for this source ─────────────────────────────────────────
@@ -448,7 +450,8 @@ def finalize_hyg(ctx_path, ctx):
     """
     triton_dir   = Path(ctx["triton_dir"])
     project_name = ctx.get("project_name", "triton")
-    hyg_filename = ctx.get("triton_hyg_filename") or f"{project_name}.hyg"
+    aoi_name     = ctx.get("aoi_name") or project_name
+    hyg_filename = ctx.get("triton_hyg_filename") or f"{aoi_name}.hyg"
     hyg_path     = triton_dir / hyg_filename
     return _finalize_hyg_from_pending(ctx_path, ctx, hyg_path, print)
 
