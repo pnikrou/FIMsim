@@ -37,6 +37,8 @@ def create_par(ctx_path, ctx: dict,
                use_hazard: bool = False,
                use_mint_hk: bool = True,
                use_qoutput: bool = False,
+               # SGC --------------------------------------------------------------
+               sgc_enable: bool = True,
                # Extra ------------------------------------------------------------
                extra_lines: list = None,
                log_fn=print):
@@ -219,6 +221,10 @@ def create_par(ctx_path, ctx: dict,
     if use_overpass and overpass_time is not None:
         lines.append(f"overpass        {overpass_time}")
 
+    # Sub-grid channel
+    if sgc_enable:
+        lines += ["", "sgc_enable"]
+
     # Extra user keywords
     if extra_lines:
         lines += ["", "# Extra user-specified keywords"] + list(extra_lines)
@@ -251,6 +257,7 @@ def create_par(ctx_path, ctx: dict,
     ctx["par_use_hazard"]      = use_hazard
     ctx["par_use_mint_hk"]     = use_mint_hk
     ctx["par_use_qoutput"]     = use_qoutput
+    ctx["par_sgc_enable"]      = sgc_enable
     ctx["par_routing_speed"]   = routing_speed
     ctx["par_routesfthresh"]   = routesfthresh
     ctx["par_depththresh"]     = depththresh

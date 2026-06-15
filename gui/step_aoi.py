@@ -134,12 +134,12 @@ class StepAOIWidget(QWidget):
         self._run_btn.clicked.connect(self._run_step)
 
     def _browse_aoi(self):
-        f, _ = QFileDialog.getOpenFileName(
+        files, _ = QFileDialog.getOpenFileNames(
             self, "Select AOI file", "",
             "AOI files (*.shp *.gpkg);;Shapefile (*.shp);;GeoPackage (*.gpkg)"
         )
-        if f:
-            self._aoi_edit.setText(f)
+        if files:
+            self._aoi_edit.setText(files[0])
 
     def _run_step(self):
         if not self._ctx_path or not self._ctx:

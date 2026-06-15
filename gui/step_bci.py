@@ -70,7 +70,7 @@ class StepBCIWidget(QWidget):
         self._clear_cards()
         self._clear_results()
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
+
         self._progress.setValue(0)
         self._progress.setVisible(False)
         self._status_lbl.setVisible(False)
@@ -183,8 +183,7 @@ class StepBCIWidget(QWidget):
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
         self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#ebf8ff; border:1px solid #90cdf4; "
-            "border-radius:4px; color:#2c5282; font-weight:bold; font-size:12px;"
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._status_lbl.setVisible(False)
         layout.addWidget(self._status_lbl)
@@ -197,15 +196,6 @@ class StepBCIWidget(QWidget):
         )
         self._error_lbl.setVisible(False)
         layout.addWidget(self._error_lbl)
-
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; font-size:12px;"
-        )
-        self._report.setVisible(False)
-        layout.addWidget(self._report)
 
         # ── Post-run results: clickable AOI list + BCI preview map ──────
         # Same look as DEM / Manning steps.
@@ -279,6 +269,7 @@ class StepBCIWidget(QWidget):
             card = AOIBCICard(feat.get("name", "(unnamed)"), self)
             card.expand_requested.connect(self._on_expand_requested)
             card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
             # Push AOI source-file info so the panel's CRS hint can read it.
             try:
                 card.panel().set_aoi_path(
@@ -294,6 +285,35 @@ class StepBCIWidget(QWidget):
         # Re-evaluate buttons (cards start with no detection selected, so
         # the global Run button stays hidden until every card is ready).
         self._on_card_config_changed(None)
+
+    def _on_remove_requested(self, card):
+        from PyQt6.QtWidgets import QMessageBox
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = self._aoi_features[idx].get("name", f"AOI {idx+1}") if idx < len(self._aoi_features) else "this AOI"
+        reply = QMessageBox.question(
+            self, "Remove AOI",
+            f"Remove <b>{aoi_name}</b> from this step?\n\n"
+            "The AOI's data folder is NOT deleted — only removed from the current run.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Remove from both lists
+        self._cards.pop(idx)
+        if idx < len(self._aoi_features):
+            self._aoi_features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        # Re-evaluate run button + apply-all button
+        self._on_card_config_changed(None)
+        # If only 1 AOI left, show count label
+        n = len(self._aoi_features)
+        if hasattr(self, '_aoi_count_lbl'):
+            self._aoi_count_lbl.setText(
+                f"<b>{n}</b> AOI(s) remaining — configure each below."
+            )
 
     # ── accordion behaviour ───────────────────────────────────────────────────
 
@@ -347,7 +367,7 @@ class StepBCIWidget(QWidget):
         from gui.overwrite_check import confirm_overwrite
 
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
+
         self._progress.setValue(0)
         self._progress.setVisible(True)
         set_running(self._run_btn)
@@ -478,7 +498,7 @@ class StepBCIWidget(QWidget):
         if hasattr(self, "_results_gb"):
             self._results_gb.setVisible(False)
         if hasattr(self, "_gb_preview"):
-            self._gb_preview.setVisible(False)
+            self._gb_preview.setVisible(True)
             self._bci_preview.setVisible(False)
             self._preview_placeholder.setVisible(True)
             self._bci_preview.clear()
@@ -613,15 +633,8 @@ class StepBCIWidget(QWidget):
         # Match DEM / Manning wording.
         n = max(len(self._aoi_features), 1)
         self._status_lbl.setText(f"BCI processed for {n} AOI(s)")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; color:#276749; font-weight:bold; font-size:12px;"
-        )
         self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
-        self._show_report(ctx)
         self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
@@ -636,67 +649,3 @@ class StepBCIWidget(QWidget):
         )
         self._error_lbl.setVisible(True)
 
-    def _show_report(self, ctx):
-        per_aoi = ctx.get("bci_per_aoi", [])
-        if per_aoi:
-            rows = ""
-            for entry in per_aoi:
-                up = ("QFIX" if entry.get("upstream_mode") == "fixed_discharge"
-                      else "QVAR")
-                dn = entry.get("downstream_type", "")
-                river = entry.get("river") or ""
-                rows += (
-                    f"&nbsp;&nbsp;• <b>{entry['name']}</b>: "
-                    f"Up={up}, Down={dn}"
-                    + (f", River: {river}" if river else "")
-                    + f" → <code>{entry.get('bci_path', '?')}</code><br>"
-                )
-            self._report.setText(
-                f"<b>BC.bci file(s) prepared successfully.</b><br><br>"
-                f"<b>Per-AOI outputs:</b><br>{rows}"
-            )
-            self._report.setVisible(True)
-            return
-
-        # Single-AOI report (preserves the old detailed view)
-        lisflood_dir  = ctx.get("lisflood_dir", "")
-        project_dir   = ctx.get("project_dir", "")
-        upstream_mode = ctx.get("upstream_mode", "")
-        dn_type       = ctx.get("downstream_type", "")
-        bci_path      = ctx.get("bci_path", str(Path(lisflood_dir) / "BC.bci"))
-        up_x          = ctx.get("upstream_x", "")
-        up_y          = ctx.get("upstream_y", "")
-        dn_x          = ctx.get("downstream_x", "")
-        dn_y          = ctx.get("downstream_y", "")
-        river_name    = ctx.get("main_river_name", "")
-        if river_name:
-            reach_id   = ctx.get("upstream_reach_id", "n/a")
-            nhd_path   = ctx.get("flowlines_path", "")
-            river_path = str(Path(project_dir) / "main_river_line.gpkg")
-            detect_line = (
-                f"<b>River:</b> {river_name}  (NWM reach ID: {reach_id})<br>"
-                f"<b>NHD flowlines:</b> {nhd_path}<br>"
-                f"<b>Main river line:</b> {river_path}<br>"
-            )
-        else:
-            detect_line = (
-                f"<b>Mode:</b> Manual coordinates<br>"
-                f"<b>Upstream (X, Y):</b> {up_x}, {up_y}<br>"
-                f"<b>Downstream (X, Y):</b> {dn_x}, {dn_y}<br>"
-            )
-
-        if upstream_mode == "fixed_discharge":
-            q_val = ctx.get("fixed_discharge_cms", "")
-            up_line = f"<b>Upstream:</b> Fixed discharge ({q_val} m³/s)<br>"
-        else:
-            up_line = "<b>Upstream:</b> Varying discharge (QVAR)<br>"
-
-        html = (
-            "<b>BC.bci file(s) prepared successfully.</b><br><br>"
-            + detect_line
-            + up_line
-            + f"<b>Downstream:</b> {dn_type}<br>"
-            + f"<b>BC.bci saved:</b> {bci_path}"
-        )
-        self._report.setText(html)
-        self._report.setVisible(True)

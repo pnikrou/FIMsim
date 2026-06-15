@@ -57,7 +57,7 @@ class _AOIFileBlock(QFrame):
     """One row in the AOI list — has a collapsed and an expanded layout."""
 
     file_changed     = pyqtSignal()             # selection or load changed
-    add_requested    = pyqtSignal(object)       # block ref — clicked Add another
+    add_requested    = pyqtSignal(object, list)  # block ref, extra paths to auto-load
     remove_requested = pyqtSignal(object)       # block ref
     expand_requested = pyqtSignal(object)       # block ref — Edit on collapsed
 
@@ -147,7 +147,7 @@ class _AOIFileBlock(QFrame):
         add_btn.setStyleSheet(
             "background:#2b6cb0; color:white; padding:4px 12px; border-radius:3px;"
         )
-        add_btn.clicked.connect(lambda: self.add_requested.emit(self))
+        add_btn.clicked.connect(lambda: self.add_requested.emit(self, []))
         row.addWidget(QLabel("AOI file:"))
         row.addWidget(self._path_edit)
         row.addWidget(browse)
@@ -253,12 +253,15 @@ class _AOIFileBlock(QFrame):
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _browse(self):
-        f, _ = QFileDialog.getOpenFileName(
-            self, "Select AOI file", "",
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select AOI file(s)", "",
             "AOI files (*.shp *.gpkg);;Shapefile (*.shp);;GeoPackage (*.gpkg)"
         )
-        if f:
-            self.load_file(f)
+        if not files:
+            return
+        self.load_file(files[0])
+        if len(files) > 1:
+            self.add_requested.emit(self, files[1:])
 
     def _populate_table(self):
         self._table.setRowCount(len(self._features))
@@ -556,7 +559,7 @@ class MultiAOIWidget(QWidget):
 
     # ── block management ──────────────────────────────────────────────────────
 
-    def _add_block(self, _from_block=None):
+    def _add_block(self, _from_block=None, pending_files=None):
         # Collapse all currently-expanded blocks (only one stays expanded)
         for b in self._blocks:
             if not b.is_collapsed():
@@ -570,6 +573,13 @@ class MultiAOIWidget(QWidget):
         # Insert at the TOP so newest is at top
         self._blocks_layout.insertWidget(0, block)
         self._blocks.append(block)
+
+        if pending_files:
+            block.load_file(pending_files[0])
+            if len(pending_files) > 1:
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda pf=pending_files[1:]: self._add_block(pending_files=pf))
+
         self._on_block_changed()
 
     def _check_duplicate_filename(self, new_path: str, source_block) -> bool:

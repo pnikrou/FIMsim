@@ -91,7 +91,6 @@ class StepDEMWidget(QWidget):
         self._progress.setVisible(False)
         self._status_lbl.setVisible(False)
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         try:
             set_ready(self._run_btn)
         except Exception:
@@ -198,8 +197,7 @@ class StepDEMWidget(QWidget):
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
         self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#ebf8ff; border:1px solid #90cdf4; "
-            "border-radius:4px; color:#2c5282; font-weight:bold; font-size:12px;"
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._status_lbl.setVisible(False)
         layout.addWidget(self._status_lbl)
@@ -212,15 +210,6 @@ class StepDEMWidget(QWidget):
         )
         self._error_lbl.setVisible(False)
         layout.addWidget(self._error_lbl)
-
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; font-size:12px;"
-        )
-        self._report.setVisible(False)
-        layout.addWidget(self._report)
 
         # ── Post-run results: clickable AOI list + raster preview ────────
         # Hidden until a successful run completes.  No map / info shown
@@ -338,11 +327,41 @@ class StepDEMWidget(QWidget):
             card = AOIDEMCard(feat.name, self)
             card.expand_requested.connect(self._on_expand_requested)
             card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
             self._cards_layout.insertWidget(
                 self._cards_layout.count() - 1, card
             )
             self._cards.append(card)
         self._on_card_config_changed(None)
+
+    def _on_remove_requested(self, card):
+        from PyQt6.QtWidgets import QMessageBox
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = self._features[idx].name if idx < len(self._features) else "this AOI"
+        reply = QMessageBox.question(
+            self, "Remove AOI",
+            f"Remove <b>{aoi_name}</b> from this step?\n\n"
+            "The AOI's data folder is NOT deleted — only removed from the current run.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Remove from both lists
+        self._cards.pop(idx)
+        if idx < len(self._features):
+            self._features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        # Re-evaluate run button + apply-all button
+        self._on_card_config_changed(None)
+        # If only 1 AOI left, show count label
+        n = len(self._features)
+        if hasattr(self, '_aoi_count_lbl'):
+            self._aoi_count_lbl.setText(
+                f"<b>{n}</b> AOI(s) remaining — configure each below."
+            )
 
     # ── accordion behaviour ───────────────────────────────────────────────────
 
@@ -587,7 +606,6 @@ class StepDEMWidget(QWidget):
                         return
 
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._status_lbl.setVisible(False)
@@ -614,15 +632,8 @@ class StepDEMWidget(QWidget):
         self._progress.setValue(100)
         n = len(self._features)
         self._status_lbl.setText(f"DEM processed for {n} AOI(s)")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; color:#276749; font-weight:bold; font-size:12px;"
-        )
         self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
-        self._show_report(ctx)
         self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
@@ -637,27 +648,3 @@ class StepDEMWidget(QWidget):
         )
         self._error_lbl.setVisible(True)
 
-    def _show_report(self, ctx):
-        per_aoi = ctx.get("dem_per_aoi", [])
-        res = ctx.get("dem_res_m", "")
-
-        rows_html = ""
-        for entry in per_aoi:
-            rows_html += (
-                f"&nbsp;&nbsp;• <b>{entry.get('name', '?')}</b>: "
-                f"<code>{entry.get('dem_tif', '?')}</code><br>"
-            )
-        if not rows_html:
-            rows_html = (
-                f"<b>DEM GeoTIFF (clipped to AOI):</b> "
-                f"{ctx.get('dem_tif_path', '')}<br>"
-                f"<b>DEM ASCII:</b> {ctx.get('dem_ascii_path', '')}"
-            )
-
-        html = (
-            f"<b>DEM(s) prepared successfully.</b><br><br>"
-            f"<b>Cell size:</b> {res} m<br>"
-            f"<b>Per-AOI outputs:</b><br>{rows_html}"
-        )
-        self._report.setText(html)
-        self._report.setVisible(True)

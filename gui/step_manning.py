@@ -73,7 +73,7 @@ class StepManningWidget(QWidget):
         if self._single_panel is not None:
             self._single_panel.set_config({"mode": ""})
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
+
         self._progress.setValue(0)
         self._progress.setVisible(False)
         self._status_lbl.setVisible(False)
@@ -176,8 +176,7 @@ class StepManningWidget(QWidget):
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
         self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#ebf8ff; border:1px solid #90cdf4; "
-            "border-radius:4px; color:#2c5282; font-weight:bold; font-size:12px;"
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._status_lbl.setVisible(False)
         layout.addWidget(self._status_lbl)
@@ -190,15 +189,6 @@ class StepManningWidget(QWidget):
         )
         self._error_lbl.setVisible(False)
         layout.addWidget(self._error_lbl)
-
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; font-size:12px;"
-        )
-        self._report.setVisible(False)
-        layout.addWidget(self._report)
 
         # ── Post-run results: clickable AOI list + raster preview ────────
         # Same look as the DEM step.  Hidden until a successful run.
@@ -217,9 +207,7 @@ class StepManningWidget(QWidget):
         #   left  → LULC class breakdown table (~20 %)
         #   middle → LULC raster canvas            (~40 %)
         #   right  → Manning raster canvas          (~40 %)
-        self._gb_preview = QGroupBox(
-            "LULC & Manning's n  —  click an AOI above to populate"
-        )
+        self._gb_preview = QGroupBox("LULC & Manning preview")
         self._gb_preview.setStyleSheet("QGroupBox { font-weight:bold; }")
         self._gb_preview.setMinimumHeight(440)
         pv = QVBoxLayout(self._gb_preview)
@@ -351,6 +339,7 @@ class StepManningWidget(QWidget):
             card = AOIManningCard(feat.get("name", "(unnamed)"), self)
             card.expand_requested.connect(self._on_expand_requested)
             card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
             # Insert before the trailing stretch
             self._cards_layout.insertWidget(
                 self._cards_layout.count() - 1, card
@@ -358,6 +347,35 @@ class StepManningWidget(QWidget):
             self._cards.append(card)
         # Re-evaluate buttons
         self._on_card_config_changed(None)
+
+    def _on_remove_requested(self, card):
+        from PyQt6.QtWidgets import QMessageBox
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = self._aoi_features[idx].get("name", f"AOI {idx+1}") if idx < len(self._aoi_features) else "this AOI"
+        reply = QMessageBox.question(
+            self, "Remove AOI",
+            f"Remove <b>{aoi_name}</b> from this step?\n\n"
+            "The AOI's data folder is NOT deleted — only removed from the current run.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Remove from both lists
+        self._cards.pop(idx)
+        if idx < len(self._aoi_features):
+            self._aoi_features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        # Re-evaluate run button + apply-all button
+        self._on_card_config_changed(None)
+        # If only 1 AOI left, show count label
+        n = len(self._aoi_features)
+        if hasattr(self, '_aoi_count_lbl'):
+            self._aoi_count_lbl.setText(
+                f"<b>{n}</b> AOI(s) remaining — configure each below."
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Accordion behaviour
@@ -429,7 +447,7 @@ class StepManningWidget(QWidget):
             return
 
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
+
         self._progress.setValue(0)
         self._progress.setVisible(True)
         set_running(self._run_btn)
@@ -610,7 +628,7 @@ class StepManningWidget(QWidget):
         if hasattr(self, "_results_gb"):
             self._results_gb.setVisible(False)
         if hasattr(self, "_gb_preview"):
-            self._gb_preview.setVisible(False)
+            self._gb_preview.setVisible(True)
             self._active_row.setVisible(False)
             self._preview_placeholder.setVisible(True)
             self._raster_preview.clear()
@@ -847,15 +865,8 @@ class StepManningWidget(QWidget):
         # Match DEM step's wording so the two pages feel consistent.
         n = max(len(self._aoi_features), 1)
         self._status_lbl.setText(f"Manning processed for {n} AOI(s)")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; color:#276749; font-weight:bold; font-size:12px;"
-        )
         self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
-        self._show_report(ctx)
         self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
@@ -874,43 +885,3 @@ class StepManningWidget(QWidget):
         self._error_lbl.setText(f"{msg}")
         self._error_lbl.setVisible(True)
 
-    def _show_report(self, ctx):
-        per_aoi = ctx.get("manning_per_aoi", [])
-        if per_aoi:
-            rows = ""
-            for entry in per_aoi:
-                if entry.get("fric_mode") == "fixed":
-                    rows += (
-                        f"&nbsp;&nbsp;• <b>{entry['name']}</b>: "
-                        f"Fixed n = {entry.get('fpfric')}<br>"
-                    )
-                else:
-                    rows += (
-                        f"&nbsp;&nbsp;• <b>{entry['name']}</b>: "
-                        f"Varying → <code>{entry.get('manning_ascii', '?')}</code><br>"
-                    )
-            self._report.setText(
-                f"<b>Manning Map(s) prepared successfully.</b><br><br>"
-                f"<b>Per-AOI outputs:</b><br>{rows}"
-            )
-            self._report.setVisible(True)
-            return
-
-        # Single-AOI case
-        fric_mode = ctx.get("fric_mode", "")
-        if fric_mode == "fixed":
-            fpfric = ctx.get("par_fpfric", "")
-            html = (
-                f"<b>Manning Map(s) prepared successfully.</b><br><br>"
-                f"<b>Mode:</b> Fixed value<br>"
-                f"<b>Manning n:</b> {fpfric}"
-            )
-        else:
-            manning_ascii = ctx.get("manning_ascii_path", "")
-            html = (
-                f"<b>Manning Map(s) prepared successfully.</b><br><br>"
-                f"<b>Mode:</b> Varying from LULC<br>"
-                f"<b>Manning ASCII:</b> {manning_ascii}"
-            )
-        self._report.setText(html)
-        self._report.setVisible(True)

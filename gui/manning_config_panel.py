@@ -133,13 +133,6 @@ class ManningConfigPanel(QWidget):
         # ── Friendly defaults: Varying → Sentinel-2 → most recent year.
         self._mode_combo.setCurrentIndex(2)          # Varying (from LULC)
         self._lulc_src_combo.setCurrentIndex(1)      # Sentinel-2 (ESRI, 10 m)
-        # _on_source_changed has already populated the year combo;
-        # override to whatever the most recent year actually is.
-        latest = self._year_combo.itemText(self._year_combo.count() - 1)
-        if latest:
-            idx = self._year_combo.findText(latest)
-            if idx >= 0:
-                self._year_combo.setCurrentIndex(idx)
 
         # Belt-and-suspenders: re-run the visibility handlers.
         self._on_mode_changed()
@@ -181,7 +174,7 @@ class ManningConfigPanel(QWidget):
         elif src == "esri":
             for yr in range(2017, 2025):
                 self._year_combo.addItem(str(yr))
-            self._year_combo.setCurrentText("2023")
+            self._year_combo.setCurrentIndex(self._year_combo.count() - 1)
             self._table.set_table_data(SENTINEL2_MANNING)
         self._year_combo.blockSignals(False)
 

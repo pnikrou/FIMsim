@@ -153,6 +153,9 @@ class BCIConfigPanel(QWidget):
         self._detect_combo.currentIndexChanged.connect(self._on_detect_changed)
         self._up_combo.currentIndexChanged.connect(self._on_up_changed)
         self._dn_combo.currentIndexChanged.connect(self._on_dn_changed)
+
+        # Default: Auto-detect from NHD (index 1)
+        self._detect_combo.setCurrentIndex(1)
         for spin in (self._up_x_spin, self._up_y_spin,
                      self._dn_x_spin, self._dn_y_spin,
                      self._fixed_q_spin, self._slope_spin, self._hfix_spin):

@@ -15,9 +15,9 @@ from typing import List, Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
-    QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
+    QProgressBar, QScrollArea, QStackedWidget, QMessageBox, QPlainTextEdit,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, Qt
 
 from core.par import create_par
 from core.orchestrate import run_lisflood_par_for_all_aois
@@ -55,8 +55,8 @@ class StepPARWidget(QWidget):
     def reset(self):
         self._aoi_features = []
         self._clear_cards()
+        self._clear_results()
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(False)
         self._status_lbl.setVisible(False)
@@ -151,8 +151,7 @@ class StepPARWidget(QWidget):
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
         self._status_lbl.setStyleSheet(
-            "padding:6px 10px; background:#ebf8ff; border:1px solid #90cdf4; "
-            "border-radius:4px; color:#2c5282; font-weight:bold; font-size:12px;"
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
         )
         self._status_lbl.setVisible(False)
         layout.addWidget(self._status_lbl)
@@ -166,14 +165,54 @@ class StepPARWidget(QWidget):
         self._error_lbl.setVisible(False)
         layout.addWidget(self._error_lbl)
 
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:12px; background:#ebf8ff; border:1px solid #63b3ed; "
+        # Per-AOI clickable list
+        self._results_gb = QGroupBox(
+            "Per-AOI PAR outputs  —  click an AOI to preview its PAR file"
+        )
+        self._results_gb.setStyleSheet("QGroupBox { font-weight:bold; }")
+        rgl = QVBoxLayout(self._results_gb)
+        self._results_inner = QVBoxLayout()
+        self._results_inner.setSpacing(0)
+        rgl.addLayout(self._results_inner)
+        self._results_gb.setVisible(False)
+        layout.addWidget(self._results_gb)
+
+        # PAR file content preview
+        self._gb_preview = QGroupBox("PAR file preview")
+        self._gb_preview.setStyleSheet("QGroupBox { font-weight:bold; }")
+        pv = QVBoxLayout(self._gb_preview)
+        self._preview_placeholder = QLabel(
+            "<i>Click an AOI above to view its PAR file content.</i>"
+        )
+        self._preview_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_placeholder.setStyleSheet(
+            "color:#888; padding:20px; background:#fafafa; "
+            "border:1px dashed #cbd5e0; border-radius:4px;"
+        )
+        pv.addWidget(self._preview_placeholder)
+        self._par_viewer = QPlainTextEdit()
+        self._par_viewer.setReadOnly(True)
+        self._par_viewer.setStyleSheet(
+            "font-family: monospace; font-size: 11px; "
+            "background:#f7fafc; border:1px solid #e2e8f0;"
+        )
+        self._par_viewer.setVisible(False)
+        pv.addWidget(self._par_viewer)
+        self._gb_preview.setVisible(False)
+        layout.addWidget(self._gb_preview)
+
+        # Run-command banner
+        self._run_cmd_lbl = QLabel(
+            "<b>To run a simulation:</b> &nbsp;"
+            "<code style='background:#edf2f7; padding:2px 6px; "
+            "border-radius:3px;'>lisflood -v &lt;par-file&gt;</code>"
+        )
+        self._run_cmd_lbl.setStyleSheet(
+            "padding:8px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
             "border-radius:4px; font-size:12px;"
         )
-        self._report.setVisible(False)
-        layout.addWidget(self._report)
+        self._run_cmd_lbl.setVisible(False)
+        layout.addWidget(self._run_cmd_lbl)
 
     # ── layout switching ──────────────────────────────────────────────────────
 
@@ -191,8 +230,9 @@ class StepPARWidget(QWidget):
             self._aoi_count_lbl.setText("<b>1</b> AOI confirmed.")
             self._aoi_count_lbl.setVisible(True)
             self._stack.setCurrentIndex(0)
-            # Pre-fill from the single AOI's ctx (project name, sim_time)
-            self._single_panel.apply_ctx_defaults(self._ctx)
+            # Pre-fill from the single AOI's ctx (aoi name, sim_time)
+            _aoi_name = self._aoi_features[0].get("name", "") if self._aoi_features else None
+            self._single_panel.apply_ctx_defaults(self._ctx, aoi_name=_aoi_name)
             self._run_btn.setVisible(self._single_panel.is_ready())
             return
 
@@ -216,6 +256,7 @@ class StepPARWidget(QWidget):
             card = AOIPARCard(feat.get("name", "(unnamed)"), self)
             card.expand_requested.connect(self._on_expand_requested)
             card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
 
             # Pre-fill each card from this AOI's per-AOI ctx (DEM / BCI /
             # BDY paths so sim_time can be inferred).
@@ -237,6 +278,35 @@ class StepPARWidget(QWidget):
             )
             self._cards.append(card)
         self._on_card_config_changed(None)
+
+    def _on_remove_requested(self, card):
+        from PyQt6.QtWidgets import QMessageBox
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = self._aoi_features[idx].get("name", f"AOI {idx+1}") if idx < len(self._aoi_features) else "this AOI"
+        reply = QMessageBox.question(
+            self, "Remove AOI",
+            f"Remove <b>{aoi_name}</b> from this step?\n\n"
+            "The AOI's data folder is NOT deleted — only removed from the current run.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Remove from both lists
+        self._cards.pop(idx)
+        if idx < len(self._aoi_features):
+            self._aoi_features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        # Re-evaluate run button + apply-all button
+        self._on_card_config_changed(None)
+        # If only 1 AOI left, show count label
+        n = len(self._aoi_features)
+        if hasattr(self, '_aoi_count_lbl'):
+            self._aoi_count_lbl.setText(
+                f"<b>{n}</b> AOI(s) remaining — configure each below."
+            )
 
     # ── accordion behaviour ───────────────────────────────────────────────────
 
@@ -288,7 +358,7 @@ class StepPARWidget(QWidget):
         from gui.overwrite_check import confirm_overwrite
 
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
+        self._clear_results()
         self._progress.setValue(0)
         self._progress.setVisible(True)
         set_running(self._run_btn)
@@ -374,9 +444,8 @@ class StepPARWidget(QWidget):
         self._progress.setValue(100)
         n = max(len(self._aoi_features), 1)
         self._status_lbl.setText(f"All {n} AOI(s) processed.")
-        self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         set_ready(self._run_btn)
-        self._show_report(ctx)
+        self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
     def _on_error(self, msg):
@@ -390,77 +459,96 @@ class StepPARWidget(QWidget):
         )
         self._error_lbl.setVisible(True)
 
-    # ── report ────────────────────────────────────────────────────────────────
+    # ── results ───────────────────────────────────────────────────────────────
 
-    def _show_report(self, ctx):
-        per_aoi = ctx.get("par_per_aoi", []) or []
-        if per_aoi:
-            rows = ""
-            for entry in per_aoi:
-                rows += (
-                    f"&nbsp;&nbsp;• <b>{entry['name']}</b> → "
-                    f"<code>{entry.get('par_path', '?')}</code><br>"
-                )
-            html = (
-                "<b>PAR file(s) prepared successfully — all "
-                "preprocessing steps complete!</b><br><br>"
-                "<b>Per-AOI PAR files:</b><br>"
-                + rows +
-                "<br><b>To run a simulation:</b><br>"
-                "<code>lisflood -v &lt;par-file&gt;</code>"
-            )
-            self._report.setText(html)
-            self._report.setVisible(True)
-            self._log("All steps complete! LISFLOOD-FP input files are ready.")
+    def _clear_results(self):
+        if not hasattr(self, "_results_inner"):
             return
+        while self._results_inner.count():
+            item = self._results_inner.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        if hasattr(self, "_results_gb"):
+            self._results_gb.setVisible(False)
+        if hasattr(self, "_gb_preview"):
+            self._gb_preview.setVisible(False)
+            self._par_viewer.setVisible(False)
+            self._par_viewer.clear()
+            self._preview_placeholder.setVisible(True)
+        if hasattr(self, "_run_cmd_lbl"):
+            self._run_cmd_lbl.setVisible(False)
 
-        # ── Single-AOI report (the rich version that lists every input file)
-        lisflood_dir = ctx.get("lisflood_dir", "")
-        project_dir  = ctx.get("project_dir", "")
-        project_name = ctx.get("project_name", "")
+    def _build_results(self, ctx):
+        self._clear_results()
 
-        def _file_line(label, path):
-            p = Path(path) if path else None
-            exists = p and p.exists()
-            icon = "" if exists else ""
-            return f"{icon} <b>{label}:</b> {path}<br>"
+        per_aoi = ctx.get("par_per_aoi", []) or []
+        if not per_aoi:
+            # Single-AOI: synthesise a one-entry list
+            par_path = ctx.get("par_path")
+            name = (ctx.get("aoi_name")
+                    or ctx.get("project_name")
+                    or "AOI")
+            per_aoi = [{
+                "name":     name,
+                "par_path": par_path,
+                "par_name": Path(par_path).name if par_path else None,
+                "failed":   False,
+            }]
 
-        par_path   = ctx.get("par_path",          str(Path(lisflood_dir) / f"{project_name}.par"))
-        dem_ascii  = ctx.get("dem_ascii_path",    str(Path(lisflood_dir) / "dem.ascii"))
-        lulc_ascii = ctx.get("manning_ascii_path", str(Path(lisflood_dir) / "lulc.ascii"))
-        bci_path   = ctx.get("bci_path",          str(Path(lisflood_dir) / "BC.bci"))
-        bdy_path   = ctx.get("bdy_path", "")
-        bdy_written = ctx.get("bdy_written", True)
-        use_manningfile = ctx.get("par_use_manningfile", False)
-        fpfric          = ctx.get("par_fpfric")
+        for entry in per_aoi:
+            name = entry.get("name", "?")
+            row = QWidget()
+            rl = QVBoxLayout(row)
+            rl.setContentsMargins(0, 2, 0, 2)
+            rl.setSpacing(1)
 
-        lines = [_file_line("PAR file", par_path), _file_line("DEM ASCII grid", dem_ascii)]
-        if use_manningfile:
-            lines.append(_file_line("Manning n ASCII grid", lulc_ascii))
-        else:
-            lines.append(
-                f"<b>Manning n:</b> Fixed value ({fpfric}) — "
-                "written into PAR file<br>"
+            if entry.get("failed"):
+                err_short = str(entry.get("error", "unknown error")).split("\n")[0]
+                name_lbl = QLabel(f"<b>{name}</b>")
+                name_lbl.setStyleSheet("color:#c53030;")
+                rl.addWidget(name_lbl)
+                err_lbl = QLabel(f"⚠ {err_short}")
+                err_lbl.setWordWrap(True)
+                err_lbl.setStyleSheet("color:#c53030; font-size:11px;")
+                rl.addWidget(err_lbl)
+            else:
+                par_name = entry.get("par_name") or "—"
+                btn = QPushButton(f"  {name}  ({par_name})")
+                btn.setStyleSheet(
+                    "QPushButton { text-align:left; background:transparent; "
+                    "border:none; color:#2d3748; font-weight:bold; padding:2px; }"
+                    "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
+                )
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(
+                    lambda _c, e=entry: self._show_par_for_aoi(e)
+                )
+                rl.addWidget(btn)
+
+            self._results_inner.addWidget(row)
+
+        self._results_gb.setVisible(True)
+        self._gb_preview.setVisible(True)
+        self._run_cmd_lbl.setVisible(True)
+        self._log("All steps complete! LISFLOOD-FP input files are ready.")
+
+    def _show_par_for_aoi(self, entry: dict):
+        par_path = entry.get("par_path")
+        if not par_path or not Path(par_path).exists():
+            self._preview_placeholder.setText(
+                f"<i>PAR file not found: {par_path}</i>"
             )
-        lines.append(_file_line("BCI boundary conditions", bci_path))
-        if bdy_written and bdy_path:
-            lines.append(_file_line("BDY hydrograph", bdy_path))
-        else:
-            lines.append("<b>BDY hydrograph:</b> Not required (fixed discharge)<br>")
-
-        helper_csv = Path(project_dir) / f"{project_name}_upstream_timeseries.csv"
-        if helper_csv.exists():
-            lines.append(f"📊 <b>Discharge timeseries CSV:</b> {helper_csv}<br>")
-
-        html = (
-            "<b>All preprocessing steps complete!</b><br><br>"
-            "All LISFLOOD-FP input files are ready in:<br>"
-            f"<b>{lisflood_dir}</b><br><br>"
-            "<b>Required input files:</b><br>"
-            + "".join(lines) +
-            "<br><b>To run the simulation:</b><br>"
-            f"<code>lisflood -v {par_path}</code>"
-        )
-        self._report.setText(html)
-        self._report.setVisible(True)
-        self._log(f"All steps complete! Files in: {lisflood_dir}")
+            self._preview_placeholder.setVisible(True)
+            self._par_viewer.setVisible(False)
+            return
+        try:
+            content = Path(par_path).read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            self._preview_placeholder.setText(f"<i>Could not read file: {exc}</i>")
+            self._preview_placeholder.setVisible(True)
+            self._par_viewer.setVisible(False)
+            return
+        self._par_viewer.setPlainText(content)
+        self._par_viewer.setVisible(True)
+        self._preview_placeholder.setVisible(False)

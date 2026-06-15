@@ -27,6 +27,7 @@ from gui.manning_config_panel import ManningConfigPanel
 class AOIManningCard(QFrame):
     expand_requested = pyqtSignal(object)   # passes self
     config_changed   = pyqtSignal(object)   # passes self
+    remove_requested = pyqtSignal(object)   # passes self
 
     EXPANDED_STYLE = (
         "QFrame#card { background:#f9fafb; border:2px solid #a0aec0; "
@@ -77,6 +78,16 @@ class AOIManningCard(QFrame):
         self._toggle_btn.setFixedWidth(80)
         self._toggle_btn.clicked.connect(self._on_toggle_clicked)
         header.addWidget(self._toggle_btn)
+
+        self._remove_btn = QPushButton("Remove")
+        self._remove_btn.setFixedWidth(70)
+        self._remove_btn.setStyleSheet(
+            "background:#e53e3e; color:white; border-radius:3px; "
+            "font-size:11px; padding:2px 4px;"
+        )
+        self._remove_btn.setToolTip(f"Remove {self._aoi_name} from this run")
+        self._remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
+        header.addWidget(self._remove_btn)
 
         outer.addLayout(header)
 

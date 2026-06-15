@@ -73,8 +73,9 @@ def _build_main_river(flowlines_clip):
     main_total_length_m = float(summary.iloc[0]["total_length_m"])
 
     main_segments = top[top["river_name"] == main_river_name].copy()
-    merged_geom = linemerge(main_segments.geometry.union_all() if hasattr(main_segments.geometry, 'union_all')
-                            else main_segments.geometry.unary_union)
+    unioned = (main_segments.geometry.union_all() if hasattr(main_segments.geometry, 'union_all')
+               else main_segments.geometry.unary_union)
+    merged_geom = unioned if isinstance(unioned, LineString) else linemerge(unioned)
     main_line = _to_single_linestring(merged_geom)
 
     if main_line is None or main_line.is_empty:

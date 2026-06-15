@@ -228,6 +228,11 @@ class PARConfigPanel(QWidget):
             "qoutput   — write boundary-discharge timeseries to file"
         )
         fo.addRow(self._chk_qoutput)
+        self._chk_sgc_enable = QCheckBox(
+            "sgc_enable  — activate sub-grid channel scheme (SGC)"
+        )
+        self._chk_sgc_enable.setChecked(True)
+        fo.addRow(self._chk_sgc_enable)
 
         op_row = QHBoxLayout()
         self._chk_overpass = QCheckBox("overpass  — save snapshot at time")
@@ -302,6 +307,7 @@ class PARConfigPanel(QWidget):
             self._chk_checkpoint, self._chk_overpass,
             self._chk_elevoff, self._chk_depthoff, self._chk_binary,
             self._chk_hazard, self._chk_mint_hk, self._chk_qoutput,
+            self._chk_sgc_enable,
         ):
             w.toggled.connect(self._emit_changed)
         self._extra_edit.textChanged.connect(self._emit_changed)
@@ -319,15 +325,22 @@ class PARConfigPanel(QWidget):
             return bool(self._startfile_edit.text().strip())
         return True
 
-    def apply_ctx_defaults(self, ctx: dict):
-        """Pre-fill the form from the current per-AOI context — project
-        name → resroot/par filename, BDY → sim_time."""
+    def apply_ctx_defaults(self, ctx: dict, aoi_name: str = None):
+        """Pre-fill the form from the current per-AOI context.
+
+        aoi_name, if provided, drives the PAR filename, resroot, and
+        results folder.  Falls back to ctx['aoi_name'] then
+        ctx['project_name'].
+        """
         if not ctx:
             return
-        proj = ctx.get("project_name", "") or ""
-        if proj:
-            self._resroot_edit.setText(proj)
-            self._par_name_edit.setText(f"{proj}.par")
+        name = (aoi_name
+                or ctx.get("aoi_name")
+                or ctx.get("project_name")
+                or "model") or "model"
+        self._par_name_edit.setText(f"{name}.par")
+        self._resroot_edit.setText(name)
+        self._results_dir_edit.setText(f"{name}_Results")
 
         bdy_path = ctx.get("bdy_path")
         if bdy_path:
@@ -386,6 +399,7 @@ class PARConfigPanel(QWidget):
             "use_hazard":       self._chk_hazard.isChecked(),
             "use_mint_hk":      self._chk_mint_hk.isChecked(),
             "use_qoutput":      self._chk_qoutput.isChecked(),
+            "sgc_enable":       self._chk_sgc_enable.isChecked(),
             "extra_lines":      extra_lines,
         }
 
@@ -450,6 +464,7 @@ class PARConfigPanel(QWidget):
         self._chk_hazard.setChecked(bool(cfg.get("use_hazard", False)))
         self._chk_mint_hk.setChecked(bool(cfg.get("use_mint_hk", True)))
         self._chk_qoutput.setChecked(bool(cfg.get("use_qoutput", False)))
+        self._chk_sgc_enable.setChecked(bool(cfg.get("sgc_enable", True)))
 
         extra = cfg.get("extra_lines") or []
         self._extra_edit.setPlainText("\n".join(str(x) for x in extra))

@@ -19,6 +19,49 @@ from core.nwm_discharge import (
 from core.flowline_mode import _download_usgs_discharge, _coerce_gage_ids
 
 
+def _check_coverage(df, dt_col, req_start, req_end, interval_hours, label, log_fn):
+    """Warn if the downloaded data doesn't cover the full requested date range.
+
+    Returns a list of warning strings (empty if full coverage).
+    """
+    warnings = []
+    try:
+        dates = pd.to_datetime(df[dt_col], errors="coerce").dropna()
+        if dates.empty:
+            return warnings
+        # Strip timezone from all timestamps so comparisons always work
+        actual_start = dates.min()
+        actual_end   = dates.max()
+        if hasattr(actual_start, "tzinfo") and actual_start.tzinfo is not None:
+            actual_start = actual_start.tz_convert(None)
+        if hasattr(actual_end, "tzinfo") and actual_end.tzinfo is not None:
+            actual_end = actual_end.tz_convert(None)
+        _req_s = pd.Timestamp(req_start)
+        req_s  = _req_s.tz_convert(None) if _req_s.tzinfo else _req_s
+        _req_e = pd.Timestamp(req_end)
+        req_e  = _req_e.tz_convert(None) if _req_e.tzinfo else _req_e
+        threshold = pd.Timedelta(hours=float(interval_hours) * 1.5)
+        if (actual_start - req_s) > threshold:
+            msg = (
+                f"No data available before {actual_start.strftime('%Y-%m-%d')} "
+                f"(requested from {req_s.strftime('%Y-%m-%d')}). "
+                f"Downloaded from first available record."
+            )
+            warnings.append(msg)
+            log_fn(f"  ⚠ WARNING ({label}): {msg}")
+        if (req_e - actual_end) > threshold:
+            msg = (
+                f"No data available after {actual_end.strftime('%Y-%m-%d')} "
+                f"(requested until {req_e.strftime('%Y-%m-%d')}). "
+                f"Downloaded up to last available record."
+            )
+            warnings.append(msg)
+            log_fn(f"  ⚠ WARNING ({label}): {msg}")
+    except Exception:
+        pass
+    return warnings
+
+
 def run_streamflow_mode(
     project_dir: str,
     configs: List[Dict[str, Any]],
@@ -40,6 +83,7 @@ def run_streamflow_mode(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
+    all_warnings: list = []
 
     for cfg in configs:
         source = cfg.get("source", "")
@@ -77,35 +121,64 @@ def run_streamflow_mode(
                 # Split the wide CSV into one CSV per feature ID
                 try:
                     df_wide = pd.read_csv(combined_csv)
+                except Exception as exc:
+                    log_fn(f"  Error reading combined NWM retro CSV: {exc}")
+                    df_wide = None
+
+                if df_wide is not None:
                     for fid in feature_ids:
                         col = str(fid)
                         if col not in df_wide.columns:
                             log_fn(f"  Feature ID {fid} not found in result CSV.")
                             continue
-                        df_single = df_wide[["datetime", col]].copy()
-                        df_single.columns = ["datetime", "streamflow_m3s"]
                         csv_path = out_dir / f"nwm_retro_{fid}.csv"
-                        df_single.to_csv(csv_path, index=False)
-                        n_ts = len(df_single.dropna(subset=["streamflow_m3s"]))
                         try:
-                            peak = float(df_single["streamflow_m3s"].max())
-                        except Exception:
-                            peak = None
-                        results.append({
-                            "source": "nwm_retro",
-                            "id": str(fid),
-                            "csv_path": str(csv_path),
-                            "n_timesteps": n_ts,
-                            "peak_flow_cms": peak,
-                        })
-                        log_fn(f"  ✓ Saved {csv_path.name} ({n_ts} rows)")
-                    # Remove combined CSV
-                    try:
-                        combined_csv.unlink()
-                    except Exception:
-                        pass
-                except Exception as exc:
-                    log_fn(f"  Error splitting NWM retro result: {exc}")
+                            df_single = df_wide[["datetime", col]].copy()
+                            df_single.columns = ["datetime", "streamflow_m3s"]
+                            df_single.to_csv(csv_path, index=False)
+                            n_ts = len(df_single.dropna(subset=["streamflow_m3s"]))
+                            try:
+                                peak = float(df_single["streamflow_m3s"].max())
+                            except Exception:
+                                peak = None
+                            # Coverage check
+                            cov_warns = _check_coverage(df_single, "datetime", start_dt, end_dt,
+                                            interval_hours, f"NWM Retro feature {fid}", log_fn)
+                            all_warnings.extend(
+                                f"NWM Retro {fid}: {w}" for w in cov_warns
+                            )
+                            results.append({
+                                "source": "nwm_retro",
+                                "id": str(fid),
+                                "csv_path": str(csv_path),
+                                "n_timesteps": n_ts,
+                                "peak_flow_cms": peak,
+                            })
+                            log_fn(f"  ✓ Saved {csv_path.name} ({n_ts} rows)")
+                        except Exception as exc:
+                            log_fn(f"  Error processing feature ID {fid}: {exc}")
+                            # File may have been partially written — recover from disk
+                            if csv_path.exists():
+                                try:
+                                    df_rec = pd.read_csv(csv_path)
+                                    q_col = next((c for c in ("streamflow_m3s", "discharge_cms")
+                                                  if c in df_rec.columns), None)
+                                    n_ts = len(df_rec.dropna(subset=[q_col])) if q_col else 0
+                                    peak = float(df_rec[q_col].max()) if q_col else None
+                                except Exception:
+                                    n_ts, peak = 0, None
+                                results.append({
+                                    "source": "nwm_retro",
+                                    "id": str(fid),
+                                    "csv_path": str(csv_path),
+                                    "n_timesteps": n_ts,
+                                    "peak_flow_cms": peak,
+                                })
+                # Remove combined CSV
+                try:
+                    combined_csv.unlink()
+                except Exception:
+                    pass
 
             else:  # nwm_forecast
                 combined_csv = out_dir / f"nwm_forecast_combined.csv"
@@ -127,34 +200,62 @@ def run_streamflow_mode(
 
                 try:
                     df_wide = pd.read_csv(combined_csv)
+                except Exception as exc:
+                    log_fn(f"  Error reading combined NWM forecast CSV: {exc}")
+                    df_wide = None
+
+                if df_wide is not None:
                     for fid in feature_ids:
                         col = str(fid)
                         if col not in df_wide.columns:
                             log_fn(f"  Feature ID {fid} not found in forecast CSV.")
                             continue
-                        df_single = df_wide[["datetime", col]].copy()
-                        df_single.columns = ["datetime", "streamflow_m3s"]
                         csv_path = out_dir / f"nwm_forecast_{fid}.csv"
-                        df_single.to_csv(csv_path, index=False)
-                        n_ts = len(df_single.dropna(subset=["streamflow_m3s"]))
                         try:
-                            peak = float(df_single["streamflow_m3s"].max())
-                        except Exception:
-                            peak = None
-                        results.append({
-                            "source": "nwm_forecast",
-                            "id": str(fid),
-                            "csv_path": str(csv_path),
-                            "n_timesteps": n_ts,
-                            "peak_flow_cms": peak,
-                        })
-                        log_fn(f"  ✓ Saved {csv_path.name} ({n_ts} rows)")
-                    try:
-                        combined_csv.unlink()
-                    except Exception:
-                        pass
-                except Exception as exc:
-                    log_fn(f"  Error splitting NWM forecast result: {exc}")
+                            df_single = df_wide[["datetime", col]].copy()
+                            df_single.columns = ["datetime", "streamflow_m3s"]
+                            df_single.to_csv(csv_path, index=False)
+                            n_ts = len(df_single.dropna(subset=["streamflow_m3s"]))
+                            try:
+                                peak = float(df_single["streamflow_m3s"].max())
+                            except Exception:
+                                peak = None
+                            # Coverage check
+                            cov_warns = _check_coverage(df_single, "datetime", start_dt, end_dt,
+                                            interval_hours, f"NWM Forecast feature {fid}", log_fn)
+                            all_warnings.extend(
+                                f"NWM Forecast {fid}: {w}" for w in cov_warns
+                            )
+                            results.append({
+                                "source": "nwm_forecast",
+                                "id": str(fid),
+                                "csv_path": str(csv_path),
+                                "n_timesteps": n_ts,
+                                "peak_flow_cms": peak,
+                            })
+                            log_fn(f"  ✓ Saved {csv_path.name} ({n_ts} rows)")
+                        except Exception as exc:
+                            log_fn(f"  Error processing forecast feature ID {fid}: {exc}")
+                            if csv_path.exists():
+                                try:
+                                    df_rec = pd.read_csv(csv_path)
+                                    q_col = next((c for c in ("streamflow_m3s", "discharge_cms")
+                                                  if c in df_rec.columns), None)
+                                    n_ts = len(df_rec.dropna(subset=[q_col])) if q_col else 0
+                                    peak = float(df_rec[q_col].max()) if q_col else None
+                                except Exception:
+                                    n_ts, peak = 0, None
+                                results.append({
+                                    "source": "nwm_forecast",
+                                    "id": str(fid),
+                                    "csv_path": str(csv_path),
+                                    "n_timesteps": n_ts,
+                                    "peak_flow_cms": peak,
+                                })
+                try:
+                    combined_csv.unlink()
+                except Exception:
+                    pass
 
         elif source == "usgs":
             gage_ids = _coerce_gage_ids(ids_raw)
@@ -194,12 +295,25 @@ def run_streamflow_mode(
                         if k.lstrip("0") == gid.lstrip("0"):
                             csv_path_str = v
                             break
+
                 if not csv_path_str:
-                    log_fn(f"  No saved file found for USGS gage {gid}.")
+                    # Gage returned no data — still add to results so GUI can report it
+                    log_fn(f"  ✗ No data returned for USGS gage {gid} (not available for requested period).")
+                    results.append({
+                        "source": "usgs",
+                        "id": gid,
+                        "csv_path": None,
+                        "n_timesteps": 0,
+                        "peak_flow_cms": None,
+                        "status": "unavailable",
+                        "warnings": [],
+                    })
                     continue
+
                 csv_path = Path(csv_path_str)
                 n_ts = 0
                 peak = None
+                gid_warnings: list = []
                 try:
                     df = pd.read_csv(csv_path)
                     q_col = next(
@@ -209,6 +323,15 @@ def run_streamflow_mode(
                     if q_col:
                         n_ts = len(df.dropna(subset=[q_col]))
                         peak = float(df[q_col].max())
+                    # Coverage check: warn if data doesn't span the requested range
+                    cov_warns = _check_coverage(
+                        df, "datetime", start_dt, end_dt,
+                        interval_hours, f"USGS gage {gid}", log_fn,
+                    )
+                    gid_warnings.extend(cov_warns)
+                    all_warnings.extend(
+                        f"USGS gage {gid}: {w}" for w in cov_warns
+                    )
                 except Exception:
                     pass
                 results.append({
@@ -217,9 +340,16 @@ def run_streamflow_mode(
                     "csv_path": str(csv_path),
                     "n_timesteps": n_ts,
                     "peak_flow_cms": peak,
+                    "status": "ok",
+                    "warnings": gid_warnings,
                 })
         else:
             log_fn(f"  Unknown source '{source}', skipping.")
 
-    log_fn(f"Streamflow download complete: {len(results)} time series saved.")
-    return {"results": results}
+    n_ok = sum(1 for r in results if r.get("status") != "unavailable")
+    n_fail = len(results) - n_ok
+    msg = f"Streamflow download complete: {n_ok} time series saved."
+    if n_fail:
+        msg += f"  {n_fail} gage(s) had no data for the requested period."
+    log_fn(msg)
+    return {"results": results, "warnings": all_warnings}

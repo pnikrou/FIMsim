@@ -123,13 +123,13 @@ class AOIFlowdataCard(QFrame):
         self._nwm_interval.setCurrentIndex(1)   # 1 hour default
         nf.addRow("Interval:", self._nwm_interval)
 
-        # One-line ★ note explaining retrospective/forecast auto-switching
         self._nwm_note = QLabel(
-            "★  NWM retrospective covers 1979-02-01 to 2020-12-31. "
-            "After that date the app uses the NWM operational forecast "
-            "(medium-range, ~10-day horizon)."
+            "★ Retrospective: 1979-02-01 → 2020-12-31  |  "
+            "Forecast (after 2020-12-31): rolling ~10-day window  |  "
+            "NWM operational since 2016  |  USA only"
         )
-        self._nwm_note.setWordWrap(False)
+        self._nwm_note.setWordWrap(True)
+        self._nwm_note.setStyleSheet("color:#718096; font-size:11px;")
         nf.addRow(self._nwm_note)
 
         pl.addWidget(self._nwm_widget)

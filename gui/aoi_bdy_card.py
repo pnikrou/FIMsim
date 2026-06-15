@@ -12,6 +12,7 @@ from gui.bdy_config_panel import BDYConfigPanel
 class AOIBDYCard(QFrame):
     expand_requested = pyqtSignal(object)
     config_changed   = pyqtSignal(object)
+    remove_requested = pyqtSignal(object)
 
     EXPANDED_STYLE = (
         "QFrame#card { background:#f9fafb; border:2px solid #a0aec0; "
@@ -57,6 +58,16 @@ class AOIBDYCard(QFrame):
         self._toggle_btn.setFixedWidth(80)
         self._toggle_btn.clicked.connect(self._on_toggle_clicked)
         header.addWidget(self._toggle_btn)
+
+        self._remove_btn = QPushButton("Remove")
+        self._remove_btn.setFixedWidth(70)
+        self._remove_btn.setStyleSheet(
+            "background:#e53e3e; color:white; border-radius:3px; "
+            "font-size:11px; padding:2px 4px;"
+        )
+        self._remove_btn.setToolTip(f"Remove {self._aoi_name} from this run")
+        self._remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
+        header.addWidget(self._remove_btn)
 
         outer.addLayout(header)
 
@@ -106,15 +117,30 @@ class AOIBDYCard(QFrame):
     def _refresh_status(self):
         cfg = self._panel.get_config()
         src = cfg["bdy_source"]
+        ivl = cfg.get("interval_hours", 1.0)
         if not src:
             self._status_lbl.setText(
                 "<i style='color:#888;'>not configured</i>"
             )
             return
-        if src == "nwm":
+        if src in ("nwm", "nwm_retro"):
             self._status_lbl.setText(
-                f"<i>Source:</i> NWM &nbsp;·&nbsp; "
-                f"<i>Interval:</i> {cfg['interval_hours']:g}h"
+                f"<i>Source:</i> NWM Retrospective &nbsp;·&nbsp; "
+                f"<i>Interval:</i> {ivl:g}h"
+            )
+        elif src == "nwm_forecast":
+            self._status_lbl.setText(
+                f"<i>Source:</i> NWM Forecast &nbsp;·&nbsp; "
+                f"<i>Interval:</i> {ivl:g}h"
+            )
+        elif src == "usgs":
+            gage = cfg.get("gage_id") or "—"
+            ok = bool(cfg.get("gage_id"))
+            colour = "#22543d" if ok else "#c53030"
+            self._status_lbl.setText(
+                f"<i>Source:</i> USGS &nbsp;·&nbsp; "
+                f"<span style='color:{colour};'>Gage {gage}</span> &nbsp;·&nbsp; "
+                f"<i>Interval:</i> {ivl:g}h"
             )
         elif src == "csv":
             file_str = (Path(cfg['file_path']).name
@@ -125,7 +151,7 @@ class AOIBDYCard(QFrame):
                 f"<i>Source:</i> CSV &nbsp;·&nbsp; "
                 f"<span style='color:{colour};'>"
                 f"<code>{file_str}</code></span> &nbsp;·&nbsp; "
-                f"<i>Interval:</i> {cfg['interval_hours']:g}h"
+                f"<i>Interval:</i> {ivl:g}h"
             )
 
     def _forward_config_changed(self):

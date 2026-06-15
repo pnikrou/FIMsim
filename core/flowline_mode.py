@@ -267,7 +267,31 @@ def _download_usgs_discharge(
             # Resample to requested interval (mean within each window)
             df = df.resample(resample_rule).mean().dropna()
 
-            out_csv = next_free_path(out_folder, f"usgs_discharge_{site}", "csv")
+            # ── Data coverage check ──────────────────────────────────────────
+            req_start = pd.Timestamp(start_dt).tz_localize("UTC") if pd.Timestamp(start_dt).tzinfo is None else pd.Timestamp(start_dt)
+            req_end   = pd.Timestamp(end_dt).tz_localize("UTC")   if pd.Timestamp(end_dt).tzinfo is None   else pd.Timestamp(end_dt)
+            if not df.empty:
+                actual_start = df.index.min()
+                actual_end   = df.index.max()
+                gap_start = (actual_start - req_start).total_seconds() / 3600
+                gap_end   = (req_end - actual_end).total_seconds() / 3600
+                if gap_start > 1.5 * float(interval_hours):
+                    log_fn(
+                        f"  ⚠ WARNING: No USGS data for gage {site} before "
+                        f"{actual_start.strftime('%Y-%m-%d %H:%M')} "
+                        f"(requested from {req_start.strftime('%Y-%m-%d')}). "
+                        f"Data downloaded from first available timestamp."
+                    )
+                if gap_end > 1.5 * float(interval_hours):
+                    log_fn(
+                        f"  ⚠ WARNING: No USGS data for gage {site} after "
+                        f"{actual_end.strftime('%Y-%m-%d %H:%M')} "
+                        f"(requested until {req_end.strftime('%Y-%m-%d')}). "
+                        f"Data downloaded up to last available timestamp."
+                    )
+
+            # Always overwrite — use fixed name so re-runs stay consistent
+            out_csv = out_folder / f"usgs_discharge_{site}.csv"
             df.to_csv(out_csv, index_label="datetime")
             log_fn(f"  ✓ Saved {out_csv.name} ({len(df)} rows @ {resample_rule})")
             saved.append(str(out_csv))

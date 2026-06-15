@@ -139,6 +139,63 @@ def _resample_to_interval(ser, start_ts, end_ts, interval_hours):
     }).reset_index(drop=True)
 
 
+def _check_flow_coverage(df_flow, start_dt, end_dt, interval_hours, source_name, log_fn):
+    """Check that df_flow covers the full requested window.
+
+    Warns about:
+      • data starting later than requested
+      • data ending earlier than requested
+      • more than 10 % of expected timesteps missing (internal gaps)
+
+    Returns a list of plain-text warning strings (empty = full coverage).
+    """
+    warns = []
+    if df_flow is None or df_flow.empty:
+        w = f"{source_name}: No data returned for the requested period."
+        warns.append(w); log_fn(f"  ⚠ WARNING: {w}")
+        return warns
+
+    start_ts = pd.Timestamp(start_dt)
+    end_ts   = pd.Timestamp(end_dt)
+    gap_thr  = pd.Timedelta(hours=float(interval_hours) * 1.5)
+
+    dts = pd.to_datetime(df_flow["datetime"], errors="coerce").dropna()
+    if dts.empty:
+        return warns
+
+    # Strip tz if present so comparisons work
+    if dts.dt.tz is not None:
+        dts = dts.dt.tz_convert(None)
+
+    actual_start = dts.min()
+    actual_end   = dts.max()
+
+    if (actual_start - start_ts) > gap_thr:
+        hrs = round((actual_start - start_ts).total_seconds() / 3600, 1)
+        w = (f"{source_name}: data starts at {actual_start.strftime('%Y-%m-%d %H:%M')} — "
+             f"first {hrs}h of the requested window has no data "
+             f"(requested from {start_ts.strftime('%Y-%m-%d')}).")
+        warns.append(w); log_fn(f"  ⚠ WARNING: {w}")
+
+    if (end_ts - actual_end) > gap_thr:
+        hrs = round((end_ts - actual_end).total_seconds() / 3600, 1)
+        w = (f"{source_name}: data ends at {actual_end.strftime('%Y-%m-%d %H:%M')} — "
+             f"last {hrs}h of the requested window has no data "
+             f"(requested until {end_ts.strftime('%Y-%m-%d')}).")
+        warns.append(w); log_fn(f"  ⚠ WARNING: {w}")
+
+    # Internal gaps: compare actual row count vs expected
+    expected_n = max(1, round((end_ts - start_ts).total_seconds() / 3600 / float(interval_hours))) + 1
+    actual_n   = len(dts)
+    if actual_n < expected_n * 0.90:
+        pct = round(100 * (expected_n - actual_n) / expected_n)
+        w = (f"{source_name}: ~{pct}% of expected timesteps are missing "
+             f"({actual_n} of {expected_n} rows present).")
+        warns.append(w); log_fn(f"  ⚠ WARNING: {w}")
+
+    return warns
+
+
 def _get_nwm_retrospective(feature_id, start_ts, end_ts, interval_hours, log_fn):
     """Pull discharge from the NWM v2.1 retrospective Zarr store."""
     url = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"
@@ -275,6 +332,43 @@ def _get_nwm_timeseries(feature_id, start_dt, end_dt, interval_hours, log_fn):
     )
 
 
+def _trim_nan_boundaries(df_flow, source_name, log_fn):
+    """Remove leading/trailing NaN discharge rows from df_flow.
+
+    Returns (trimmed_df, warning_strings).  The caller should append the
+    warnings to ctx['bdy_warnings'] and raise if trimmed_df is empty.
+    """
+    valid = df_flow["discharge_cms"].notna()
+    warns = []
+    if not valid.any():
+        return df_flow.iloc[0:0].reset_index(drop=True), [
+            f"{source_name}: all discharge values are NaN for the requested period — "
+            "no valid data to write."
+        ]
+    first = int(valid.idxmax())
+    last  = int(valid[::-1].idxmax())
+    if first > 0:
+        t0 = pd.Timestamp(df_flow["datetime"].iloc[0])
+        t1 = pd.Timestamp(df_flow["datetime"].iloc[first])
+        h  = round((t1 - t0).total_seconds() / 3600, 1)
+        w  = (f"{source_name}: no discharge data for the first {h}h of the requested "
+              f"period — {first} timestep(s) removed. "
+              f"BDY file starts at {t1.strftime('%Y-%m-%d %H:%M')}.")
+        warns.append(w)
+        log_fn(f"  ⚠ {w}")
+    trailing = len(df_flow) - last - 1
+    if trailing > 0:
+        t_end_orig = pd.Timestamp(df_flow["datetime"].iloc[-1])
+        t_end_trim = pd.Timestamp(df_flow["datetime"].iloc[last])
+        h = round((t_end_orig - t_end_trim).total_seconds() / 3600, 1)
+        w  = (f"{source_name}: no discharge data for the last {h}h of the requested "
+              f"period — {trailing} timestep(s) removed. "
+              f"BDY file ends at {t_end_trim.strftime('%Y-%m-%d %H:%M')}.")
+        warns.append(w)
+        log_fn(f"  ⚠ {w}")
+    return df_flow.iloc[first:last + 1].reset_index(drop=True), warns
+
+
 def _write_bdy_file(df_flow, bdy_path, series_name, project_name, dem_cell_size):
     """Write LISFLOOD-FP .bdy format."""
     df = df_flow.copy()
@@ -355,17 +449,17 @@ def create_bdy(ctx_path, ctx: dict,
                start_dt: datetime,
                end_dt: datetime,
                interval_hours: float,
-               bdy_source: str,      # "existing" | "csv" | "nwm"
+               bdy_source: str,   # "existing"|"csv"|"nwm"|"nwm_retro"|"nwm_forecast"|"usgs"
                existing_bdy_path: str = None,
                user_csv_path: str = None,
                gap_handling: str = "interpolate",  # "interpolate" | "as_is"
+               gage_id: str = None,                # USGS source only
                log_fn=print):
     """Create BC.bdy file.  Returns updated ctx."""
 
     project_dir = Path(ctx["project_dir"])
     lisflood_dir = Path(ctx["lisflood_dir"])
     project_name = ctx["project_name"]
-    dem_tif_path = Path(ctx["dem_tif_path"])
     # Use ``next_free_path`` so a re-run produces BC (1).bdy, BC (2).bdy
     # … instead of overwriting.
     from core.export import next_free_path
@@ -383,6 +477,14 @@ def create_bdy(ctx_path, ctx: dict,
     if end_dt <= start_dt:
         raise ValueError("End date-time must be after start date-time.")
 
+    _dem_path = (ctx.get("dem_tif_path") or ctx.get("dem_path") or
+                 ctx.get("dem_ascii_path"))
+    if not _dem_path:
+        raise ValueError(
+            "DEM not found in project context — make sure the DEM step "
+            "completed successfully before running BDY."
+        )
+    dem_tif_path = Path(_dem_path)
     dem_cell_size = _get_dem_cell_size(dem_tif_path)
 
     if bdy_source == "existing":
@@ -455,20 +557,37 @@ def create_bdy(ctx_path, ctx: dict,
         log_fn(f"  CSV has {len(df_user)} rows, time range: "
                f"{t_min:.2f} – {t_max:.2f} hours")
 
-        # When the CSV contains datetime timestamps, use them directly
-        # (overrides the user-entered start/end).
+        # Dates come from the CSV itself — the user does not enter them.
+        # If the file has datetime strings, parse directly; otherwise build
+        # relative timestamps anchored to an arbitrary epoch (t=0).
         if has_datetimes:
             start_ts = pd.Timestamp(csv_start)
             end_ts   = pd.Timestamp(csv_end)
             log_fn(f"  CSV datetimes detected: {start_ts} → {end_ts}")
         else:
-            start_ts = pd.Timestamp(start_dt)
-            end_ts   = pd.Timestamp(end_dt)
+            # Relative-hours CSV: anchor to Unix epoch as a neutral origin.
+            start_ts = pd.Timestamp("1970-01-01")
+            end_ts   = start_ts + pd.Timedelta(hours=t_max)
+            log_fn(f"  Relative CSV: {len(df_user)} rows, "
+                   f"{t_min:.3g}h – {t_max:.3g}h")
+        # Keep function-level variables aligned so ctx["event_start/end"] is correct.
+        start_dt = start_ts.to_pydatetime()
+        end_dt   = end_ts.to_pydatetime()
 
         # Build a datetime series from the CSV's relative time_hours column
         csv_times = start_ts + pd.to_timedelta(df_user["time_hours"].astype(float), unit="h")
         ser = pd.Series(df_user["discharge_cms"].astype(float).values, index=csv_times)
         ser = ser.sort_index()
+
+        # ── Detect actual CSV interval and log it ──────────────────────────
+        csv_interval_h = None
+        if len(ser) >= 2:
+            diffs = ser.index.to_series().diff().dropna()
+            csv_interval_h = diffs.median().total_seconds() / 3600.0
+            log_fn(
+                f"  Detected CSV time interval: ~{csv_interval_h:.3g}h "
+                f"(requested output interval: {interval_hours}h)"
+            )
 
         # Build target time grid at the requested interval
         target_times = pd.date_range(start=start_ts, end=end_ts,
@@ -478,25 +597,40 @@ def create_bdy(ctx_path, ctx: dict,
         if target_times[-1] != end_ts:
             target_times = target_times.union(pd.DatetimeIndex([end_ts]))
 
-        if gap_handling == "interpolate":
-            # Fill missing timesteps by linear interpolation
-            ser2 = ser.reindex(ser.index.union(target_times)).sort_index().interpolate(method="time")
+        # ── Choose resampling strategy ──────────────────────────────────────
+        if csv_interval_h is not None and csv_interval_h < interval_hours * 0.9:
+            # CSV is finer-resolution than requested → aggregate by mean
+            log_fn(
+                f"  CSV has finer resolution ({csv_interval_h:.3g}h) than "
+                f"requested ({interval_hours}h) — aggregating by mean."
+            )
+            freq = pd.Timedelta(hours=float(interval_hours))
+            ser_agg = ser.resample(freq, origin=start_ts).mean()
+            # Align to the exact target grid (should already match, but snap for safety)
+            ser2 = ser_agg.reindex(target_times, method="nearest",
+                                   tolerance=freq * 0.6)
+        elif gap_handling == "interpolate":
+            # Same or coarser resolution → interpolate to fill any gaps
+            ser2 = (ser.reindex(ser.index.union(target_times))
+                       .sort_index()
+                       .interpolate(method="time"))
             ser2 = ser2.reindex(target_times)
-            log_fn(f"  Gap handling: interpolated missing timesteps onto {interval_hours}h grid.")
+            log_fn(f"  Gap handling: interpolated missing timesteps onto "
+                   f"{interval_hours}h grid.")
         else:
-            # "as_is" — only keep timesteps that already exist in the CSV
-            # Snap CSV timestamps to the nearest target grid point, then drop
-            # any target times that had no nearby CSV data.
-            ser2 = ser.reindex(target_times, method="nearest", tolerance=pd.Timedelta(hours=interval_hours * 0.4))
-            n_kept = ser2.dropna().shape[0]
+            # "as_is" — snap CSV timestamps to nearest target grid point
+            ser2 = ser.reindex(target_times, method="nearest",
+                               tolerance=pd.Timedelta(hours=interval_hours * 0.4))
+            n_kept    = ser2.dropna().shape[0]
             n_dropped = len(target_times) - n_kept
             if n_dropped > 0:
-                log_fn(f"  Gap handling: as-is — {n_dropped} timesteps with no data will be skipped.")
+                log_fn(f"  Gap handling: as-is — {n_dropped} timestep(s) with "
+                       f"no nearby CSV data will be skipped.")
             ser2 = ser2.dropna()
             if ser2.empty:
                 raise ValueError(
                     "No CSV data points fall on the requested interval grid. "
-                    "Try 'interpolate' instead or check the file."
+                    "Try 'Interpolate' instead or check the file."
                 )
 
         # Clip to event window
@@ -504,11 +638,27 @@ def create_bdy(ctx_path, ctx: dict,
         if ser2.dropna().empty:
             raise ValueError(
                 "No valid discharge values after resampling to the requested interval. "
-                "Check that your CSV time range covers the event window."
+                "Check that the CSV contains data and the interval is not larger than "
+                "the file's total duration."
             )
 
-        df_flow = pd.DataFrame({"datetime": ser2.index, "discharge_cms": ser2.values.astype(float)}).reset_index(drop=True)
-        log_fn(f"Output: {len(df_flow)} time steps at {interval_hours}h interval.")
+        df_flow = pd.DataFrame({
+            "datetime":      ser2.index,
+            "discharge_cms": ser2.values.astype(float),
+        }).reset_index(drop=True)
+        actual_start = df_flow["datetime"].iloc[0]
+        actual_end   = df_flow["datetime"].iloc[-1]
+        log_fn(
+            f"  Output: {len(df_flow)} time steps at {interval_hours}h interval "
+            f"({actual_start} → {actual_end})."
+        )
+        if csv_interval_h is not None and abs(csv_interval_h - interval_hours) > 0.05:
+            log_fn(
+                f"  Note: CSV native interval ({csv_interval_h:.3g}h) resampled "
+                f"to requested {interval_hours}h."
+            )
+        # No coverage check for CSV — dates come from the file, not a user window.
+
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
         df_flow.to_csv(helper_csv, index=False)
@@ -516,15 +666,110 @@ def create_bdy(ctx_path, ctx: dict,
         ctx["bdy_source"] = "user_table"
         ctx["user_discharge_file"] = str(user_csv_path)
 
-    else:  # nwm
-        if upstream_reach_id is None:
-            raise ValueError("upstream_reach_id not found in context. Run the BCI step first.")
-        df_flow = _get_nwm_timeseries(upstream_reach_id, start_dt, end_dt, interval_hours, log_fn)
+    elif bdy_source == "usgs":
+        # ── USGS instantaneous-value download ─────────────────────────────
+        if not gage_id:
+            raise ValueError("gage_id is required when bdy_source='usgs'.")
+        log_fn(f"Downloading USGS discharge for gage {gage_id} …")
+        from core.flowline_mode import _download_usgs_discharge
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = _download_usgs_discharge(
+                gage_ids=[gage_id],
+                start_dt=start_dt,
+                end_dt=end_dt,
+                out_folder=Path(tmpdir),
+                interval_hours=interval_hours,
+                log_fn=log_fn,
+            )
+            if not paths:
+                raise RuntimeError(
+                    f"No data returned for USGS gage {gage_id} for the "
+                    f"requested period ({start_dt} → {end_dt}).\n"
+                    "Check the gage number at waterdata.usgs.gov/nwis/rt "
+                    "and verify the date range has data."
+                )
+            df_raw = pd.read_csv(paths[0])
+
+        # Normalise columns — file has datetime as index label
+        if "datetime" not in df_raw.columns and df_raw.index.name == "datetime":
+            df_raw = df_raw.reset_index()
+        q_col = next((c for c in ("streamflow_m3s", "discharge_cms")
+                      if c in df_raw.columns), None)
+        if q_col is None:
+            raise RuntimeError(
+                f"USGS CSV for gage {gage_id} is missing a discharge column."
+            )
+        df_raw["datetime"] = pd.to_datetime(df_raw["datetime"], errors="coerce")
+        df_raw = df_raw.dropna(subset=["datetime"])
+        df_raw = df_raw.rename(columns={q_col: "discharge_cms"})
+        # Build a proper datetime-indexed Series so _resample_to_interval works
+        _dt_idx = pd.DatetimeIndex(df_raw["datetime"])
+        if _dt_idx.tz is not None:
+            _dt_idx = _dt_idx.tz_convert(None)   # strip tz (UTC → naive UTC)
+        ser = pd.Series(df_raw["discharge_cms"].astype(float).values, index=_dt_idx)
+        start_ts = pd.Timestamp(start_dt)
+        end_ts   = pd.Timestamp(end_dt)
+        df_flow  = _resample_to_interval(ser, start_ts, end_ts, interval_hours)
+        _bdy_warns = ctx.get("bdy_warnings", [])
+        df_flow, trim_warns = _trim_nan_boundaries(df_flow, f"USGS gage {gage_id}", log_fn)
+        _bdy_warns.extend(trim_warns)
+        if df_flow.empty:
+            ctx["bdy_warnings"] = _bdy_warns
+            raise RuntimeError(
+                f"USGS gage {gage_id}: no valid discharge data for the entire requested "
+                f"period ({start_dt} → {end_dt}). Cannot write BDY file."
+            )
+        _bdy_warns.extend(
+            _check_flow_coverage(df_flow, start_dt, end_dt,
+                                 interval_hours, f"USGS gage {gage_id}", log_fn)
+        )
+        ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
         df_flow.to_csv(helper_csv, index=False)
-        log_fn(f"BDY written from NWM: {bdy_path}")
-        ctx["bdy_source"] = "NWM"
+        log_fn(f"BDY written from USGS gage {gage_id}: {bdy_path}")
+        ctx["bdy_source"] = "USGS"
+
+    else:  # "nwm" | "nwm_retro" | "nwm_forecast"
+        if upstream_reach_id is None:
+            raise ValueError("upstream_reach_id not found in context. Run the BCI step first.")
+        start_ts = pd.Timestamp(start_dt)
+        end_ts   = pd.Timestamp(end_dt)
+        if bdy_source == "nwm_forecast":
+            df_flow = _get_nwm_forecast(
+                upstream_reach_id, start_ts, end_ts, interval_hours, log_fn
+            )
+            src_label = "NWM Forecast"
+        elif bdy_source == "nwm_retro":
+            df_flow = _get_nwm_retrospective(
+                upstream_reach_id, start_ts, end_ts, interval_hours, log_fn
+            )
+            src_label = "NWM Retrospective"
+        else:  # legacy "nwm" — auto-pick retro vs forecast by date
+            df_flow   = _get_nwm_timeseries(
+                upstream_reach_id, start_dt, end_dt, interval_hours, log_fn
+            )
+            src_label = "NWM"
+        _bdy_warns = ctx.get("bdy_warnings", [])
+        df_flow, trim_warns = _trim_nan_boundaries(df_flow, src_label, log_fn)
+        _bdy_warns.extend(trim_warns)
+        if df_flow.empty:
+            ctx["bdy_warnings"] = _bdy_warns
+            raise RuntimeError(
+                f"{src_label}: no valid discharge data for the requested period "
+                f"({start_dt} → {end_dt}). Cannot write BDY file."
+            )
+        _bdy_warns.extend(
+            _check_flow_coverage(df_flow, start_dt, end_dt,
+                                 interval_hours, src_label, log_fn)
+        )
+        ctx["bdy_warnings"] = _bdy_warns
+        _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
+        helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
+        df_flow.to_csv(helper_csv, index=False)
+        log_fn(f"BDY written from {src_label}: {bdy_path}")
+        ctx["bdy_source"] = src_label
 
     ctx["event_start"] = start_dt.strftime("%Y-%m-%d %H:%M")
     ctx["event_end"] = end_dt.strftime("%Y-%m-%d %H:%M")

@@ -10,6 +10,7 @@ from gui.par_config_panel import PARConfigPanel
 class AOIPARCard(QFrame):
     expand_requested = pyqtSignal(object)
     config_changed   = pyqtSignal(object)
+    remove_requested = pyqtSignal(object)
 
     EXPANDED_STYLE = (
         "QFrame#card { background:#f9fafb; border:2px solid #a0aec0; "
@@ -55,6 +56,16 @@ class AOIPARCard(QFrame):
         self._toggle_btn.setFixedWidth(80)
         self._toggle_btn.clicked.connect(self._on_toggle_clicked)
         header.addWidget(self._toggle_btn)
+
+        self._remove_btn = QPushButton("Remove")
+        self._remove_btn.setFixedWidth(70)
+        self._remove_btn.setStyleSheet(
+            "background:#e53e3e; color:white; border-radius:3px; "
+            "font-size:11px; padding:2px 4px;"
+        )
+        self._remove_btn.setToolTip(f"Remove {self._aoi_name} from this run")
+        self._remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
+        header.addWidget(self._remove_btn)
 
         outer.addLayout(header)
 
@@ -135,5 +146,5 @@ class AOIPARCard(QFrame):
         self._refresh_status()
 
     def apply_ctx_defaults(self, ctx: dict):
-        self._panel.apply_ctx_defaults(ctx)
+        self._panel.apply_ctx_defaults(ctx, aoi_name=self._aoi_name)
         self._refresh_status()

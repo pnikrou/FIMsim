@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -79,7 +79,6 @@ class StepBDYWidget(QWidget):
         self._clear_cards()
         self._clear_results()
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(False)
         self._status_lbl.setVisible(False)
@@ -204,16 +203,6 @@ class StepBDYWidget(QWidget):
         self._error_lbl.setVisible(False)
         layout.addWidget(self._error_lbl)
 
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; font-size:12px;"
-        )
-        self._report.setVisible(False)
-        layout.addWidget(self._report)
-
-        # ── Post-run results: clickable AOI list + hydrograph preview ─
         self._results_gb = QGroupBox(
             "Per-AOI BDY outputs  —  click an AOI to preview its hydrograph"
         )
@@ -226,7 +215,7 @@ class StepBDYWidget(QWidget):
         layout.addWidget(self._results_gb)
 
         self._gb_preview = QGroupBox("Hydrograph preview")
-        self._gb_preview.setFixedHeight(330)
+        self._gb_preview.setMinimumHeight(300)
         pv = QVBoxLayout(self._gb_preview)
         self._preview_placeholder = QLabel(
             "<i>Click an AOI above to plot its discharge hydrograph.</i>"
@@ -282,6 +271,7 @@ class StepBDYWidget(QWidget):
             card = AOIBDYCard(feat.get("name", "(unnamed)"), self)
             card.expand_requested.connect(self._on_expand_requested)
             card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
             self._cards_layout.insertWidget(
                 self._cards_layout.count() - 1, card
             )
@@ -289,6 +279,35 @@ class StepBDYWidget(QWidget):
         # Re-evaluate Run-button visibility (cards start with no source
         # picked, so it stays hidden until every card is ready).
         self._on_card_config_changed(None)
+
+    def _on_remove_requested(self, card):
+        from PyQt6.QtWidgets import QMessageBox
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = self._aoi_features[idx].get("name", f"AOI {idx+1}") if idx < len(self._aoi_features) else "this AOI"
+        reply = QMessageBox.question(
+            self, "Remove AOI",
+            f"Remove <b>{aoi_name}</b> from this step?\n\n"
+            "The AOI's data folder is NOT deleted — only removed from the current run.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Remove from both lists
+        self._cards.pop(idx)
+        if idx < len(self._aoi_features):
+            self._aoi_features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        # Re-evaluate run button + apply-all button
+        self._on_card_config_changed(None)
+        # If only 1 AOI left, show count label
+        n = len(self._aoi_features)
+        if hasattr(self, '_aoi_count_lbl'):
+            self._aoi_count_lbl.setText(
+                f"<b>{n}</b> AOI(s) remaining — configure each below."
+            )
 
     # ── accordion behaviour ───────────────────────────────────────────────────
 
@@ -412,6 +431,7 @@ class StepBDYWidget(QWidget):
             self._run_multi()
 
     def _run_single(self):
+        self._clear_results()
         cfg = self._single_panel.get_config()
         bdy_source = cfg["bdy_source"]
         file_path  = cfg.get("file_path") or None
@@ -422,6 +442,11 @@ class StepBDYWidget(QWidget):
             self._error_lbl.setVisible(True)
             return
 
+        if bdy_source == "usgs" and not cfg.get("gage_id"):
+            self._error_lbl.setText("Please enter a USGS gage number.")
+            self._error_lbl.setVisible(True)
+            return
+
         if bdy_source == "csv" and file_path:
             gh = self._csv_preflight(file_path, float(cfg["interval_hours"]))
             if gh is None:
@@ -429,7 +454,6 @@ class StepBDYWidget(QWidget):
             gap_handling = gh
 
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._status_lbl.setText("Preparing BDY file…")
@@ -446,6 +470,7 @@ class StepBDYWidget(QWidget):
             existing_bdy_path=file_path if bdy_source == "existing" else None,
             user_csv_path=file_path if bdy_source == "csv" else None,
             gap_handling=gap_handling,
+            gage_id=cfg.get("gage_id"),
         )
         self._worker = Worker(create_bdy, **kw)
         self._worker.message.connect(self._on_message)
@@ -454,6 +479,7 @@ class StepBDYWidget(QWidget):
         self._worker.start()
 
     def _run_multi(self):
+        self._clear_results()
         per_aoi = []
         for c, feat in zip(self._cards, self._aoi_features):
             cfg = c.get_config()
@@ -479,7 +505,6 @@ class StepBDYWidget(QWidget):
             per_aoi.append({**cfg, "gap_handling": gap_handling})
 
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._status_lbl.setText(
@@ -537,6 +562,23 @@ class StepBDYWidget(QWidget):
     # Post-run results: clickable AOI list + hydrograph preview
     # ─────────────────────────────────────────────────────────────────────────
 
+    _SRC_DISPLAY = {
+        "NWM": "NWM",
+        "NWM Retrospective": "NWM Retrospective",
+        "NWM Forecast": "NWM Forecast",
+        "nwm": "NWM",
+        "nwm_retro": "NWM Retrospective",
+        "nwm_forecast": "NWM Forecast",
+        "USGS": "USGS",
+        "usgs": "USGS",
+        "user_table": "CSV",
+        "csv": "CSV",
+        "user_bdy_copy": "Existing BDY",
+        "existing": "Existing BDY",
+    }
+    _NWM_SRCS = {"NWM", "NWM Retrospective", "NWM Forecast",
+                 "nwm", "nwm_retro", "nwm_forecast"}
+
     def _clear_results(self):
         if not hasattr(self, "_results_inner"):
             return
@@ -550,6 +592,9 @@ class StepBDYWidget(QWidget):
         if hasattr(self, "_gb_preview"):
             self._gb_preview.setVisible(False)
             self._hydro_preview.setVisible(False)
+            self._preview_placeholder.setText(
+                "<i>Click an AOI above to plot its discharge hydrograph.</i>"
+            )
             self._preview_placeholder.setVisible(True)
             self._hydro_preview.clear()
 
@@ -561,79 +606,95 @@ class StepBDYWidget(QWidget):
             proj_name = ctx.get("project_name", "")
             folder = f0.get("folder_path") or ctx.get("project_dir", "")
             single = {
-                "name":       ctx.get("aoi_name", f0.get("name", "AOI")),
-                "bdy_path":   ctx.get("bdy_path"),
-                "bdy_source": ctx.get("bdy_source"),
-                "written":    ctx.get("bdy_written", False),
+                "name":              ctx.get("aoi_name", f0.get("name", "AOI")),
+                "bdy_source":        ctx.get("bdy_source"),
+                "written":           ctx.get("bdy_written", False),
+                "upstream_reach_id": ctx.get("upstream_reach_id", ""),
+                "warnings":          ctx.get("bdy_warnings", []),
                 "helper_csv": (
                     str(Path(folder) / f"{proj_name}_upstream_timeseries.csv")
                     if proj_name and folder else None
                 ),
             }
-            if single.get("bdy_path") or single.get("written") is not None:
+            if ctx.get("bdy_path") or ctx.get("bdy_written") is not None:
                 per_aoi = [single]
         if not per_aoi:
             return
 
         for entry in per_aoi:
             name = entry.get("name", "?")
-            row = QFrame()
-            row.setStyleSheet(
-                "QFrame { background:#f9fafb; border:1px solid #e2e8f0; "
-                "border-radius:3px; padding:3px 6px; }"
-                "QFrame:hover { background:#f0f2f5; }"
-            )
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(6, 2, 6, 2)
-            rl.setSpacing(8)
-            if not entry.get("written"):
-                lbl = QLabel(
-                    f"<b>{name}</b>  →  "
-                    "<i>fixed discharge upstream — no BDY needed</i>"
+            row = QWidget()
+            rl = QVBoxLayout(row)
+            rl.setContentsMargins(0, 2, 0, 2)
+            rl.setSpacing(1)
+
+            if entry.get("failed"):
+                err_short = str(entry.get("error", "unknown error")).split("\n")[0]
+                name_lbl = QLabel(f"<b>{name}</b>")
+                name_lbl.setStyleSheet("color:#c53030;")
+                rl.addWidget(name_lbl)
+                err_lbl = QLabel(f"⚠ {err_short}")
+                err_lbl.setWordWrap(True)
+                err_lbl.setStyleSheet("color:#c53030; font-size:11px;")
+                rl.addWidget(err_lbl)
+
+            elif not entry.get("written"):
+                name_lbl = QLabel(f"<b>{name}</b>")
+                name_lbl.setStyleSheet("color:#2d3748;")
+                rl.addWidget(name_lbl)
+                note_lbl = QLabel("Fixed discharge upstream — no BDY file needed")
+                note_lbl.setStyleSheet(
+                    "color:#718096; font-size:11px; font-style:italic;"
                 )
-                lbl.setStyleSheet("color:#2d3748;")
-                rl.addWidget(lbl, 1)
+                rl.addWidget(note_lbl)
+
             else:
-                src_label = {
-                    "NWM": "NWM",
-                    "user_table": "CSV",
-                    "user_bdy_copy": "existing BDY",
-                }.get(entry.get("bdy_source"),
-                      entry.get("bdy_source", "—"))
-                bdy_str = (
-                    Path(entry["bdy_path"]).name
-                    if entry.get("bdy_path") else "?"
-                )
-                btn = QPushButton(
-                    f"{name}  →  {src_label} →  {bdy_str}"
-                )
+                src = entry.get("bdy_source", "")
+                src_display = self._SRC_DISPLAY.get(src, src or "—")
+                reach_id = entry.get("upstream_reach_id") or ""
+                if reach_id and src in self._NWM_SRCS:
+                    btn_label = f"  {name}  (Feature ID: {reach_id})"
+                else:
+                    btn_label = f"  {name}"
+                btn = QPushButton(btn_label)
                 btn.setStyleSheet(
                     "QPushButton { text-align:left; background:transparent; "
                     "border:none; color:#2d3748; font-weight:bold; padding:2px; }"
-                    "QPushButton:hover { color:#1a202c; "
-                    "text-decoration:underline; }"
+                    "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
                 )
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(
-                    lambda _checked, e=entry: self._show_hydrograph_for_aoi(e)
+                    lambda _c, e=entry: self._show_hydrograph_for_aoi(e)
                 )
-                rl.addWidget(btn, 1)
+                rl.addWidget(btn)
+
+                detail_lbl = QLabel(src_display)
+                detail_lbl.setStyleSheet(
+                    "color:#718096; font-size:11px; padding-left:4px;"
+                )
+                rl.addWidget(detail_lbl)
+
+                for w in entry.get("warnings", []):
+                    warn_lbl = QLabel(f"⚠ {w}")
+                    warn_lbl.setWordWrap(True)
+                    warn_lbl.setStyleSheet(
+                        "color:#744210; font-size:11px; padding-left:4px;"
+                    )
+                    rl.addWidget(warn_lbl)
+
             self._results_inner.addWidget(row)
+
         self._results_gb.setVisible(True)
-        # Show the preview group only if at least one AOI has a hydrograph
-        any_with_hydro = any(
-            e.get("written") and e.get("helper_csv") for e in per_aoi
-        )
-        self._gb_preview.setVisible(any_with_hydro)
-        self._preview_placeholder.setVisible(any_with_hydro)
+        self._gb_preview.setVisible(True)
+        self._preview_placeholder.setVisible(True)
         self._hydro_preview.setVisible(False)
 
     def _show_hydrograph_for_aoi(self, entry: dict):
         csv = entry.get("helper_csv")
         if not csv or not Path(csv).exists():
             self._preview_placeholder.setText(
-                f"<span style='color:#c53030;'>Hydrograph CSV not found: "
-                f"{csv}</span>"
+                f"<span style='color:#c53030;'>Hydrograph CSV not found for "
+                f"{entry.get('name', '?')}.</span>"
             )
             self._preview_placeholder.setVisible(True)
             self._hydro_preview.setVisible(False)
@@ -648,12 +709,10 @@ class StepBDYWidget(QWidget):
         self._error_lbl.setVisible(False)
         self._ctx = ctx
         self._progress.setValue(100)
-        # Match DEM / Manning wording.
         n = max(len(self._aoi_features), 1)
         self._status_lbl.setText(f"All {n} AOI(s) processed.")
         self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
         set_ready(self._run_btn)
-        self._show_report(ctx)
         self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
@@ -668,67 +727,3 @@ class StepBDYWidget(QWidget):
         )
         self._error_lbl.setVisible(True)
 
-    def _show_report(self, ctx):
-        per_aoi = ctx.get("bdy_per_aoi", [])
-        if per_aoi:
-            rows = ""
-            for entry in per_aoi:
-                src_name = {
-                    "NWM": "NWM",
-                    "user_table": "CSV",
-                    "user_bdy_copy": "existing BDY",
-                    None: "skipped (fixed Q)",
-                }.get(entry.get("bdy_source"), entry.get("bdy_source", "—"))
-                if entry.get("written"):
-                    rows += (
-                        f"&nbsp;&nbsp;• <b>{entry['name']}</b>: {src_name} → "
-                        f"<code>{entry.get('bdy_path', '?')}</code><br>"
-                    )
-                else:
-                    rows += (
-                        f"&nbsp;&nbsp;• <b>{entry['name']}</b>: "
-                        f"<i>fixed discharge — no BDY needed</i><br>"
-                    )
-            self._report.setText(
-                f"<b>BDY file(s) prepared successfully.</b><br><br>"
-                f"<b>Per-AOI outputs:</b><br>{rows}"
-            )
-            self._report.setVisible(True)
-            return
-
-        # Single-AOI report (preserves old detailed view)
-        bdy_written = ctx.get("bdy_written", False)
-        bdy_source = ctx.get("bdy_source", "")
-        event_start = ctx.get("event_start", "")
-        event_end = ctx.get("event_end", "")
-        project_name = ctx.get("project_name", "")
-        project_dir = ctx.get("project_dir", "")
-
-        if not bdy_written:
-            html = (
-                "<b>BDY step complete.</b><br><br>"
-                "<b>Note:</b> Fixed discharge upstream — no BDY file needed."
-            )
-            self._report.setText(html)
-            self._report.setVisible(True)
-            return
-        else:
-            bdy_path = ctx.get("bdy_path", "")
-            helper_csv = str(Path(project_dir) /
-                             f"{project_name}_upstream_timeseries.csv")
-            source_label = {
-                "NWM": "NWM retrospective (NOAA v2.1)",
-                "user_table": "User-provided CSV/XLSX",
-                "user_bdy_copy": "Existing BDY (resampled & renamed)",
-            }.get(bdy_source, bdy_source)
-            html = (
-                f"<b>BDY file(s) prepared successfully.</b><br><br>"
-                f"<b>Data source:</b> {source_label}<br>"
-                f"<b>Event window:</b> {event_start}  to  {event_end}<br>"
-                f"<b>Time interval:</b> {ctx.get('series_interval_hours', '')} h<br>"
-                f"<b>BC.bdy file saved:</b> {bdy_path}<br>"
-            )
-            if bdy_source in ("NWM", "user_table", "user_bdy_copy"):
-                html += f"<b>Discharge timeseries CSV:</b> {helper_csv}"
-        self._report.setText(html)
-        self._report.setVisible(True)

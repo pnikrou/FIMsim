@@ -7,7 +7,6 @@ Pages:
 Sources: NWM Retrospective, NWM Forecast, USGS Gage.
 No AOI required — user supplies feature IDs or gage numbers directly.
 """
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
@@ -100,7 +99,7 @@ class ModeStreamflowWidget(QWidget):
 
         retro_hdr = QHBoxLayout()
         self._retro_chk = QCheckBox("NWM Retrospective  (NOAA — USA only)")
-        self._retro_chk.setChecked(True)
+        self._retro_chk.setChecked(False)
         self._retro_chk.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self._retro_chk.toggled.connect(self._on_retro_toggled)
         retro_hdr.addWidget(self._retro_chk)
@@ -135,7 +134,7 @@ class ModeStreamflowWidget(QWidget):
         self._retro_start.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._retro_start.setCalendarPopup(True)
         self._retro_start.setDateTime(
-            QDateTime.fromString("2026-05-01 00:00", "yyyy-MM-dd HH:mm")
+            QDateTime.fromString("2020-11-01 00:00", "yyyy-MM-dd HH:mm")
         )
         dt_row.addWidget(self._retro_start)
         dt_row.addSpacing(12)
@@ -144,15 +143,17 @@ class ModeStreamflowWidget(QWidget):
         self._retro_end.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._retro_end.setCalendarPopup(True)
         self._retro_end.setDateTime(
-            QDateTime.fromString("2026-05-31 23:00", "yyyy-MM-dd HH:mm")
+            QDateTime.fromString("2020-12-01 00:00", "yyyy-MM-dd HH:mm")
         )
         dt_row.addWidget(self._retro_end)
         dt_row.addStretch()
         rf.addLayout(dt_row)
 
         cov_note = QLabel(
-            "★ Retrospective covers 1979-02-01 to 2020-12-31."
+            "★ Available 1979-02-01 → 2020-12-31  |  "
+            "15-min data resampled to chosen interval  |  USA only"
         )
+        cov_note.setWordWrap(True)
         cov_note.setStyleSheet("color:#718096; font-size:11px;")
         rf.addWidget(cov_note)
 
@@ -209,8 +210,9 @@ class ModeStreamflowWidget(QWidget):
         ff.addWidget(fore_csv_note)
 
         fore_cov_note = QLabel(
-            "★ NWM Forecast provides operational medium-range predictions "
-            "(~10-day horizon) using the latest model run."
+            "★ NWM operational forecast running since 2016  |  "
+            "Rolling ~10-day window from current date  |  "
+            "Updated every 6 hours  |  USA only  |  No historical archive"
         )
         fore_cov_note.setWordWrap(True)
         fore_cov_note.setStyleSheet("color:#718096; font-size:11px;")
@@ -221,18 +223,14 @@ class ModeStreamflowWidget(QWidget):
         self._fore_start = QDateTimeEdit()
         self._fore_start.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._fore_start.setCalendarPopup(True)
-        self._fore_start.setDateTime(
-            QDateTime.fromString("2026-05-01 00:00", "yyyy-MM-dd HH:mm")
-        )
+        self._fore_start.setDateTime(QDateTime.currentDateTime())
         fore_dt_row.addWidget(self._fore_start)
         fore_dt_row.addSpacing(12)
         fore_dt_row.addWidget(QLabel("End date:"))
         self._fore_end = QDateTimeEdit()
         self._fore_end.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._fore_end.setCalendarPopup(True)
-        self._fore_end.setDateTime(
-            QDateTime.fromString("2026-05-31 23:00", "yyyy-MM-dd HH:mm")
-        )
+        self._fore_end.setDateTime(QDateTime.currentDateTime().addDays(7))
         fore_dt_row.addWidget(self._fore_end)
         fore_dt_row.addStretch()
         ff.addLayout(fore_dt_row)
@@ -285,18 +283,14 @@ class ModeStreamflowWidget(QWidget):
         self._usgs_start = QDateTimeEdit()
         self._usgs_start.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._usgs_start.setCalendarPopup(True)
-        self._usgs_start.setDateTime(
-            QDateTime.fromString("2026-05-01 00:00", "yyyy-MM-dd HH:mm")
-        )
+        self._usgs_start.setDateTime(QDateTime.currentDateTime().addDays(-30))
         usgs_dt_row.addWidget(self._usgs_start)
         usgs_dt_row.addSpacing(12)
         usgs_dt_row.addWidget(QLabel("End date:"))
         self._usgs_end = QDateTimeEdit()
         self._usgs_end.setDisplayFormat("yyyy-MM-dd HH:mm")
         self._usgs_end.setCalendarPopup(True)
-        self._usgs_end.setDateTime(
-            QDateTime.fromString("2026-05-31 23:00", "yyyy-MM-dd HH:mm")
-        )
+        self._usgs_end.setDateTime(QDateTime.currentDateTime())
         usgs_dt_row.addWidget(self._usgs_end)
         usgs_dt_row.addStretch()
         uf.addLayout(usgs_dt_row)
@@ -360,6 +354,7 @@ class ModeStreamflowWidget(QWidget):
         rv.setSpacing(8)
 
         self._results_summary_lbl = QLabel("")
+        self._results_summary_lbl.setWordWrap(True)
         self._results_summary_lbl.setStyleSheet(
             "font-weight:bold; color:#276749; font-size:12px;"
         )
@@ -383,7 +378,7 @@ class ModeStreamflowWidget(QWidget):
         self._table = QTableWidget()
         self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels(
-            ["Source", "ID", "Date range", "Peak flow (m³/s)", "File"]
+            ["Source", "ID", "Status", "Date range", "Peak flow (m³/s)"]
         )
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -411,8 +406,8 @@ class ModeStreamflowWidget(QWidget):
 
         v.addStretch()
 
-        # Apply initial visibility state for collapsed sections
-        self._retro_form.setVisible(True)
+        # All sections start collapsed — user must check to expand
+        self._retro_form.setVisible(False)
         self._fore_form.setVisible(False)
         self._usgs_form.setVisible(False)
 
@@ -494,8 +489,25 @@ class ModeStreamflowWidget(QWidget):
             QMessageBox.warning(self, "Validation error", err)
             return
 
+        # Disconnect and discard any previous worker to avoid stale signals
+        if self._worker is not None:
+            try:
+                self._worker.finished.disconnect(self._on_done)
+                self._worker.error.disconnect(self._on_error)
+                self._worker.message.disconnect(self._log)
+            except Exception:
+                pass
+            self._worker = None
+
+        # Reset UI for the new run
         self._error_lbl.setVisible(False)
         self._results_frame.setVisible(False)
+        self._single_canvas.clear()
+        self._single_canvas_widget.setVisible(False)
+        self._detail_canvas.clear()
+        self._detail_canvas.setVisible(False)
+        self._table.setRowCount(0)
+        self._table_widget.setVisible(False)
         self._progress.setVisible(True)
         self._status_lbl.setText("Downloading streamflow data …")
         self._status_lbl.setVisible(True)
@@ -549,11 +561,49 @@ class ModeStreamflowWidget(QWidget):
         set_ready(self._run_btn)
         self._progress.setVisible(False)
         results = summary.get("results", [])
+        warnings = summary.get("warnings", [])
         self._last_results = results
-        n = len(results)
-        self._status_lbl.setText(f"Download complete: {n} time series saved.")
+
+        n_ok   = sum(1 for r in results if r.get("status") != "unavailable")
+        n_fail = len(results) - n_ok
+
+        # Status bar above results frame
+        if n_fail and n_ok:
+            self._status_lbl.setText(
+                f"Download complete: {n_ok} saved, {n_fail} not available."
+            )
+        elif n_fail and not n_ok:
+            self._status_lbl.setText(
+                f"Download complete: no data returned ({n_fail} gage(s) not available)."
+            )
+        else:
+            self._status_lbl.setText(f"Download complete: {n_ok} time series saved.")
         self._status_lbl.setStyleSheet("color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;")
-        self._results_summary_lbl.setText(f"Downloaded {n} time series")
+
+        # Summary label inside results frame
+        if warnings:
+            warn_lines = "<br>".join(f"⚠&nbsp;&nbsp;{w}" for w in warnings)
+            self._results_summary_lbl.setText(
+                f"Downloaded {n_ok} of {len(results)} time series<br><br>{warn_lines}"
+            )
+            self._results_summary_lbl.setStyleSheet(
+                "padding:8px 10px; background:#fffbeb; border:1px solid #f6ad55; "
+                "border-radius:4px; color:#744210; font-size:12px;"
+            )
+        elif n_fail:
+            self._results_summary_lbl.setText(
+                f"Downloaded {n_ok} of {len(results)} time series  —  "
+                f"{n_fail} gage(s) had no data for the requested period."
+            )
+            self._results_summary_lbl.setStyleSheet(
+                "font-weight:bold; color:#744210; font-size:12px;"
+            )
+        else:
+            self._results_summary_lbl.setText(f"✓  Downloaded {n_ok} time series")
+            self._results_summary_lbl.setStyleSheet(
+                "font-weight:bold; color:#276749; font-size:12px;"
+            )
+
         self._build_results(results)
         self._results_frame.setVisible(True)
 
@@ -571,14 +621,17 @@ class ModeStreamflowWidget(QWidget):
     # ── results rendering ─────────────────────────────────────────────────────
 
     def _build_results(self, results: list):
+        self._single_canvas.clear()
         self._single_canvas_widget.setVisible(False)
-        self._table_widget.setVisible(False)
+        self._detail_canvas.clear()
         self._detail_canvas.setVisible(False)
+        self._table_widget.setVisible(False)
 
         if not results:
             return
 
-        if len(results) == 1:
+        # Single successful result — show hydrograph directly
+        if len(results) == 1 and results[0].get("status") != "unavailable":
             entry = results[0]
             csv_path = entry.get("csv_path", "")
             source = entry.get("source", "")
@@ -588,43 +641,58 @@ class ModeStreamflowWidget(QWidget):
                     csv_path, title=f"{source} — {fid}"
                 )
                 self._single_canvas_widget.setVisible(True)
-        else:
-            self._table.setRowCount(0)
-            for row_idx, entry in enumerate(results):
-                self._table.insertRow(row_idx)
-                source = entry.get("source", "")
-                fid = entry.get("id", "")
-                csv_path = entry.get("csv_path", "")
-                n_ts = entry.get("n_timesteps", 0)
-                peak = entry.get("peak_flow_cms")
+            return
 
-                # Determine date range from CSV if possible
-                date_range = ""
-                if csv_path and Path(csv_path).exists():
-                    try:
-                        import pandas as pd
-                        df = pd.read_csv(csv_path, usecols=["datetime"])
-                        if not df.empty:
-                            dates = pd.to_datetime(df["datetime"], errors="coerce").dropna()
-                            if not dates.empty:
-                                date_range = (
-                                    f"{dates.min().strftime('%Y-%m-%d')} to "
-                                    f"{dates.max().strftime('%Y-%m-%d')}"
-                                )
-                    except Exception:
-                        pass
+        # Multiple results (or single unavailable) — always show table
+        import pandas as pd
+        from PyQt6.QtGui import QColor
 
-                peak_str = f"{peak:.3f}" if peak is not None else "—"
-                file_name = Path(csv_path).name if csv_path else "—"
+        self._table.setRowCount(0)
+        for row_idx, entry in enumerate(results):
+            self._table.insertRow(row_idx)
+            source    = entry.get("source", "")
+            fid       = entry.get("id", "")
+            csv_path  = entry.get("csv_path") or ""
+            peak      = entry.get("peak_flow_cms")
+            unavail   = entry.get("status") == "unavailable"
 
-                for col_idx, text in enumerate(
-                    [source, fid, date_range, peak_str, file_name]
-                ):
-                    item = QTableWidgetItem(str(text))
-                    item.setData(Qt.ItemDataRole.UserRole, entry)
-                    self._table.setItem(row_idx, col_idx, item)
+            # Status cell
+            if unavail:
+                status_text = "✗  No data for period"
+            elif entry.get("warnings"):
+                status_text = "⚠  Partial coverage"
+            else:
+                status_text = "✓  Downloaded"
 
-            self._table_widget.setVisible(True)
+            # Date range from CSV
+            date_range = ""
+            if csv_path and Path(csv_path).exists():
+                try:
+                    df = pd.read_csv(csv_path, usecols=["datetime"])
+                    dates = pd.to_datetime(df["datetime"], errors="coerce").dropna()
+                    if not dates.empty:
+                        date_range = (
+                            f"{dates.min().strftime('%Y-%m-%d')}  →  "
+                            f"{dates.max().strftime('%Y-%m-%d')}"
+                        )
+                except Exception:
+                    pass
+
+            peak_str = f"{peak:.2f}" if peak is not None else "—"
+
+            row_data = [source, fid, status_text, date_range, peak_str]
+            for col_idx, text in enumerate(row_data):
+                item = QTableWidgetItem(str(text))
+                item.setData(Qt.ItemDataRole.UserRole, entry)
+                if unavail:
+                    item.setForeground(QColor("#c53030"))
+                    item.setBackground(QColor("#fff5f5"))
+                elif entry.get("warnings"):
+                    item.setForeground(QColor("#744210"))
+                    item.setBackground(QColor("#fffbeb"))
+                self._table.setItem(row_idx, col_idx, item)
+
+        self._table_widget.setVisible(True)
 
     def _on_table_row_clicked(self, row: int, _col: int):
         item = self._table.item(row, 0)
@@ -633,14 +701,23 @@ class ModeStreamflowWidget(QWidget):
         entry = item.data(Qt.ItemDataRole.UserRole)
         if not entry:
             return
+
+        if entry.get("status") == "unavailable":
+            self._detail_canvas.setVisible(False)
+            self._detail_canvas.clear()
+            return
+
         csv_path = entry.get("csv_path", "")
-        source = entry.get("source", "")
-        fid = entry.get("id", "")
+        source   = entry.get("source", "")
+        fid      = entry.get("id", "")
         if csv_path and Path(csv_path).exists():
             self._detail_canvas.show_hydrograph(
                 csv_path, title=f"{source} — {fid}"
             )
             self._detail_canvas.setVisible(True)
+        else:
+            self._detail_canvas.setVisible(False)
+            self._detail_canvas.clear()
 
     # ── navigation ────────────────────────────────────────────────────────────
 
@@ -679,7 +756,7 @@ class ModeStreamflowWidget(QWidget):
         self._retro_ids.clear()
         self._fore_ids.clear()
         self._usgs_ids.clear()
-        self._retro_chk.setChecked(True)
+        self._retro_chk.setChecked(False)
         self._fore_chk.setChecked(False)
         self._usgs_chk.setChecked(False)
         self._results_frame.setVisible(False)
