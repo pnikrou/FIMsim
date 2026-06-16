@@ -70,6 +70,9 @@ class StepBCIWidget(QWidget):
         self._aoi_features = []
         self._clear_cards()
         self._clear_results()
+        # Start clean: reset the single-AOI panel to its defaults.
+        if self._single_panel is not None:
+            self._single_panel.set_config({"use_nhd": True})
         self._error_lbl.setVisible(False)
 
         self._progress.setValue(0)

@@ -403,6 +403,16 @@ class PARConfigPanel(QWidget):
             "extra_lines":      extra_lines,
         }
 
+    def reset(self):
+        """Start clean for a new run: drop any picked initial-condition file
+        and return the start mode to 'none'.  Other numeric defaults are left
+        as-is (they are re-seeded per AOI from ctx)."""
+        try:
+            self._start_combo.setCurrentIndex(0)
+            self._startfile_edit.clear()
+        except Exception:
+            pass
+
     def set_config(self, cfg: dict):
         """Restore selections from a config dict (used by Apply-to-all)."""
         if not cfg:

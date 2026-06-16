@@ -56,6 +56,9 @@ class StepPARWidget(QWidget):
         self._aoi_features = []
         self._clear_cards()
         self._clear_results()
+        # Start clean: clear any picked initial-condition file on the panel.
+        if self._single_panel is not None:
+            self._single_panel.reset()
         self._error_lbl.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(False)
