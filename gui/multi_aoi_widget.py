@@ -1070,6 +1070,10 @@ class MultiAOIWidget(QWidget):
         """True iff the user has at least one AOI in the confirmed list."""
         return bool(self._confirmed_features)
 
+    def confirmed_features(self) -> List[AOIFeatureInfo]:
+        """The AOIs the user has added to the confirmed list (may be empty)."""
+        return list(self._confirmed_features)
+
     def proceed_to_next(self) -> bool:
         """Commit confirmed AOIs to the parent ctx (via aoi_ready signal).
 

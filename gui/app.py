@@ -427,7 +427,49 @@ class MainWindow(QMainWindow):
         self._next_btn.setVisible(True)
 
     def _on_tab_changed(self, _idx):
+        self._sync_aoi_to_entered_step()
         self._update_nav()
+
+    def _sync_aoi_to_entered_step(self):
+        """Push the confirmed AOIs to whatever downstream step the user just
+        navigated to.
+
+        Steps normally receive their context only via the chained
+        ``step_completed`` hand-off (each step feeds the next).  That means
+        navigating by *clicking a tab* — instead of using 'Next step ▶' —
+        would leave a step with no ``aoi_features`` and it would fall back to
+        single-AOI mode.  Here we commit the confirmed AOIs and set_context
+        the entered step so every step shows the full per-AOI list no matter
+        how the user navigates.
+        """
+        model = self._active_model
+        if model not in ("lisflood", "triton"):
+            return
+        tabs = self._current_tabs()
+        widgets = self._lfp_steps if model == "lisflood" else self._triton_steps
+        if tabs is None or not widgets:
+            return
+        idx = tabs.currentIndex()
+        # Tabs: 0=Project, 1=AOI, 2.. = downstream steps.  Only feed downstream.
+        if idx < 2 or idx >= len(widgets):
+            return
+        aoi_step = widgets[1]
+        commit = getattr(aoi_step, "commit_confirmed_to_ctx", None)
+        if not callable(commit):
+            return
+        data = commit()
+        if not data:
+            return
+        self._update_context(model, data)
+        confirmed_n = len(data["ctx"].get("aoi_features", []) or [])
+        entered = widgets[idx]
+        # Re-push only when the entered step isn't already showing this AOI
+        # set, so we don't reset a step the user has already run.
+        cur = getattr(entered, "_aoi_features", None)
+        if cur is None:
+            cur = getattr(entered, "_features", [])
+        if len(cur or []) != confirmed_n:
+            entered.set_context(self._ctx_path[model], self._ctx[model])
 
     def _update_nav(self):
         tabs = self._current_tabs()

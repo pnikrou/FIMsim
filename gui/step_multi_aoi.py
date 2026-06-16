@@ -68,7 +68,29 @@ class StepMultiAOIWidget(QWidget):
     # ── slot ────────────────────────────────────────────────────────────────
 
     def _on_aoi_ready(self, features):
-        """Persist confirmed AOIs into context and emit step_completed."""
+        """Persist confirmed AOIs into context and emit step_completed
+        (fired when the user clicks the bottom 'Next step ▶' button)."""
+        self._persist_features(features)
+        self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": self._ctx})
+
+    def commit_confirmed_to_ctx(self):
+        """Write the currently-confirmed AOIs into ctx WITHOUT advancing the
+        tab or emitting step_completed.  Lets the host (MainWindow) push the
+        AOI list to a downstream step the instant the user navigates to it by
+        clicking its tab — so tab navigation works the same as 'Next step ▶'.
+
+        Returns ``{"ctx_path", "ctx"}`` when there is at least one confirmed
+        AOI, else ``None``."""
+        features = self._inner.confirmed_features()
+        if not features:
+            return None
+        self._persist_features(features)
+        return {"ctx_path": self._ctx_path, "ctx": self._ctx}
+
+    def _persist_features(self, features):
+        """Serialise the confirmed AOIs into ctx (aoi_features + first-AOI
+        bridge keys) and save to disk.  Shared by _on_aoi_ready and
+        commit_confirmed_to_ctx."""
         if self._ctx is None:
             self._ctx = {}
 
@@ -149,8 +171,7 @@ class StepMultiAOIWidget(QWidget):
             save_context(self._ctx_path, self._ctx)
 
         self._log(
-            f"AOI step complete — {len(features)} AOI(s) confirmed.  "
-            f"Currently the downstream steps process only the first AOI; "
-            f"per-AOI iteration is coming in a future update."
+            f"AOI step complete — {len(features)} AOI(s) confirmed. "
+            f"Every following step (DEM → PAR) will list all {len(features)} "
+            f"AOI(s) with their own options."
         )
-        self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": self._ctx})
