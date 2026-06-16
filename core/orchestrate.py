@@ -277,12 +277,9 @@ def run_lisflood_bdy_for_all_aois(
                 ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn, **kw,
             )
             # Helper CSV for the hydrograph preview — created by core/bdy.py
-            # alongside the .bdy file when source ∈ {nwm, csv, existing}.
-            proj_name = feat_ctx.get("project_name", "")
-            helper_csv = (
-                str(Path(folder) / f"{proj_name}_upstream_timeseries.csv")
-                if proj_name else None
-            )
+            # alongside the .bdy file (named by source + ID).  Read the exact
+            # path it recorded rather than reconstructing the name.
+            helper_csv = feat_ctx.get("bdy_helper_csv")
             summary.append({
                 "name":              feat["name"],
                 "folder":            folder,

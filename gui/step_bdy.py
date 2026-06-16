@@ -606,18 +606,15 @@ class StepBDYWidget(QWidget):
         per_aoi = ctx.get("bdy_per_aoi", []) or []
         if not per_aoi:
             f0 = self._aoi_features[0] if self._aoi_features else {}
-            proj_name = ctx.get("project_name", "")
-            folder = f0.get("folder_path") or ctx.get("project_dir", "")
             single = {
                 "name":              ctx.get("aoi_name", f0.get("name", "AOI")),
                 "bdy_source":        ctx.get("bdy_source"),
                 "written":           ctx.get("bdy_written", False),
                 "upstream_reach_id": ctx.get("upstream_reach_id", ""),
                 "warnings":          ctx.get("bdy_warnings", []),
-                "helper_csv": (
-                    str(Path(folder) / f"{proj_name}_upstream_timeseries.csv")
-                    if proj_name and folder else None
-                ),
+                # Exact path recorded by core/bdy.py (named by source + ID,
+                # saved in the case folder) — no fragile reconstruction.
+                "helper_csv":        ctx.get("bdy_helper_csv"),
             }
             if ctx.get("bdy_path") or ctx.get("bdy_written") is not None:
                 per_aoi = [single]

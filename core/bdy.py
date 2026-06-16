@@ -531,8 +531,9 @@ def create_bdy(ctx_path, ctx: dict,
         # Rewrite with current project name in header (fixes original filename mismatch)
         _write_bdy_file(df_flow, bdy_path, series_name, project_name, dem_cell_size)
 
-        helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
+        helper_csv = Path(bdy_path).parent / f"{aoi_name}_discharge.csv"
         df_flow.to_csv(helper_csv, index=False)
+        ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written (resampled, renamed): {bdy_path}")
         ctx["bdy_source"] = "user_bdy_copy"
         ctx["user_bdy_file"] = str(src)
@@ -651,8 +652,9 @@ def create_bdy(ctx_path, ctx: dict,
         # No coverage check for CSV — dates come from the file, not a user window.
 
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
-        helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
+        helper_csv = Path(bdy_path).parent / f"{aoi_name}_discharge.csv"
         df_flow.to_csv(helper_csv, index=False)
+        ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written: {bdy_path}")
         ctx["bdy_source"] = "user_table"
         ctx["user_discharge_file"] = str(user_csv_path)
@@ -720,8 +722,9 @@ def create_bdy(ctx_path, ctx: dict,
             _bdy_warns.extend(cov_warns)
         ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
-        helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
+        helper_csv = Path(bdy_path).parent / f"USGS_{gage_id}_discharge.csv"
         df_flow.to_csv(helper_csv, index=False)
+        ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written from USGS gage {gage_id}: {bdy_path}")
         ctx["bdy_source"] = "USGS"
 
@@ -762,8 +765,9 @@ def create_bdy(ctx_path, ctx: dict,
             _bdy_warns.extend(cov_warns)
         ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
-        helper_csv = project_dir / f"{project_name}_upstream_timeseries.csv"
+        helper_csv = Path(bdy_path).parent / f"NWM_{upstream_reach_id}_discharge.csv"
         df_flow.to_csv(helper_csv, index=False)
+        ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written from {src_label}: {bdy_path}")
         ctx["bdy_source"] = src_label
 
