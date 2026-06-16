@@ -372,7 +372,9 @@ def _write_extbc(extbc_path, entries):
         x2 = _fmt_num(float(e["x2"]))
         y2 = _fmt_num(float(e["y2"]))
         if bt == 0:
-            lines.append(f"{bt},{x1},{y1},{x2},{y2}")
+            # Free flow needs no value, but write 0 in the last column for
+            # consistency with the other types.
+            lines.append(f"{bt},{x1},{y1},{x2},{y2},0")
         elif bt == 1:
             val = e.get("value")
             if not isinstance(val, str) or not val.strip():
@@ -393,7 +395,7 @@ def _write_src_loc_file(src_loc_path, points):
 
     points : iterable of (x, y) tuples
     """
-    lines = ["%X-Location,Y-Location"]
+    lines = ["% X,Y"]
     for x, y in points:
         lines.append(f"{_fmt_num(float(x))},{_fmt_num(float(y))}")
     src_loc_path.parent.mkdir(parents=True, exist_ok=True)
@@ -440,7 +442,7 @@ def prepare_triton_bc(
     aoi_name     = ctx.get("aoi_name") or project_name
 
     extbc_filename   = extbc_filename   or f"{aoi_name}.extbc"
-    src_loc_filename = src_loc_filename or f"{aoi_name}_inflow_loc.txt"
+    src_loc_filename = src_loc_filename or f"{aoi_name}.src"
 
     # Copy stage files for type-1 entries + rewrite `value`
     processed = []

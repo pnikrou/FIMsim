@@ -105,7 +105,7 @@ def create_triton_cfg(
             )
 
     src_loc_path = ctx.get("triton_src_loc_path")
-    src_loc_filename = ctx.get("triton_src_loc_filename") or f"{aoi_name}_inflow_loc.txt"
+    src_loc_filename = ctx.get("triton_src_loc_filename") or f"{aoi_name}.src"
     if not src_loc_path or not Path(src_loc_path).exists():
         src_loc_path = str(triton_dir / src_loc_filename)
         if not Path(src_loc_path).exists():
