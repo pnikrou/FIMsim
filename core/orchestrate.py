@@ -604,6 +604,123 @@ def run_lisflood_manning_for_all_aois(
     return ctx
 
 
+# ── TRITON: multi-AOI Friction (Manning) step ─────────────────────────────────
+
+def run_triton_manning_for_all_aois(
+    ctx_path: str,
+    ctx: dict,
+    per_aoi_configs: list,
+    log_fn=print,
+) -> dict:
+    """Run prepare_triton_manning for every confirmed AOI (TRITON).
+
+    Mirrors run_lisflood_manning_for_all_aois, but writes into each AOI's
+    ``triton-files`` sub-folder and calls the TRITON friction builder.
+    ``per_aoi_configs`` is a list of prepare_triton_manning kwargs dicts in
+    the same order as ``ctx['aoi_features']``.
+    """
+    from core.triton_manning import prepare_triton_manning
+
+    aoi_features = ctx.get("aoi_features", [])
+    if not aoi_features:
+        raise RuntimeError("No AOIs in ctx — go back to the AOI step first.")
+    if len(per_aoi_configs) != len(aoi_features):
+        raise RuntimeError(
+            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+            f"there are {len(aoi_features)} AOIs."
+        )
+
+    n = len(aoi_features)
+    parent_project_dir = ctx.get("project_dir")
+    summary = []
+
+    for i, (feat, cfg) in enumerate(zip(aoi_features, per_aoi_configs), 1):
+        try:
+            log_fn(f"▶ Friction [{i}/{n}]: '{feat['name']}' …")
+            folder = feat["folder_path"]
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            mf_dir = model_files_subdir(folder, is_triton=True)
+
+            feat_ctx = dict(ctx)
+            feat_ctx["aoi_path"]          = feat["source_file"]
+            feat_ctx["aoi_name"]          = feat["folder_name"]
+            feat_ctx["aoi_feature_index"] = feat["feature_index"]
+            if feat.get("working_crs_epsg") is not None:
+                feat_ctx["working_crs_epsg"]  = feat["working_crs_epsg"]
+            if feat.get("working_crs_label"):
+                feat_ctx["working_crs_label"] = feat["working_crs_label"]
+            feat_ctx["project_dir"]       = folder
+            feat_ctx["triton_dir"]        = mf_dir
+            feat_ctx["model_dir"]         = mf_dir
+            feat_ctx.pop("lisflood_dir", None)
+
+            # Pull this AOI's DEM info from its own per-AOI ctx.
+            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
+            if per_aoi_ctx_path.exists():
+                try:
+                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
+                        saved = json.load(fr)
+                    for k in ("dem_path", "dem_tif_path", "dem_ascii_path",
+                              "dem_res_m", "dem_source"):
+                        if k in saved:
+                            feat_ctx[k] = saved[k]
+                except Exception:
+                    pass
+
+            feat_ctx_path = str(per_aoi_ctx_path)
+
+            feat_ctx = prepare_triton_manning(
+                ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn, **cfg,
+            )
+            summary.append({
+                "name":          feat["name"],
+                "folder":        folder,
+                "fric_mode":     feat_ctx.get("triton_fric_mode"),
+                "manning_tif":   feat_ctx.get("manning_tif_path"),
+                "manning_ascii": feat_ctx.get("triton_friction_path"),
+                "lulc_tif":      feat_ctx.get("lulc_path"),
+                "lulc_source":   feat_ctx.get("lulc_source"),
+                "fpfric":        feat_ctx.get("par_fpfric"),
+            })
+            log_fn(f"✓ Friction [{i}/{n}] finished: '{feat['name']}'")
+        except Exception as _aoi_exc:
+            import traceback
+            log_fn(f"✗ Friction [{i}/{n}] ERROR for '{feat['name']}': {_aoi_exc}")
+            log_fn(traceback.format_exc())
+            summary.append({
+                "name":    feat.get("name", f"AOI {i}"),
+                "failed":  True,
+                "error":   str(_aoi_exc),
+            })
+
+    # Rewire parent ctx's single-AOI bridge keys to the FIRST AOI
+    f0 = aoi_features[0]
+    folder0 = f0["folder_path"]
+    mf_dir0 = model_files_subdir(folder0, is_triton=True)
+    ctx["aoi_path"]          = f0["source_file"]
+    ctx["aoi_name"]          = f0["folder_name"]
+    ctx["aoi_feature_index"] = f0["feature_index"]
+    ctx["triton_dir"]        = mf_dir0
+    ctx["model_dir"]         = mf_dir0
+    if parent_project_dir:
+        ctx["project_dir"] = parent_project_dir
+
+    first_ok = next((s for s in summary if not s.get("failed")), None)
+    ctx["triton_fric_mode"]     = first_ok["fric_mode"] if first_ok else None
+    ctx["triton_friction_path"] = first_ok["manning_ascii"] if first_ok else None
+    ctx["par_fpfric"]           = first_ok["fpfric"] if first_ok else None
+    ctx["triton_manning_per_aoi"] = summary
+
+    try:
+        with open(ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+
+    log_fn(f"Friction prepared for all {n} AOI(s).")
+    return ctx
+
+
 # ── LISFLOOD-FP / TRITON: multi-AOI DEM step ──────────────────────────────────
 
 def run_lisflood_triton_dem_all(
