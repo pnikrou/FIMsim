@@ -150,6 +150,13 @@ class StepMultiAOIWidget(QWidget):
                 self._ctx["lisflood_dir"]    = mf_dir
                 self._ctx.pop("triton_dir", None)
             self._ctx["model_dir"]           = mf_dir
+            # Single-AOI: point project_dir at the AOI's OWN folder so every
+            # intermediate/downloaded file (LULC, Manning tif, NHD flowlines,
+            # main_river_*, discharge CSVs, …) is saved inside the case folder
+            # (<project>/<AOI>/), not the main project folder.  Multi-AOI
+            # already does this per-AOI inside the orchestrators.
+            if len(features) == 1:
+                self._ctx["project_dir"] = f0.folder_path
             # Per-AOI sensible default file paths (LISFLOOD / TRITON style)
             mf = Path(mf_dir)
             self._ctx.setdefault("dem_ascii_path",
