@@ -184,6 +184,100 @@ def _write_triton_hyg(series_list, start_dt, interval_hours, out_path):
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
+                            interval_hours, gage_id=None, user_csv_path=None,
+                            nwm_reach_id=None, log_fn=print):
+    """One-inflow TRITON .hyg from a chosen source (NWM retro/forecast, USGS,
+    or uploaded CSV), reusing the proven LISFLOOD-BDY fetchers and the existing
+    ``_write_triton_hyg`` writer.  Writes <AOI>.hyg into triton-files and a
+    helper CSV (datetime, discharge_cms) in the case folder for previewing.
+    Sets ctx['sim_duration'] (seconds) from the last hydrograph time.
+    """
+    from core import bdy as _b
+    triton_dir  = Path(ctx["triton_dir"])
+    project_dir = Path(ctx["project_dir"])
+    aoi_name    = ctx.get("aoi_name") or ctx.get("project_name", "triton")
+    start_ts = pd.Timestamp(start_dt)
+    end_ts   = pd.Timestamp(end_dt)
+
+    if bdy_source == "nwm_retro":
+        if nwm_reach_id is None:
+            raise ValueError("NWM source needs an upstream reach/feature ID (run BC first).")
+        df_flow = _b._get_nwm_retrospective(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
+    elif bdy_source == "nwm_forecast":
+        if nwm_reach_id is None:
+            raise ValueError("NWM source needs an upstream reach/feature ID (run BC first).")
+        df_flow = _b._get_nwm_forecast(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
+    elif bdy_source == "usgs":
+        if not gage_id:
+            raise ValueError("gage_id is required when the source is USGS.")
+        import tempfile
+        from core.flowline_mode import _download_usgs_discharge
+        log_fn(f"Downloading USGS discharge for gage {gage_id} …")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = _download_usgs_discharge(
+                gage_ids=[gage_id], start_dt=start_dt, end_dt=end_dt,
+                out_folder=Path(tmpdir), interval_hours=interval_hours, log_fn=log_fn,
+            )
+            if not paths:
+                raise RuntimeError(f"No USGS data for gage {gage_id} in the requested period.")
+            raw = pd.read_csv(paths[0])
+        if "datetime" not in raw.columns and raw.index.name == "datetime":
+            raw = raw.reset_index()
+        qcol = next((c for c in ("streamflow_m3s", "discharge_cms") if c in raw.columns), None)
+        if qcol is None:
+            raise RuntimeError(f"USGS CSV for gage {gage_id} has no discharge column.")
+        raw["datetime"] = pd.to_datetime(raw["datetime"], errors="coerce")
+        raw = raw.dropna(subset=["datetime"])
+        di = pd.DatetimeIndex(raw["datetime"])
+        if di.tz is not None:
+            di = di.tz_convert(None)
+        ser0 = pd.Series(raw[qcol].astype(float).values, index=di)
+        df_flow = _b._resample_to_interval(ser0, start_ts, end_ts, interval_hours)
+    elif bdy_source == "csv":
+        if not user_csv_path:
+            raise ValueError("A CSV path is required when the source is 'csv'.")
+        tbl, has_dt, csv_start, _csv_end = _b._read_user_discharge_table(user_csv_path)
+        anchor = pd.Timestamp(csv_start) if (has_dt and csv_start is not None) else start_ts
+        di = anchor + pd.to_timedelta(tbl["time_hours"].astype(float), unit="h")
+        ser0 = pd.Series(tbl["discharge_cms"].astype(float).values, index=pd.DatetimeIndex(di))
+        s2 = anchor if (has_dt and csv_start is not None) else start_ts
+        e2 = pd.Timestamp(ser0.index.max())
+        df_flow = _b._resample_to_interval(ser0, s2, e2, interval_hours)
+    else:
+        raise ValueError(f"Unsupported hydrograph source: {bdy_source!r}")
+
+    df_flow, _trim = _b._trim_nan_boundaries(df_flow, bdy_source, log_fn)
+    if df_flow.empty:
+        raise RuntimeError(f"{bdy_source}: no valid discharge data for the requested period.")
+
+    ser = pd.Series(
+        df_flow["discharge_cms"].astype(float).values,
+        index=pd.DatetimeIndex(df_flow["datetime"]),
+    )
+    t0 = pd.Timestamp(df_flow["datetime"].iloc[0])
+    hyg_path = triton_dir / f"{aoi_name}.hyg"
+    _write_triton_hyg([ser], t0, interval_hours, hyg_path)
+    log_fn(f"{hyg_path.name} written: {hyg_path}")
+
+    helper = project_dir / f"{aoi_name}_hydrograph.csv"
+    df_flow.to_csv(helper, index=False)
+
+    last_hr = (pd.Timestamp(df_flow["datetime"].iloc[-1]) - t0).total_seconds() / 3600.0
+    ctx["triton_hyg_path"]          = str(hyg_path)
+    ctx["triton_hyg_filename"]      = hyg_path.name
+    ctx["triton_hydro_path"]        = str(hyg_path)
+    ctx["triton_hydro_helper_csv"]  = str(helper)
+    ctx["triton_hydro_source"]      = bdy_source
+    ctx["triton_hyg_written"]       = True
+    ctx["num_sources"]              = 1
+    ctx["sim_duration"]             = float(last_hr) * 3600.0   # seconds
+    ctx["event_start"]              = start_ts.strftime("%Y-%m-%d %H:%M")
+    ctx["event_end"]                = end_ts.strftime("%Y-%m-%d %H:%M")
+    save_context(ctx_path, ctx)
+    return ctx
+
+
 def _parse_triton_hyg(path, start_dt):
     """Read an existing TRITON .hyg file into a DataFrame.
 

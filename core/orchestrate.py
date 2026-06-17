@@ -869,6 +869,113 @@ def run_triton_bc_for_all_aois(
     return ctx
 
 
+# ── TRITON: multi-AOI Hydrograph step (.hyg) ──────────────────────────────────
+
+def run_triton_hydro_for_all_aois(
+    ctx_path: str,
+    ctx: dict,
+    per_aoi_configs: list,
+    log_fn=print,
+) -> dict:
+    """Per AOI: fetch the inflow discharge from the chosen source and write
+    that AOI's <AOI>.hyg.  ``per_aoi_configs`` is a list (one per AOI) of
+    BDY-panel dicts: ``{"bdy_source","gage_id","file_path","start_dt",
+    "end_dt","interval_hours"}``.  Reuses the BDY fetchers + the existing
+    TRITON .hyg writer (write_triton_hyg_single)."""
+    from core.triton_hydro import write_triton_hyg_single
+
+    aoi_features = ctx.get("aoi_features", [])
+    if not aoi_features:
+        raise RuntimeError("No AOIs in ctx — go back to the AOI step first.")
+    if len(per_aoi_configs) != len(aoi_features):
+        raise RuntimeError(
+            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+            f"there are {len(aoi_features)} AOIs."
+        )
+
+    n = len(aoi_features)
+    parent_project_dir = ctx.get("project_dir")
+    summary = []
+
+    for i, (feat, cfg) in enumerate(zip(aoi_features, per_aoi_configs), 1):
+        try:
+            log_fn(f"▶ Hydrograph [{i}/{n}]: '{feat['name']}' …")
+            folder = feat["folder_path"]
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            mf_dir = model_files_subdir(folder, is_triton=True)
+
+            feat_ctx = dict(ctx)
+            feat_ctx["aoi_name"]    = feat["folder_name"]
+            feat_ctx["project_dir"] = folder
+            feat_ctx["triton_dir"]  = mf_dir
+            feat_ctx["model_dir"]   = mf_dir
+            feat_ctx.pop("lisflood_dir", None)
+
+            # This AOI's upstream feature/reach id (written by the BC step) —
+            # needed for NWM sources.
+            reach_id = None
+            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
+            if per_aoi_ctx_path.exists():
+                try:
+                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
+                        saved = json.load(fr)
+                    reach_id = saved.get("upstream_reach_id")
+                except Exception:
+                    pass
+            feat_ctx_path = str(per_aoi_ctx_path)
+
+            bdy_source = cfg.get("bdy_source") or ""
+            feat_ctx = write_triton_hyg_single(
+                ctx_path=feat_ctx_path, ctx=feat_ctx,
+                bdy_source=bdy_source,
+                start_dt=cfg["start_dt"], end_dt=cfg["end_dt"],
+                interval_hours=float(cfg["interval_hours"]),
+                gage_id=cfg.get("gage_id") or None,
+                user_csv_path=(cfg.get("file_path") if bdy_source == "csv" else None),
+                nwm_reach_id=reach_id,
+                log_fn=log_fn,
+            )
+            summary.append({
+                "name":        feat["name"],
+                "folder":      folder,
+                "hyg_path":    feat_ctx.get("triton_hyg_path"),
+                "helper_csv":  feat_ctx.get("triton_hydro_helper_csv"),
+                "source":      feat_ctx.get("triton_hydro_source"),
+                "sim_duration": feat_ctx.get("sim_duration"),
+            })
+            log_fn(f"✓ Hydrograph [{i}/{n}] finished: '{feat['name']}'")
+        except Exception as _aoi_exc:
+            import traceback
+            log_fn(f"✗ Hydrograph [{i}/{n}] ERROR for '{feat['name']}': {_aoi_exc}")
+            log_fn(traceback.format_exc())
+            summary.append({
+                "name":    feat.get("name", f"AOI {i}"),
+                "failed":  True,
+                "error":   str(_aoi_exc),
+            })
+
+    f0 = aoi_features[0]
+    mf_dir0 = model_files_subdir(f0["folder_path"], is_triton=True)
+    ctx["aoi_name"]   = f0["folder_name"]
+    ctx["triton_dir"] = mf_dir0
+    ctx["model_dir"]  = mf_dir0
+    if parent_project_dir:
+        ctx["project_dir"] = parent_project_dir
+    first_ok = next((s for s in summary if not s.get("failed")), None)
+    ctx["triton_hydro_per_aoi"] = summary
+    if first_ok:
+        ctx["sim_duration"] = first_ok.get("sim_duration")
+
+    try:
+        with open(ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+
+    log_fn(f"Hydrograph prepared for all {n} AOI(s).")
+    return ctx
+
+
 # ── LISFLOOD-FP / TRITON: multi-AOI DEM step ──────────────────────────────────
 
 def run_lisflood_triton_dem_all(
