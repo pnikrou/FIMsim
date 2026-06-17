@@ -122,7 +122,7 @@ def create_triton_cfg(
                 f"Hydrograph file not found: {hyg_path}\nRun the hydro step before the CFG step."
             )
 
-    friction_asc = Path(ctx.get("triton_friction_path") or (triton_dir / f"{aoi_name}.asc"))
+    friction_asc = Path(ctx.get("triton_friction_path") or (triton_dir / "friction.asc"))
     if fric_mode == "varying" and not friction_asc.exists():
         raise FileNotFoundError(
             f"Friction raster not found: {friction_asc}\nRun the friction step before the CFG step."
@@ -151,11 +151,14 @@ def create_triton_cfg(
         except ValueError:
             return str(p)
 
-    dem_rel      = _rel(dem_asc)
-    extbc_rel    = _rel(extbc_path)
-    src_loc_rel  = _rel(src_loc_path)
-    hyg_rel      = _rel(hyg_path)
-    friction_rel = _rel(friction_asc) if fric_mode == "varying" else None
+    # All per-AOI input files live in the same triton-files folder as the .cfg,
+    # so reference them by bare filename (dem.asc, friction.asc, <AOI>.hyg, …)
+    # rather than a full path.
+    dem_rel      = Path(dem_asc).name
+    extbc_rel    = Path(extbc_path).name
+    src_loc_rel  = Path(src_loc_path).name
+    hyg_rel      = Path(hyg_path).name
+    friction_rel = Path(friction_asc).name if fric_mode == "varying" else None
 
     runoff_filename_rel = _rel(runoff_filename) if runoff_filename else ""
     runoff_map_rel      = _rel(runoff_map)      if runoff_map      else ""
