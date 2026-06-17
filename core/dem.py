@@ -794,17 +794,30 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                     continue   # retry
                 raise           # non-tile error or retries exhausted
 
-    # TRITON requires a DEM with NO nodata cells — fill before ASCII export
-    if _is_triton:
-        log_fn("TRITON mode: filling any nodata cells in DEM before ASCII export…")
-        _fill_dem_nodata(dem_path, log_fn)
-
     if skip_ascii:
         log_fn("Skipping ASCII export (standalone mode — only GeoTIFF needed).")
         dem_ascii_path = None
+    elif _is_triton:
+        # TRITON needs a DEM with NO nodata cells for its .asc, but the GeoTIFF
+        # (dem_tif_path) is what the DEM preview shows — keep it MASKED so cells
+        # outside the AOI render as no-colour (like LULC/Manning).  So fill a
+        # TEMP copy for the headerless .asc and leave dem_path masked.
+        log_fn("TRITON mode: filling nodata into the .asc (preview tif stays masked)…")
+        import shutil
+        tmp_filled = dem_path.with_name(dem_path.stem + "__filled.tif")
+        shutil.copyfile(dem_path, tmp_filled)
+        try:
+            _fill_dem_nodata(tmp_filled, log_fn)
+            log_fn("Converting filled DEM to ASCII...")
+            _export_ascii(tmp_filled, dem_ascii_path, log_fn, is_triton=True)
+        finally:
+            try:
+                tmp_filled.unlink()
+            except Exception:
+                pass
     else:
         log_fn("Converting DEM to ASCII...")
-        _export_ascii(dem_path, dem_ascii_path, log_fn, is_triton=_is_triton)
+        _export_ascii(dem_path, dem_ascii_path, log_fn, is_triton=False)
 
     ctx["has_dem"] = has_dem
     if has_dem:
