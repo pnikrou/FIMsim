@@ -692,8 +692,16 @@ class StepBDYWidget(QWidget):
 
         self._results_gb.setVisible(True)
         self._gb_preview.setVisible(True)
-        self._preview_placeholder.setVisible(True)
-        self._hydro_preview.setVisible(False)
+        # Auto-show the first AOI's hydrograph so a preview is always visible
+        # right after a run (single- or multi-AOI); the user can click other
+        # AOIs to switch.  Re-runs rebuild this, so it refreshes every time.
+        first = next((e for e in per_aoi
+                      if e.get("written") and e.get("helper_csv")), None)
+        if first is not None:
+            self._show_hydrograph_for_aoi(first)
+        else:
+            self._preview_placeholder.setVisible(True)
+            self._hydro_preview.setVisible(False)
 
     def _show_hydrograph_for_aoi(self, entry: dict):
         csv = entry.get("helper_csv")
