@@ -1038,7 +1038,7 @@ def run_triton_cfg_for_all_aois(
                 time_step=float(cfg.get("time_step", 10.0)),
                 print_interval=float(cfg.get("print_interval", 3600.0)),
                 courant=float(cfg.get("courant", 0.5)),
-                open_boundaries=0,   # explicit .extbc → other edges closed
+                open_boundaries=1,   # an explicit .extbc boundary is present
                 log_fn=log_fn,
             )
             summary.append({
