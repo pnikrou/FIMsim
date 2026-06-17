@@ -24,9 +24,9 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from core.orchestrate import run_triton_hydro_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
-from gui.bdy_config_panel import BDYConfigPanel
-from gui.aoi_bdy_card import AOIBDYCard
-from gui.hydrograph_preview import HydrographPreviewCanvas
+from gui.triton_bdy_config_panel import BDYConfigPanel
+from gui.aoi_triton_bdy_card import AOIBDYCard
+from gui.triton_hydrograph_preview import HydrographPreviewCanvas
 
 
 _HYG_STEP_RE = re.compile(r"^▶\s+Hydrograph\s+\[(\d+)/(\d+)\]")

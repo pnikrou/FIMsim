@@ -31,9 +31,9 @@ from core.triton_manning import prepare_triton_manning
 from core.orchestrate import run_triton_manning_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
-from gui.manning_config_panel import ManningConfigPanel
-from gui.aoi_manning_card import AOIManningCard
-from gui.raster_preview import RasterPreviewCanvas
+from gui.triton_manning_config_panel import ManningConfigPanel
+from gui.aoi_triton_manning_card import AOIManningCard
+from gui.triton_raster_preview import RasterPreviewCanvas
 
 
 _FRICTION_STEP_RE = re.compile(r"^▶\s+Friction\s+\[(\d+)/(\d+)\]")
