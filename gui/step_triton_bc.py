@@ -1,43 +1,37 @@
-"""Step 4 of TRITON workflow — Boundary Conditions editor.
+"""Step 5 — Boundary Conditions (.src + .extbc) — TRITON.
 
-Two-table interface:
+Multi-AOI controller, mirroring the LISFLOOD BCI step:
 
-  • Inflow Sources    — 1 row per upstream inflow point (→ src_loc_file)
-  • External BC rows  — 1 row per downstream / lateral BC (→ .extbc)
+  * 1 AOI   → one TritonBCConfigPanel embedded directly.
+  * >1 AOI  → an accordion of AOITritonBCCard widgets (one per AOI) + a top
+              "Apply current AOI's settings to all" button.
 
-Either table can be populated manually, or prefilled with a single click by
-running NHD main-river auto-detection.  Output filenames are editable.
+The inflow source point and the downstream boundary segment are auto-derived
+from the flowline + DEM by the (unchanged) core (detect_main_river); the user
+only picks the downstream boundary TYPE (0/1/2/3) per AOI.  Both single- and
+multi-AOI runs go through ``run_triton_bc_for_all_aois`` (a 1-AOI run is just a
+loop of one), which calls the unchanged ``prepare_triton_bc`` writer.
 """
+import re
 from pathlib import Path
+from typing import List, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QFormLayout, QComboBox, QDoubleSpinBox, QPushButton,
-    QProgressBar, QFrame, QLineEdit, QFileDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
+    QPlainTextEdit,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
-from core.triton_bc import prepare_triton_bc, detect_main_river
+from core.orchestrate import run_triton_bc_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
+from gui.triton_bc_config_panel import TritonBCConfigPanel
+from gui.aoi_triton_bc_card import AOITritonBCCard
 
 
-# BC type metadata
-_BC_TYPES = [
-    ("0 — Free flow",   0),
-    ("1 — Stage file",  1),
-    ("2 — Slope",       2),
-    ("3 — Froude",      3),
-]
-
-
-def _sep():
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    line.setStyleSheet("color:#e2e8f0;")
-    return line
+_BC_STEP_RE = re.compile(r"^▶\s+BC\s+\[(\d+)/(\d+)\]")
+_BC_DONE_RE = re.compile(r"^✓\s+BC\s+\[(\d+)/(\d+)\]")
 
 
 class StepTritonBCWidget(QWidget):
@@ -45,177 +39,135 @@ class StepTritonBCWidget(QWidget):
 
     def __init__(self, log_fn, parent=None):
         super().__init__(parent)
-        self._log      = log_fn
-        self._worker   = None
-        self._detector = None
+        self._log = log_fn
+        self._worker = None
         self._ctx_path = None
-        self._ctx      = None
+        self._ctx = None
+        self._aoi_features: list = []
+        self._stack: QStackedWidget = None        # type: ignore[assignment]
+        self._single_panel: TritonBCConfigPanel = None  # type: ignore[assignment]
+        self._cards: List[AOITritonBCCard] = []
+        self._cards_layout: QVBoxLayout = None    # type: ignore[assignment]
         self._setup_ui()
 
-    # ── context ───────────────────────────────────────────────────────────────
+    # ── public API ────────────────────────────────────────────────────────────
+
     def set_context(self, ctx_path, ctx):
         self._ctx_path = ctx_path
-        self._ctx      = ctx
-        if not ctx:
-            return
-        proj = ctx.get("project_name", "triton")
-        if not self._extbc_name_edit.text().strip():
-            self._extbc_name_edit.setText(f"{proj}.extbc")
-        if not self._src_loc_name_edit.text().strip():
-            self._src_loc_name_edit.setText(f"{proj}_inflow_loc.txt")
+        self._ctx = ctx or {}
+        self._aoi_features = list(self._ctx.get("aoi_features", []) or [])
+        self._clear_results()
+        self._rebuild_for_aoi_count()
+
+    def reset(self):
+        self._aoi_features = []
+        self._clear_cards()
+        self._clear_results()
+        if self._single_panel is not None:
+            self._single_panel.set_config({"bc_type": 0})
+        self._error_lbl.setVisible(False)
+        self._progress.setValue(0)
+        self._progress.setVisible(False)
+        self._status_lbl.setVisible(False)
+        self._stack.setCurrentIndex(0)
 
     # ── UI ────────────────────────────────────────────────────────────────────
-    def _setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setSpacing(10)
 
-        # Info banner
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
         info = QLabel(
-            "<b>Two files are written:</b><br>"
-            "• <b>Inflow sources file</b> — one coordinate per upstream inflow (also sets <code>num_sources</code>).<br>"
-            "• <b>.extbc file</b> — one line per external boundary (also sets <code>num_extbc</code>).<br>"
-            "Use <b>Auto-populate from NHD</b> to prefill a single inflow point plus a downstream segment "
-            "based on the main river in the AOI (USA only). Add or edit rows manually as needed."
+            "★ <b>NHD auto-detect</b> downloads NHD flowlines, picks the "
+            "highest-order river, and derives the inflow point + downstream "
+            "boundary segment from the DEM. Works for <b>USA only</b>. "
+            "Outside the USA (or to override), choose <b>Manual coordinates</b> "
+            "in an AOI and enter the inflow point + outflow segment, or edit the "
+            "generated <code>.src</code> / <code>.extbc</code> files directly."
         )
         info.setWordWrap(True)
-        info.setStyleSheet(
-            "padding:8px; background:#fffbeb; border:1px solid #f6e05e; border-radius:4px;"
+        info.setStyleSheet("color:#4a5568; font-size:11px; padding:2px 0px;")
+        layout.addWidget(info)
+
+        self._aoi_count_lbl = QLabel("")
+        self._aoi_count_lbl.setStyleSheet(
+            "padding:6px 10px; background:#f7fafc; border:1px solid #cbd5e0; "
+            "border-radius:4px; color:#2d3748; font-size:11px;"
         )
-        root.addWidget(info)
+        self._aoi_count_lbl.setWordWrap(True)
+        self._aoi_count_lbl.setVisible(False)
+        layout.addWidget(self._aoi_count_lbl)
 
-        # ── NHD detection controls ───────────────────────────────────────────
-        nhd_gb = QGroupBox("NHD main-river auto-populate (optional)")
-        nhd_form = QFormLayout(nhd_gb)
+        self._stack = QStackedWidget()
+        layout.addWidget(self._stack, 1)
+        self._stack.setMinimumHeight(320)
 
-        self._seg_width_spin = QDoubleSpinBox()
-        self._seg_width_spin.setRange(50.0, 50000.0)
-        self._seg_width_spin.setDecimals(0)
-        self._seg_width_spin.setValue(500.0)
-        self._seg_width_spin.setSuffix(" m")
-        nhd_form.addRow("BC segment half-width:", self._seg_width_spin)
+        # Page 0 — single-AOI form
+        single_page = QWidget()
+        sp_layout = QVBoxLayout(single_page)
+        sp_layout.setContentsMargins(0, 0, 0, 0)
+        gb = QGroupBox("5. Boundary Conditions (.src + .extbc)")
+        gb_layout = QVBoxLayout(gb)
+        self._single_panel = TritonBCConfigPanel(self)
+        self._single_panel.config_changed.connect(self._on_single_config_changed)
+        gb_layout.addWidget(self._single_panel)
+        sp_layout.addWidget(gb)
+        sp_layout.addStretch()
+        self._stack.addWidget(single_page)
 
-        self._nhd_type_combo = QComboBox()
-        for lbl, _ in _BC_TYPES:
-            self._nhd_type_combo.addItem(lbl)
-        self._nhd_type_combo.setCurrentIndex(2)  # default Type 2 (slope)
-        self._nhd_type_combo.currentIndexChanged.connect(self._toggle_nhd_bc_value)
-        nhd_form.addRow("Downstream BC type to stage:", self._nhd_type_combo)
-
-        self._nhd_slope_spin = QDoubleSpinBox()
-        self._nhd_slope_spin.setRange(0.000001, 1.0)
-        self._nhd_slope_spin.setDecimals(6)
-        self._nhd_slope_spin.setValue(0.0005)
-        nhd_form.addRow("Slope (for Type 2):", self._nhd_slope_spin)
-
-        self._nhd_froude_spin = QDoubleSpinBox()
-        self._nhd_froude_spin.setRange(0.0, 10.0)
-        self._nhd_froude_spin.setDecimals(3)
-        self._nhd_froude_spin.setValue(1.0)
-        self._nhd_froude_spin.setVisible(False)
-        self._nhd_froude_lbl = QLabel("Froude value (for Type 3):")
-        self._nhd_froude_lbl.setVisible(False)
-        nhd_form.addRow(self._nhd_froude_lbl, self._nhd_froude_spin)
-
-        nhd_stage_row = QHBoxLayout()
-        self._nhd_stage_edit = QLineEdit()
-        self._nhd_stage_edit.setPlaceholderText("Browse for stage file…")
-        nhd_stage_btn = QPushButton("Browse…")
-        nhd_stage_btn.setFixedWidth(80)
-        nhd_stage_btn.clicked.connect(lambda: self._browse_into(self._nhd_stage_edit))
-        nhd_stage_row.addWidget(self._nhd_stage_edit)
-        nhd_stage_row.addWidget(nhd_stage_btn)
-        self._nhd_stage_lbl = QLabel("Stage file (for Type 1):")
-        self._nhd_stage_lbl.setVisible(False)
-        self._nhd_stage_edit.setVisible(False)
-        nhd_stage_btn.setVisible(False)
-        self._nhd_stage_btn = nhd_stage_btn
-        nhd_form.addRow(self._nhd_stage_lbl, nhd_stage_row)
-
-        nhd_btn_row = QHBoxLayout()
-        self._nhd_btn = QPushButton("↻  Run NHD & add rows to tables")
-        self._nhd_btn.setStyleSheet(
-            "font-weight:bold; padding:6px 16px; background:#276749; color:white; border-radius:4px;"
+        # Page 1 — multi-AOI accordion
+        multi_page = QWidget()
+        mp_layout = QVBoxLayout(multi_page)
+        mp_layout.setContentsMargins(0, 0, 0, 0)
+        top_row = QHBoxLayout()
+        self._apply_all_btn = QPushButton("Apply current AOI's settings to all")
+        self._apply_all_btn.setStyleSheet(
+            "background:#2b6cb0; color:white; padding:6px 14px; "
+            "border-radius:3px; font-weight:bold;"
         )
-        self._nhd_btn.clicked.connect(self._run_nhd)
-        nhd_btn_row.addWidget(self._nhd_btn)
-        nhd_btn_row.addStretch()
-        nhd_form.addRow(nhd_btn_row)
+        self._apply_all_btn.clicked.connect(self._apply_to_all)
+        self._apply_all_btn.setEnabled(False)
+        top_row.addStretch()
+        top_row.addWidget(self._apply_all_btn)
+        mp_layout.addLayout(top_row)
 
-        root.addWidget(nhd_gb)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        cards_host = QWidget()
+        self._cards_layout = QVBoxLayout(cards_host)
+        self._cards_layout.setSpacing(6)
+        self._cards_layout.addStretch()
+        scroll.setWidget(cards_host)
+        mp_layout.addWidget(scroll, 1)
+        self._stack.addWidget(multi_page)
 
-        # ── Inflow Sources table ─────────────────────────────────────────────
-        src_gb = QGroupBox("Inflow sources  (→ src_loc_file)")
-        src_v  = QVBoxLayout(src_gb)
-        self._src_table = QTableWidget(0, 2)
-        self._src_table.setHorizontalHeaderLabels(["X (easting)", "Y (northing)"])
-        self._src_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._src_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._src_table.setMinimumHeight(110)
-        src_v.addWidget(self._src_table)
-        src_btn_row = QHBoxLayout()
-        add_src = QPushButton("+ Add source")
-        rm_src  = QPushButton("− Remove selected")
-        add_src.clicked.connect(lambda: self._add_src_row(0.0, 0.0))
-        rm_src.clicked.connect(lambda: self._remove_selected(self._src_table))
-        src_btn_row.addWidget(add_src)
-        src_btn_row.addWidget(rm_src)
-        src_btn_row.addStretch()
-        src_v.addLayout(src_btn_row)
-        root.addWidget(src_gb)
-
-        # ── External BC table ────────────────────────────────────────────────
-        bc_gb = QGroupBox("External boundary conditions  (→ .extbc)")
-        bc_v  = QVBoxLayout(bc_gb)
-        self._bc_table = QTableWidget(0, 6)
-        self._bc_table.setHorizontalHeaderLabels([
-            "Type", "X1", "Y1", "X2", "Y2", "Value / stage file"
-        ])
-        h = self._bc_table.horizontalHeader()
-        h.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self._bc_table.setColumnWidth(0, 120)
-        for i in range(1, 5):
-            self._bc_table.setColumnWidth(i, 110)
-        h.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        self._bc_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._bc_table.setMinimumHeight(140)
-        bc_v.addWidget(self._bc_table)
-        bc_btn_row = QHBoxLayout()
-        add_bc = QPushButton("+ Add BC")
-        rm_bc  = QPushButton("− Remove selected")
-        add_bc.clicked.connect(lambda: self._add_bc_row(2, 0.0, 0.0, 0.0, 0.0, "0.0005"))
-        rm_bc.clicked.connect(lambda: self._remove_selected(self._bc_table))
-        bc_btn_row.addWidget(add_bc)
-        bc_btn_row.addWidget(rm_bc)
-        bc_btn_row.addStretch()
-        bc_v.addLayout(bc_btn_row)
-        root.addWidget(bc_gb)
-
-        # ── Output filenames ─────────────────────────────────────────────────
-        fn_gb = QGroupBox("Output filenames")
-        fn_form = QFormLayout(fn_gb)
-        self._extbc_name_edit = QLineEdit()
-        self._extbc_name_edit.setPlaceholderText("e.g. Coordinates.extbc")
-        fn_form.addRow(".extbc filename:", self._extbc_name_edit)
-        self._src_loc_name_edit = QLineEdit()
-        self._src_loc_name_edit.setPlaceholderText("e.g. inflow_loc.txt")
-        fn_form.addRow("src_loc filename:", self._src_loc_name_edit)
-        root.addWidget(fn_gb)
-
-        # ── Run ──────────────────────────────────────────────────────────────
-        run_row = QHBoxLayout()
-        self._run_btn = QPushButton("Write BC files")
+        # Run + progress + status
+        btn_row = QHBoxLayout()
+        self._run_btn = QPushButton("Write .src + .extbc file(s)")
         self._run_btn.setStyleSheet(
-            "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
+            "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
+            "color:white; border-radius:4px;"
         )
         self._run_btn.clicked.connect(self._run_step)
-        run_row.addWidget(self._run_btn)
-        run_row.addStretch()
-        root.addLayout(run_row)
+        self._run_btn.setVisible(False)
+        btn_row.addWidget(self._run_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
 
         self._progress = QProgressBar()
-        self._progress.setRange(0, 100); self._progress.setValue(0)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
         self._progress.setVisible(False)
-        root.addWidget(self._progress)
+        self._progress.setStyleSheet("QProgressBar { height: 18px; }")
+        layout.addWidget(self._progress)
+
+        self._status_lbl = QLabel("")
+        self._status_lbl.setWordWrap(True)
+        self._status_lbl.setStyleSheet(
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
+        )
+        self._status_lbl.setVisible(False)
+        layout.addWidget(self._status_lbl)
 
         self._error_lbl = QLabel("")
         self._error_lbl.setWordWrap(True)
@@ -224,289 +176,269 @@ class StepTritonBCWidget(QWidget):
             "border-radius:4px; font-size:12px; color:#c53030;"
         )
         self._error_lbl.setVisible(False)
-        root.addWidget(self._error_lbl)
+        layout.addWidget(self._error_lbl)
 
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; font-size:12px;"
+        # Post-run results: simple clickable per-AOI lines + two-pane preview
+        self._results_gb = QGroupBox(
+            "Per-AOI BC outputs  —  click an AOI to preview its files"
         )
-        self._report.setVisible(False)
-        root.addWidget(self._report)
+        rgl = QVBoxLayout(self._results_gb)
+        self._results_inner = QVBoxLayout()
+        self._results_inner.setSpacing(1)
+        rgl.addLayout(self._results_inner)
+        self._results_gb.setVisible(False)
+        layout.addWidget(self._results_gb)
 
-        root.addStretch()
+        self._preview_gb = QGroupBox("File preview")
+        pv = QHBoxLayout(self._preview_gb)
+        src_col = QVBoxLayout()
+        src_col.addWidget(QLabel("<b>.src</b>  (inflow points)"))
+        self._src_view = QPlainTextEdit()
+        self._src_view.setReadOnly(True)
+        self._src_view.setStyleSheet("font-family:monospace; font-size:11px;")
+        src_col.addWidget(self._src_view)
+        pv.addLayout(src_col, 1)
+        extbc_col = QVBoxLayout()
+        extbc_col.addWidget(QLabel("<b>.extbc</b>  (outflow boundary)"))
+        self._extbc_view = QPlainTextEdit()
+        self._extbc_view.setReadOnly(True)
+        self._extbc_view.setStyleSheet("font-family:monospace; font-size:11px;")
+        extbc_col.addWidget(self._extbc_view)
+        pv.addLayout(extbc_col, 1)
+        self._preview_gb.setMinimumHeight(180)
+        self._preview_gb.setVisible(False)
+        layout.addWidget(self._preview_gb)
 
-    # ── Row helpers ────────────────────────────────────────────────────────────
-    def _add_src_row(self, x, y):
-        r = self._src_table.rowCount()
-        self._src_table.insertRow(r)
-        self._src_table.setItem(r, 0, QTableWidgetItem(f"{float(x):.3f}"))
-        self._src_table.setItem(r, 1, QTableWidgetItem(f"{float(y):.3f}"))
+    # ── layout switching ───────────────────────────────────────────────────────
 
-    def _add_bc_row(self, bc_type, x1, y1, x2, y2, value):
-        r = self._bc_table.rowCount()
-        self._bc_table.insertRow(r)
-
-        combo = QComboBox()
-        for lbl, _ in _BC_TYPES:
-            combo.addItem(lbl)
-        combo.setCurrentIndex(self._type_index(bc_type))
-        combo.currentIndexChanged.connect(self._on_bc_type_changed)
-        self._bc_table.setCellWidget(r, 0, combo)
-
-        for i, v in enumerate([x1, y1, x2, y2]):
-            self._bc_table.setItem(r, i + 1, QTableWidgetItem(f"{float(v):.3f}"))
-
-        val_item = QTableWidgetItem(str(value) if value is not None else "")
-        self._bc_table.setItem(r, 5, val_item)
-        self._on_bc_type_changed()
-
-    def _type_index(self, bc_type_val):
-        for i, (_, v) in enumerate(_BC_TYPES):
-            if v == bc_type_val:
-                return i
-        return 0
-
-    def _remove_selected(self, table):
-        rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
-        for r in rows:
-            table.removeRow(r)
-
-    def _on_bc_type_changed(self, *_):
-        # When any type combobox flips to Type 1, allow the value cell to
-        # accept a filename.  Provide a "Browse" shortcut via double-click.
-        pass  # validation handled at run-time in _collect_bc_entries
-
-    def _toggle_nhd_bc_value(self, idx):
-        bc_type = _BC_TYPES[idx][1]
-        self._nhd_slope_spin.setVisible(bc_type == 2)
-        self._nhd_froude_lbl.setVisible(bc_type == 3)
-        self._nhd_froude_spin.setVisible(bc_type == 3)
-        self._nhd_stage_lbl.setVisible(bc_type == 1)
-        self._nhd_stage_edit.setVisible(bc_type == 1)
-        self._nhd_stage_btn.setVisible(bc_type == 1)
-
-    def _browse_into(self, line_edit):
-        f, _ = QFileDialog.getOpenFileName(
-            self, "Select stage file", "",
-            "Text/CSV (*.txt *.csv);;All files (*)"
-        )
-        if f:
-            line_edit.setText(f)
-
-    # ── NHD auto-populate ──────────────────────────────────────────────────────
-    def _run_nhd(self):
-        if not self._ctx_path or not self._ctx:
-            self._log("Complete earlier steps first.")
-            return
-        self._error_lbl.setVisible(False)
-        self._nhd_btn.setEnabled(False)
-        self._progress.setValue(0)
-        self._progress.setVisible(True)
-
-        def _do_detect(ctx_path, ctx, segment_width, log_fn=print):
-            return detect_main_river(
-                ctx, downstream_segment_width=segment_width, log_fn=log_fn
+    def _rebuild_for_aoi_count(self):
+        n = len(self._aoi_features)
+        if n == 0:
+            self._aoi_count_lbl.setText(
+                "<i>No AOIs confirmed yet — go back to the AOI step first.</i>"
             )
-
-        self._detector = Worker(
-            _do_detect,
-            ctx_path=self._ctx_path,
-            ctx=self._ctx,
-            segment_width=self._seg_width_spin.value(),
+            self._aoi_count_lbl.setVisible(True)
+            self._stack.setCurrentIndex(0)
+            self._run_btn.setVisible(False)
+            return
+        if n == 1:
+            self._aoi_count_lbl.setText("<b>1</b> AOI confirmed.")
+            self._aoi_count_lbl.setVisible(True)
+            self._stack.setCurrentIndex(0)
+            self._run_btn.setVisible(self._single_panel.is_ready())
+            return
+        self._aoi_count_lbl.setText(
+            f"<b>{n}</b> AOI(s) confirmed — choose the downstream boundary type "
+            "for each AOI below."
         )
-        self._detector.message.connect(self._on_message)
-        self._detector.finished.connect(self._on_nhd_done)
-        self._detector.error.connect(self._on_error)
-        self._detector.start()
+        self._aoi_count_lbl.setVisible(True)
+        self._stack.setCurrentIndex(1)
+        self._build_cards()
 
-    def _on_nhd_done(self, result):
-        self._nhd_btn.setEnabled(True)
-        self._progress.setValue(100)
-        up = result.get("upstream_pt")
-        dn = result.get("downstream_segment")
-        if up:
-            self._add_src_row(up[0], up[1])
-        if dn:
-            idx = self._nhd_type_combo.currentIndex()
-            bc_type = _BC_TYPES[idx][1]
-            if bc_type == 2:
-                val = f"{self._nhd_slope_spin.value():.6f}"
-            elif bc_type == 3:
-                val = f"{self._nhd_froude_spin.value():.3f}"
-            elif bc_type == 1:
-                val = self._nhd_stage_edit.text().strip()
-                if not val:
-                    QMessageBox.warning(
-                        self, "Stage file missing",
-                        "Type-1 needs a stage file path. Pick one before running NHD."
-                    )
-                    return
-            else:
-                val = ""
-            self._add_bc_row(bc_type, dn[0], dn[1], dn[2], dn[3], val)
+    def _clear_cards(self):
+        for c in list(self._cards):
+            c.setParent(None)
+            c.deleteLater()
+        self._cards.clear()
 
-        # Stash reach id / river name for downstream steps
-        if result.get("upstream_reach_id"):
-            self._ctx["upstream_reach_id"] = result["upstream_reach_id"]
-        if result.get("main_river_name"):
-            self._ctx["main_river_name"]   = result["main_river_name"]
-            self._ctx["main_feature_name"] = result["main_river_name"]
-        if result.get("flowlines_path"):
-            self._ctx["flowlines_path"]    = result["flowlines_path"]
+    def _build_cards(self):
+        self._clear_cards()
+        for feat in self._aoi_features:
+            card = AOITritonBCCard(feat.get("name", "(unnamed)"), self)
+            card.expand_requested.connect(self._on_expand_requested)
+            card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
+            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+            self._cards.append(card)
+        self._on_card_config_changed(None)
 
-        QMessageBox.information(
-            self, "NHD populated",
-            f"Main river: {result.get('main_river_name', '?')}\n"
-            f"Upstream inflow row added.\n"
-            f"Downstream BC row staged — review the value before writing."
-        )
+    def _on_remove_requested(self, card):
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = (self._aoi_features[idx].get("name", f"AOI {idx+1}")
+                    if idx < len(self._aoi_features) else "this AOI")
+        if QMessageBox.question(
+            self, "Remove AOI", f"Remove <b>{aoi_name}</b> from this step?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._cards.pop(idx)
+        if idx < len(self._aoi_features):
+            self._aoi_features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        self._on_card_config_changed(None)
 
-    # ── Collect & run ──────────────────────────────────────────────────────────
-    def _collect_inflow_sources(self):
-        rows = []
-        for r in range(self._src_table.rowCount()):
-            try:
-                x = float(self._src_table.item(r, 0).text())
-                y = float(self._src_table.item(r, 1).text())
-            except (AttributeError, ValueError):
-                raise ValueError(f"Inflow row {r + 1} has invalid coordinates.")
-            rows.append((x, y))
-        return rows
+    def _on_expand_requested(self, card):
+        for c in self._cards:
+            c.expand() if c is card else c.collapse()
+        self._apply_all_btn.setEnabled(True)
 
-    def _collect_bc_entries(self):
-        entries = []
-        for r in range(self._bc_table.rowCount()):
-            combo = self._bc_table.cellWidget(r, 0)
-            bc_type = _BC_TYPES[combo.currentIndex()][1]
-            try:
-                x1 = float(self._bc_table.item(r, 1).text())
-                y1 = float(self._bc_table.item(r, 2).text())
-                x2 = float(self._bc_table.item(r, 3).text())
-                y2 = float(self._bc_table.item(r, 4).text())
-            except (AttributeError, ValueError):
-                raise ValueError(f"BC row {r + 1} has invalid segment coordinates.")
-            val_item = self._bc_table.item(r, 5)
-            val_txt  = val_item.text().strip() if val_item else ""
+    def _expanded_card(self) -> Optional[AOITritonBCCard]:
+        for c in self._cards:
+            if c.is_expanded():
+                return c
+        return None
 
-            entry = {"bc_type": bc_type, "x1": x1, "y1": y1, "x2": x2, "y2": y2}
-            if bc_type == 0:
-                pass  # no value
-            elif bc_type in (2, 3):
-                try:
-                    entry["value"] = float(val_txt)
-                except ValueError:
-                    raise ValueError(
-                        f"BC row {r + 1} (type {bc_type}) needs a numeric value, got '{val_txt}'."
-                    )
-            else:  # type 1
-                if not val_txt:
-                    raise ValueError(f"BC row {r + 1} (type 1) needs a stage file path or filename.")
-                # If it's an absolute path to an existing file, pass via stage_file_path.
-                p = Path(val_txt)
-                if p.exists():
-                    entry["stage_file_path"] = str(p)
-                else:
-                    entry["value"] = val_txt
-            entries.append(entry)
-        return entries
+    def _on_card_config_changed(self, _card):
+        all_ready = bool(self._cards) and all(c.is_ready() for c in self._cards)
+        self._run_btn.setVisible(all_ready)
+        self._apply_all_btn.setEnabled(self._expanded_card() is not None)
+
+    def _apply_to_all(self):
+        src = self._expanded_card()
+        if src is None:
+            return
+        cfg = src.get_config()
+        for c in self._cards:
+            if c is not src:
+                c.set_config(cfg)
+        self._on_card_config_changed(None)
+
+    def _on_single_config_changed(self):
+        if self._stack.currentIndex() == 0 and len(self._aoi_features) <= 1:
+            self._run_btn.setVisible(self._single_panel.is_ready())
+
+    # ── run (always via the orchestrator; 1 AOI = loop of one) ─────────────────
 
     def _run_step(self):
         if not self._ctx_path or not self._ctx:
             self._log("Complete earlier steps first.")
             return
-        try:
-            inflow_sources = self._collect_inflow_sources()
-            bc_entries     = self._collect_bc_entries()
-        except ValueError as ex:
-            self._error_lbl.setText(f"<b>Input error:</b> {ex}")
-            self._error_lbl.setVisible(True)
-            return
-        if not inflow_sources:
-            self._error_lbl.setText("<b>Add at least one inflow source.</b>")
-            self._error_lbl.setVisible(True)
-            return
-        if not bc_entries:
-            self._error_lbl.setText("<b>Add at least one external BC row.</b>")
-            self._error_lbl.setVisible(True)
-            return
-
-        extbc_name = self._extbc_name_edit.text().strip() or None
-        src_name   = self._src_loc_name_edit.text().strip() or None
-
+        if len(self._aoi_features) <= 1:
+            cfgs = [self._single_panel.get_config()]
+        else:
+            cfgs = [c.get_config() for c in self._cards]
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
         set_running(self._run_btn)
-
+        self._status_lbl.setText(
+            f"Preparing BC for {max(len(self._aoi_features), 1)} AOI(s)…"
+        )
+        self._status_lbl.setVisible(True)
         self._worker = Worker(
-            prepare_triton_bc,
-            ctx_path=self._ctx_path,
-            ctx=self._ctx,
-            inflow_sources=inflow_sources,
-            bc_entries=bc_entries,
-            extbc_filename=extbc_name,
-            src_loc_filename=src_name,
-            main_river_name=self._ctx.get("main_river_name"),
-            upstream_reach_id=self._ctx.get("upstream_reach_id"),
+            run_triton_bc_for_all_aois,
+            ctx_path=self._ctx_path, ctx=self._ctx, per_aoi_configs=cfgs,
         )
         self._worker.message.connect(self._on_message)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    # ── callbacks ──────────────────────────────────────────────────────────────
     def _on_message(self, msg):
         self._log(msg)
         ml = msg.lower()
-        if "downloading nhd" in ml:
-            self._progress.setValue(25)
-        elif "flowlines saved" in ml:
-            self._progress.setValue(55)
-        elif "main river" in ml:
-            self._progress.setValue(75)
-        elif "source locations written" in ml:
-            self._progress.setValue(85)
-        elif "external bc file written" in ml:
+        m = _BC_STEP_RE.match(msg)
+        if m:
+            self._progress.setValue(20)
+            self._status_lbl.setText(
+                f"Preparing BC {m.group(1)} / {m.group(2)} …"
+            )
+            return
+        m = _BC_DONE_RE.match(msg)
+        if m:
             self._progress.setValue(100)
+            return
+        if "main river" in ml:
+            self._progress.setValue(50)
+        elif "external bc file written" in ml or "source locations written" in ml:
+            self._progress.setValue(85)
+
+    # ── results ────────────────────────────────────────────────────────────────
+
+    def _clear_results(self):
+        if not hasattr(self, "_results_inner"):
+            return
+        while self._results_inner.count():
+            item = self._results_inner.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        if hasattr(self, "_results_gb"):
+            self._results_gb.setVisible(False)
+        if hasattr(self, "_preview_gb"):
+            self._preview_gb.setVisible(False)
+            self._src_view.clear()
+            self._extbc_view.clear()
+
+    def _build_results(self, ctx):
+        self._clear_results()
+        per_aoi = ctx.get("triton_bc_per_aoi", []) or []
+        if not per_aoi:
+            if ctx.get("triton_extbc_path"):
+                per_aoi = [{
+                    "name":        ctx.get("aoi_name", "AOI"),
+                    "bc_type":     None,
+                    "extbc_path":  ctx.get("triton_extbc_path"),
+                    "src_path":    ctx.get("triton_src_loc_path"),
+                }]
+        if not per_aoi:
+            return
+        # One simple line per AOI (clickable name + plain-text file names).
+        for entry in per_aoi:
+            name = entry.get("name", "?")
+            if entry.get("failed"):
+                lbl = QLabel(
+                    f"<b>{name}</b>  —  ⚠ "
+                    f"{str(entry.get('error', 'error')).splitlines()[0]}"
+                )
+                lbl.setStyleSheet("color:#c53030; font-size:11px;")
+                lbl.setWordWrap(True)
+                self._results_inner.addWidget(lbl)
+                continue
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            btn = QPushButton(name)
+            btn.setStyleSheet(
+                "QPushButton { text-align:left; background:transparent; "
+                "border:none; color:#2d3748; font-weight:bold; padding:1px; }"
+                "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
+            )
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _c, e=entry: self._show_files_for_aoi(e))
+            row.addWidget(btn)
+            src = Path(entry.get("src_path") or "").name
+            extbc = Path(entry.get("extbc_path") or "").name
+            files_lbl = QLabel(f"{src}   {extbc}")
+            files_lbl.setStyleSheet("color:#718096; font-size:11px;")
+            row.addWidget(files_lbl)
+            row.addStretch()
+            line = QWidget()
+            line.setLayout(row)
+            self._results_inner.addWidget(line)
+        self._results_gb.setVisible(True)
+
+    def _show_files_for_aoi(self, entry: dict):
+        def _load(path):
+            try:
+                if path and Path(path).exists():
+                    return Path(path).read_text(encoding="utf-8", errors="replace")
+                return f"(file not found: {path})"
+            except Exception as ex:
+                return f"(could not read: {ex})"
+        self._src_view.setPlainText(_load(entry.get("src_path")))
+        self._extbc_view.setPlainText(_load(entry.get("extbc_path")))
+        self._preview_gb.setVisible(True)
 
     def _on_done(self, ctx):
+        self._error_lbl.setVisible(False)
         self._ctx = ctx
         self._progress.setValue(100)
+        n = max(len(self._aoi_features), 1)
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
+        self._status_lbl.setVisible(True)
         set_ready(self._run_btn)
-        self._show_report(ctx)
+        self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
     def _on_error(self, msg):
         self._log(f"ERROR: {msg}")
         self._progress.setVisible(False)
         set_ready(self._run_btn)
-        self._nhd_btn.setEnabled(True)
         self._error_lbl.setText(
             f"<b>Error:</b> {msg.split(chr(10))[0]}<br>"
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
-
-    def _show_report(self, ctx):
-        extbc_path   = ctx.get("triton_extbc_path", "")
-        src_loc_path = ctx.get("triton_src_loc_path", "")
-        ns           = ctx.get("num_sources", 0)
-        nb           = ctx.get("num_extbc", 0)
-        river        = ctx.get("main_river_name", "")
-        reach        = ctx.get("upstream_reach_id", "")
-        html = (
-            "<b>BC files written.</b><br><br>"
-            f"<b>Inflow sources (num_sources):</b> {ns}<br>"
-            f"<b>External BCs (num_extbc):</b> {nb}<br>"
-        )
-        if river:
-            html += f"<b>Main river:</b> {river}  (NWM reach ID: {reach or 'n/a'})<br>"
-        html += (
-            f"<b>src_loc file:</b> {src_loc_path}<br>"
-            f"<b>.extbc file:</b> {extbc_path}<br>"
-        )
-        self._report.setText(html)
-        self._report.setVisible(True)

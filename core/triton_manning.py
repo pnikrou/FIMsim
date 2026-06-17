@@ -437,9 +437,9 @@ def prepare_triton_manning(
     mapping = lulc_class_to_n or LULC_TO_N
     manning_tif_path = project_dir / f"ManningN_{aoi_name}.tif"
     lulc_tif_path = None
-    # TRITON friction raster is named after this AOI (the .cfg's n_infile
-    # references it), e.g. "<AOI>.asc" — consistent with the sample inputs.
-    friction_asc_path = triton_dir / f"{aoi_name}.asc"
+    # TRITON's two main rasters use fixed generic names within each case's
+    # triton-files folder: dem.asc + friction.asc (NOT AOI-named).
+    friction_asc_path = triton_dir / "friction.asc"
 
     if lulc_source == "user_manning":
         # User supplies a ready-made Manning raster

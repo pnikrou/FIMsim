@@ -1,40 +1,36 @@
-"""Step 5 of TRITON workflow — Hydrograph file (.hyg).
+"""Step 6 — Hydrograph (.hyg) — TRITON.
 
-Writes one multi-column .hyg with one discharge column per inflow source.
-When ``num_sources > 1`` the user picks a separate data source per inflow
-(NWM reach / CSV / existing / constant); when ``num_sources == 1`` the UI
-shows the classic single-source form.
+Multi-AOI controller, mirroring the LISFLOOD BDY step.  This version assumes a
+single inflow per AOI, so each AOI just picks one discharge source:
+
+  * 1 AOI   → one BDYConfigPanel embedded directly.
+  * >1 AOI  → an accordion of AOIBDYCard widgets (one per AOI) + Apply-to-all.
+
+Source options are identical to the LISFLOOD BDY step (NWM Retro / NWM Forecast
+/ USGS / Upload CSV), so we reuse those widgets.  Both single- and multi-AOI
+runs go through ``run_triton_hydro_for_all_aois`` which fetches the discharge
+(reusing the BDY fetchers) and writes each AOI's ``<AOI>.hyg``.
 """
+import re
 from pathlib import Path
-from datetime import datetime
+from typing import List, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFileDialog, QGroupBox, QFormLayout, QComboBox, QProgressBar,
-    QDateTimeEdit, QDoubleSpinBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
 )
-from PyQt6.QtCore import pyqtSignal, QDateTime, Qt
+from PyQt6.QtCore import pyqtSignal, Qt
 
-from core.triton_hydro import prepare_triton_hydro, finalize_hyg
+from core.orchestrate import run_triton_hydro_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
+from gui.bdy_config_panel import BDYConfigPanel
+from gui.aoi_bdy_card import AOIBDYCard
+from gui.hydrograph_preview import HydrographPreviewCanvas
 
 
-_SRC_LABELS = [
-    "Constant discharge",
-    "NWM retrospective",
-    "CSV/XLSX file",
-    "Existing .hyg file",
-]
-_SRC_KEYS = ["constant", "nwm", "csv", "existing"]
-
-
-def _sep():
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    line.setStyleSheet("color:#e2e8f0;")
-    return line
+_HYG_STEP_RE = re.compile(r"^▶\s+Hydrograph\s+\[(\d+)/(\d+)\]")
+_HYG_DONE_RE = re.compile(r"^✓\s+Hydrograph\s+\[(\d+)/(\d+)\]")
 
 
 class StepTritonHydroWidget(QWidget):
@@ -42,137 +38,119 @@ class StepTritonHydroWidget(QWidget):
 
     def __init__(self, log_fn, parent=None):
         super().__init__(parent)
-        self._log    = log_fn
+        self._log = log_fn
         self._worker = None
         self._ctx_path = None
-        self._ctx      = None
-        self._finalize_pending = False
+        self._ctx = None
+        self._aoi_features: list = []
+        self._stack: QStackedWidget = None        # type: ignore[assignment]
+        self._single_panel: BDYConfigPanel = None  # type: ignore[assignment]
+        self._cards: List[AOIBDYCard] = []
+        self._cards_layout: QVBoxLayout = None    # type: ignore[assignment]
         self._setup_ui()
 
-    # ── context ────────────────────────────────────────────────────────────────
+    # ── public API ────────────────────────────────────────────────────────────
+
     def set_context(self, ctx_path, ctx):
         self._ctx_path = ctx_path
-        self._ctx      = ctx
-        if not ctx:
-            return
+        self._ctx = ctx or {}
+        self._aoi_features = list(self._ctx.get("aoi_features", []) or [])
+        self._clear_results()
+        self._rebuild_for_aoi_count()
 
-        # Event window
-        for key, dt_widget in (("event_start", self._start_date),
-                               ("event_end",   self._end_date)):
-            s = ctx.get(key)
-            if s:
-                try:
-                    dt = datetime.strptime(s, "%Y-%m-%d %H:%M")
-                    dt_widget.setDateTime(
-                        QDateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute)
-                    )
-                except ValueError:
-                    pass
+    def reset(self):
+        self._aoi_features = []
+        self._clear_cards()
+        self._clear_results()
+        if self._single_panel is not None:
+            self._single_panel.set_config({"bdy_source": ""})
+        self._error_lbl.setVisible(False)
+        self._progress.setValue(0)
+        self._progress.setVisible(False)
+        self._status_lbl.setVisible(False)
+        self._stack.setCurrentIndex(0)
 
-        # Filename default
-        if not self._hyg_name_edit.text().strip():
-            self._hyg_name_edit.setText(f"{ctx.get('project_name', 'triton')}.hyg")
+    # ── UI ────────────────────────────────────────────────────────────────────
 
-        # Single vs multi-source
-        num_sources = int(ctx.get("num_sources", 1))
-        self._rebuild_sources_table(num_sources, ctx)
-
-    # ── UI ─────────────────────────────────────────────────────────────────────
     def _setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setSpacing(10)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
 
-        info = QLabel(
-            "<b>Builds one .hyg with one discharge column per inflow source.</b> "
-            "The number of columns is driven by <code>num_sources</code>, which the BC step sets. "
-            "Pick a data source per row; the step iterates and writes a single combined file."
+        self._aoi_count_lbl = QLabel("")
+        self._aoi_count_lbl.setStyleSheet(
+            "padding:6px 10px; background:#f7fafc; border:1px solid #cbd5e0; "
+            "border-radius:4px; color:#2d3748; font-size:11px;"
         )
-        info.setWordWrap(True)
-        info.setStyleSheet(
-            "padding:8px; background:#fffbeb; border:1px solid #f6e05e; border-radius:4px;"
+        self._aoi_count_lbl.setWordWrap(True)
+        self._aoi_count_lbl.setVisible(False)
+        layout.addWidget(self._aoi_count_lbl)
+
+        self._stack = QStackedWidget()
+        layout.addWidget(self._stack, 1)
+        self._stack.setMinimumHeight(340)
+
+        single_page = QWidget()
+        sp_layout = QVBoxLayout(single_page)
+        sp_layout.setContentsMargins(0, 0, 0, 0)
+        gb = QGroupBox("6. Hydrograph / inflow discharge (.hyg)")
+        gb_layout = QVBoxLayout(gb)
+        self._single_panel = BDYConfigPanel(self)
+        self._single_panel.config_changed.connect(self._on_single_config_changed)
+        gb_layout.addWidget(self._single_panel)
+        sp_layout.addWidget(gb)
+        sp_layout.addStretch()
+        self._stack.addWidget(single_page)
+
+        multi_page = QWidget()
+        mp_layout = QVBoxLayout(multi_page)
+        mp_layout.setContentsMargins(0, 0, 0, 0)
+        top_row = QHBoxLayout()
+        self._apply_all_btn = QPushButton("Apply current AOI's settings to all")
+        self._apply_all_btn.setStyleSheet(
+            "background:#2b6cb0; color:white; padding:6px 14px; "
+            "border-radius:3px; font-weight:bold;"
         )
-        root.addWidget(info)
+        self._apply_all_btn.clicked.connect(self._apply_to_all)
+        self._apply_all_btn.setEnabled(False)
+        top_row.addStretch()
+        top_row.addWidget(self._apply_all_btn)
+        mp_layout.addLayout(top_row)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        cards_host = QWidget()
+        self._cards_layout = QVBoxLayout(cards_host)
+        self._cards_layout.setSpacing(6)
+        self._cards_layout.addStretch()
+        scroll.setWidget(cards_host)
+        mp_layout.addWidget(scroll, 1)
+        self._stack.addWidget(multi_page)
 
-        # ── Event window & interval ──────────────────────────────────────────
-        win_gb = QGroupBox("Event window & interval")
-        win_form = QFormLayout(win_gb)
-
-        self._start_date = QDateTimeEdit()
-        self._start_date.setDisplayFormat("yyyy-MM-dd  HH:mm")
-        self._start_date.setCalendarPopup(True)
-        self._start_date.setDateTime(QDateTime(2010, 1, 1, 0, 0))
-        win_form.addRow("Event start:", self._start_date)
-
-        self._end_date = QDateTimeEdit()
-        self._end_date.setDisplayFormat("yyyy-MM-dd  HH:mm")
-        self._end_date.setCalendarPopup(True)
-        self._end_date.setDateTime(QDateTime(2010, 1, 8, 0, 0))
-        win_form.addRow("Event end:", self._end_date)
-
-        self._interval_combo = QComboBox()
-        self._interval_values = [0.5, 1.0, 3.0, 6.0, 12.0, 24.0]
-        for v in self._interval_values:
-            self._interval_combo.addItem(f"{v:g} hours" if v != 1.0 else "1 hour")
-        self._interval_combo.setCurrentIndex(1)
-        win_form.addRow("Time interval:", self._interval_combo)
-
-        root.addWidget(win_gb)
-
-        # ── Per-source strategy table ────────────────────────────────────────
-        src_gb = QGroupBox("Discharge source per inflow")
-        src_v  = QVBoxLayout(src_gb)
-
-        self._src_summary = QLabel("")
-        self._src_summary.setStyleSheet("color:#555; font-size:11px;")
-        src_v.addWidget(self._src_summary)
-
-        self._src_table = QTableWidget(0, 3)
-        self._src_table.setHorizontalHeaderLabels(
-            ["Source idx", "Data source", "NWM reach / file path / const Q (cms)"]
-        )
-        h = self._src_table.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self._src_table.setMinimumHeight(120)
-        src_v.addWidget(self._src_table)
-
-        hint = QLabel(
-            "<small>• <b>Constant</b> — put a numeric m³/s value in the last column.<br>"
-            "• <b>NWM retrospective</b> — reach feature_id; default taken from "
-            "<code>upstream_reach_id</code> if set by the BC step.<br>"
-            "• <b>CSV/XLSX</b> — path to a file with columns <code>time_hours</code>, "
-            "<code>discharge_cms</code>.<br>"
-            "• <b>Existing .hyg</b> — path to a TRITON .hyg file; resampled onto the "
-            "event window at the chosen interval.</small>"
-        )
-        hint.setWordWrap(True)
-        src_v.addWidget(hint)
-        root.addWidget(src_gb)
-
-        # ── Filename ─────────────────────────────────────────────────────────
-        fn_gb = QGroupBox("Output filename")
-        fn_form = QFormLayout(fn_gb)
-        self._hyg_name_edit = QLineEdit()
-        self._hyg_name_edit.setPlaceholderText("e.g. Neuse_strmflow.hyg")
-        fn_form.addRow(".hyg filename:", self._hyg_name_edit)
-        root.addWidget(fn_gb)
-
-        # ── Run button ────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        self._run_btn = QPushButton("Write hydrograph file")
+        self._run_btn = QPushButton("Write .hyg file(s)")
         self._run_btn.setStyleSheet(
-            "font-weight:bold; padding:7px 20px; background:#2b6cb0; color:white; border-radius:4px;"
+            "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
+            "color:white; border-radius:4px;"
         )
-        self._run_btn.clicked.connect(self._run_all_sources)
+        self._run_btn.clicked.connect(self._run_step)
+        self._run_btn.setVisible(False)
         btn_row.addWidget(self._run_btn)
         btn_row.addStretch()
-        root.addLayout(btn_row)
+        layout.addLayout(btn_row)
 
         self._progress = QProgressBar()
-        self._progress.setRange(0, 100); self._progress.setValue(0)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
         self._progress.setVisible(False)
-        root.addWidget(self._progress)
+        self._progress.setStyleSheet("QProgressBar { height: 18px; }")
+        layout.addWidget(self._progress)
+
+        self._status_lbl = QLabel("")
+        self._status_lbl.setWordWrap(True)
+        self._status_lbl.setStyleSheet(
+            "color:#276749; font-weight:bold; font-size:12px; padding:2px 0px;"
+        )
+        self._status_lbl.setVisible(False)
+        layout.addWidget(self._status_lbl)
 
         self._error_lbl = QLabel("")
         self._error_lbl.setWordWrap(True)
@@ -181,163 +159,265 @@ class StepTritonHydroWidget(QWidget):
             "border-radius:4px; font-size:12px; color:#c53030;"
         )
         self._error_lbl.setVisible(False)
-        root.addWidget(self._error_lbl)
+        layout.addWidget(self._error_lbl)
 
-        self._report = QLabel("")
-        self._report.setWordWrap(True)
-        self._report.setStyleSheet(
-            "padding:10px; background:#f0fff4; border:1px solid #9ae6b4; "
-            "border-radius:4px; font-size:12px;"
+        # Results list (simple clickable lines) + hydrograph preview
+        self._results_gb = QGroupBox(
+            "Per-AOI hydrographs  —  click an AOI to preview"
         )
-        self._report.setVisible(False)
-        root.addWidget(self._report)
-        root.addStretch()
+        rgl = QVBoxLayout(self._results_gb)
+        self._results_inner = QVBoxLayout()
+        self._results_inner.setSpacing(1)
+        rgl.addLayout(self._results_inner)
+        self._results_gb.setVisible(False)
+        layout.addWidget(self._results_gb)
 
-    # ── Per-source table builder ─────────────────────────────────────────────
-    def _rebuild_sources_table(self, num_sources, ctx):
-        self._src_table.setRowCount(0)
-        default_reach = ctx.get("upstream_reach_id") or ""
-        points = ctx.get("inflow_source_points", [])
-        for i in range(max(num_sources, 1)):
-            self._src_table.insertRow(i)
-            self._src_table.setItem(i, 0, QTableWidgetItem(str(i)))
-            combo = QComboBox()
-            for lbl in _SRC_LABELS:
-                combo.addItem(lbl)
-            combo.setCurrentIndex(1 if default_reach else 0)
-            self._src_table.setCellWidget(i, 1, combo)
-            val_edit = QTableWidgetItem(default_reach if default_reach else "100.0")
-            self._src_table.setItem(i, 2, val_edit)
+        self._gb_preview = QGroupBox("Hydrograph preview")
+        pv = QVBoxLayout(self._gb_preview)
+        self._preview_placeholder = QLabel(
+            "<i>Click an AOI above to preview its hydrograph.</i>"
+        )
+        self._preview_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_placeholder.setStyleSheet(
+            "color:#888; padding:24px; background:#fafafa; "
+            "border:1px dashed #cbd5e0; border-radius:4px;"
+        )
+        pv.addWidget(self._preview_placeholder)
+        self._hydro_preview = HydrographPreviewCanvas(self, width=9, height=3.0)
+        self._hydro_preview.setVisible(False)
+        pv.addWidget(self._hydro_preview)
+        self._gb_preview.setVisible(False)
+        layout.addWidget(self._gb_preview)
 
-        # Show a helpful summary
-        if num_sources > 1:
-            self._src_summary.setText(
-                f"<b>num_sources = {num_sources}</b> — provide one data source per inflow row."
+    # ── layout switching ───────────────────────────────────────────────────────
+
+    def _rebuild_for_aoi_count(self):
+        n = len(self._aoi_features)
+        if n == 0:
+            self._aoi_count_lbl.setText(
+                "<i>No AOIs confirmed yet — go back to the AOI step first.</i>"
             )
-        else:
-            self._src_summary.setText(
-                "<b>num_sources = 1</b> — single inflow; the file will have one discharge column."
-            )
+            self._aoi_count_lbl.setVisible(True)
+            self._stack.setCurrentIndex(0)
+            self._run_btn.setVisible(False)
+            return
+        if n == 1:
+            self._aoi_count_lbl.setText("<b>1</b> AOI confirmed.")
+            self._aoi_count_lbl.setVisible(True)
+            self._stack.setCurrentIndex(0)
+            self._run_btn.setVisible(self._single_panel.is_ready())
+            return
+        self._aoi_count_lbl.setText(
+            f"<b>{n}</b> AOI(s) confirmed — choose the discharge source for each "
+            "AOI below."
+        )
+        self._aoi_count_lbl.setVisible(True)
+        self._stack.setCurrentIndex(1)
+        self._build_cards()
 
-    # ── Run (iterate every source then finalize) ─────────────────────────────
-    def _run_all_sources(self):
+    def _clear_cards(self):
+        for c in list(self._cards):
+            c.setParent(None)
+            c.deleteLater()
+        self._cards.clear()
+
+    def _build_cards(self):
+        self._clear_cards()
+        for feat in self._aoi_features:
+            card = AOIBDYCard(feat.get("name", "(unnamed)"), self)
+            card.expand_requested.connect(self._on_expand_requested)
+            card.config_changed.connect(self._on_card_config_changed)
+            card.remove_requested.connect(self._on_remove_requested)
+            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+            self._cards.append(card)
+        self._on_card_config_changed(None)
+
+    def _on_remove_requested(self, card):
+        idx = self._cards.index(card) if card in self._cards else -1
+        if idx < 0:
+            return
+        aoi_name = (self._aoi_features[idx].get("name", f"AOI {idx+1}")
+                    if idx < len(self._aoi_features) else "this AOI")
+        if QMessageBox.question(
+            self, "Remove AOI", f"Remove <b>{aoi_name}</b> from this step?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._cards.pop(idx)
+        if idx < len(self._aoi_features):
+            self._aoi_features.pop(idx)
+        card.setParent(None)
+        card.deleteLater()
+        self._on_card_config_changed(None)
+
+    def _on_expand_requested(self, card):
+        for c in self._cards:
+            c.expand() if c is card else c.collapse()
+        self._apply_all_btn.setEnabled(True)
+
+    def _expanded_card(self) -> Optional[AOIBDYCard]:
+        for c in self._cards:
+            if c.is_expanded():
+                return c
+        return None
+
+    def _card_ready(self, c) -> bool:
+        try:
+            return c.panel().is_ready()
+        except Exception:
+            return False
+
+    def _on_card_config_changed(self, _card):
+        all_ready = bool(self._cards) and all(self._card_ready(c) for c in self._cards)
+        self._run_btn.setVisible(all_ready)
+        self._apply_all_btn.setEnabled(self._expanded_card() is not None)
+
+    def _apply_to_all(self):
+        src = self._expanded_card()
+        if src is None:
+            return
+        cfg = src.panel().get_config()
+        for c in self._cards:
+            if c is not src:
+                c.panel().set_config(cfg)
+        self._on_card_config_changed(None)
+
+    def _on_single_config_changed(self):
+        if self._stack.currentIndex() == 0 and len(self._aoi_features) <= 1:
+            self._run_btn.setVisible(self._single_panel.is_ready())
+
+    # ── run ────────────────────────────────────────────────────────────────────
+
+    def _run_step(self):
         if not self._ctx_path or not self._ctx:
             self._log("Complete earlier steps first.")
             return
-
-        try:
-            per_source = self._collect_sources()
-        except ValueError as ex:
-            self._error_lbl.setText(f"<b>Input error:</b> {ex}")
-            self._error_lbl.setVisible(True)
-            return
-
+        if len(self._aoi_features) <= 1:
+            cfgs = [self._single_panel.get_config()]
+        else:
+            cfgs = [c.panel().get_config() for c in self._cards]
         self._error_lbl.setVisible(False)
-        self._report.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)
         set_running(self._run_btn)
-
-        start_dt = self._start_date.dateTime().toPyDateTime()
-        end_dt   = self._end_date.dateTime().toPyDateTime()
-        interval = self._interval_values[self._interval_combo.currentIndex()]
-        hyg_name = self._hyg_name_edit.text().strip() or None
-
-        # Drive the loop from a chained worker queue — each source finishes
-        # then fires the next.  Keeps the GUI responsive.
-        self._queue = list(enumerate(per_source))
-        self._start_dt = start_dt
-        self._end_dt   = end_dt
-        self._interval = interval
-        self._hyg_name = hyg_name
-        self._num_sources = len(per_source)
-
-        # Reset the pending buffer before the loop starts
-        self._ctx.pop("_hyg_pending", None)
-
-        self._run_next_source()
-
-    def _collect_sources(self):
-        rows = []
-        for r in range(self._src_table.rowCount()):
-            combo = self._src_table.cellWidget(r, 1)
-            key = _SRC_KEYS[combo.currentIndex()]
-            val = self._src_table.item(r, 2).text().strip() if self._src_table.item(r, 2) else ""
-
-            spec = {"hydro_source": key}
-            if key == "constant":
-                try:
-                    spec["constant_discharge_cms"] = float(val)
-                except ValueError:
-                    raise ValueError(f"Source row {r}: constant Q must be numeric, got '{val}'.")
-            elif key == "nwm":
-                if not val:
-                    raise ValueError(f"Source row {r}: provide an NWM reach feature_id.")
-                spec["nwm_reach_id"] = val
-            elif key == "csv":
-                if not val or not Path(val).exists():
-                    raise ValueError(f"Source row {r}: CSV path not found — '{val}'.")
-                spec["user_csv_path"] = val
-            elif key == "existing":
-                if not val or not Path(val).exists():
-                    raise ValueError(f"Source row {r}: .hyg path not found — '{val}'.")
-                spec["existing_hydro_path"] = val
-            rows.append(spec)
-        if not rows:
-            raise ValueError("No source rows in the table.")
-        return rows
-
-    def _run_next_source(self):
-        if not self._queue:
-            return
-        idx, spec = self._queue.pop(0)
-        kw = dict(
-            ctx_path=self._ctx_path,
-            ctx=self._ctx,
-            start_dt=self._start_dt,
-            end_dt=self._end_dt,
-            interval_hours=self._interval,
-            source_index=idx,
-            hyg_filename=self._hyg_name,
+        self._status_lbl.setText(
+            f"Preparing hydrographs for {max(len(self._aoi_features), 1)} AOI(s)…"
         )
-        kw.update(spec)
-        self._worker = Worker(prepare_triton_hydro, **kw)
+        self._status_lbl.setVisible(True)
+        self._worker = Worker(
+            run_triton_hydro_for_all_aois,
+            ctx_path=self._ctx_path, ctx=self._ctx, per_aoi_configs=cfgs,
+        )
         self._worker.message.connect(self._on_message)
-        self._worker.finished.connect(self._on_source_done)
+        self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    # ── callbacks ──────────────────────────────────────────────────────────────
     def _on_message(self, msg):
         self._log(msg)
         ml = msg.lower()
-        if "opening nwm" in ml or "zarr" in ml:
-            self._progress.setValue(self._progress.value() + 5)
-        elif ".hyg written" in ml:
-            self._progress.setValue(95)
-        elif "helper csv saved" in ml:
+        m = _HYG_STEP_RE.match(msg)
+        if m:
+            self._progress.setValue(15)
+            self._status_lbl.setText(f"Hydrograph {m.group(1)} / {m.group(2)} …")
+            return
+        m = _HYG_DONE_RE.match(msg)
+        if m:
             self._progress.setValue(100)
+            return
+        if "extracting streamflow" in ml or "downloading usgs" in ml:
+            self._progress.setValue(45)
+        elif "retrieved" in ml or "saved" in ml or ".hyg written" in ml:
+            self._progress.setValue(80)
 
-    def _on_source_done(self, ctx):
+    # ── results + preview ──────────────────────────────────────────────────────
+
+    def _clear_results(self):
+        if not hasattr(self, "_results_inner"):
+            return
+        while self._results_inner.count():
+            item = self._results_inner.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        if hasattr(self, "_results_gb"):
+            self._results_gb.setVisible(False)
+        if hasattr(self, "_gb_preview"):
+            self._gb_preview.setVisible(False)
+            self._preview_placeholder.setVisible(True)
+            self._hydro_preview.setVisible(False)
+            self._hydro_preview.clear()
+
+    def _build_results(self, ctx):
+        self._clear_results()
+        per_aoi = ctx.get("triton_hydro_per_aoi", []) or []
+        if not per_aoi and ctx.get("triton_hydro_helper_csv"):
+            per_aoi = [{
+                "name":       ctx.get("aoi_name", "AOI"),
+                "helper_csv": ctx.get("triton_hydro_helper_csv"),
+                "source":     ctx.get("triton_hydro_source"),
+            }]
+        if not per_aoi:
+            return
+        for entry in per_aoi:
+            name = entry.get("name", "?")
+            if entry.get("failed"):
+                lbl = QLabel(
+                    f"<b>{name}</b>  —  ⚠ "
+                    f"{str(entry.get('error', 'error')).splitlines()[0]}"
+                )
+                lbl.setStyleSheet("color:#c53030; font-size:11px;")
+                lbl.setWordWrap(True)
+                self._results_inner.addWidget(lbl)
+                continue
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            btn = QPushButton(name)
+            btn.setStyleSheet(
+                "QPushButton { text-align:left; background:transparent; "
+                "border:none; color:#2d3748; font-weight:bold; padding:1px; }"
+                "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
+            )
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _c, e=entry: self._show_hydro_for_aoi(e))
+            row.addWidget(btn)
+            hyg = Path(entry.get("hyg_path") or "").name
+            files_lbl = QLabel(f"{hyg}   ({entry.get('source') or '—'})")
+            files_lbl.setStyleSheet("color:#718096; font-size:11px;")
+            row.addWidget(files_lbl)
+            row.addStretch()
+            line = QWidget()
+            line.setLayout(row)
+            self._results_inner.addWidget(line)
+        self._results_gb.setVisible(True)
+
+    def _show_hydro_for_aoi(self, entry: dict):
+        csv = entry.get("helper_csv")
+        self._gb_preview.setVisible(True)
+        if not csv or not Path(csv).exists():
+            self._preview_placeholder.setText(
+                f"<span style='color:#c53030;'>Hydrograph CSV not found for "
+                f"{entry.get('name', '?')}.</span>"
+            )
+            self._preview_placeholder.setVisible(True)
+            self._hydro_preview.setVisible(False)
+            return
+        self._hydro_preview.show_hydrograph(
+            csv, title=f"Hydrograph — {entry.get('name', '')}"
+        )
+        self._preview_placeholder.setVisible(False)
+        self._hydro_preview.setVisible(True)
+
+    def _on_done(self, ctx):
+        self._error_lbl.setVisible(False)
         self._ctx = ctx
-        # Advance progress proportional to sources done
-        done = self._num_sources - len(self._queue)
-        self._progress.setValue(int(90 * done / max(1, self._num_sources)))
-        if self._queue:
-            self._run_next_source()
-        else:
-            # If the last call already wrote the file (num_sources matched the
-            # buffer), we're done. Otherwise force a finalize.
-            if not self._ctx.get("triton_hyg_written"):
-                try:
-                    self._ctx = finalize_hyg(self._ctx_path, self._ctx)
-                except Exception as ex:
-                    self._on_error(str(ex))
-                    return
-            self._progress.setValue(100)
-            set_ready(self._run_btn)
-            self._show_report(self._ctx)
-            self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": self._ctx})
+        self._progress.setValue(100)
+        n = max(len(self._aoi_features), 1)
+        self._status_lbl.setText(f"All {n} AOI(s) processed.")
+        self._status_lbl.setVisible(True)
+        set_ready(self._run_btn)
+        self._build_results(ctx)
+        self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})
 
     def _on_error(self, msg):
         self._log(f"ERROR: {msg}")
@@ -348,27 +428,3 @@ class StepTritonHydroWidget(QWidget):
             "<small>(See log panel below for full details)</small>"
         )
         self._error_lbl.setVisible(True)
-
-    def _show_report(self, ctx):
-        hyg_path     = ctx.get("triton_hyg_path", "")
-        event_start  = ctx.get("event_start", "")
-        event_end    = ctx.get("event_end", "")
-        interval     = ctx.get("series_interval_hours", "")
-        ns           = ctx.get("num_sources", 1)
-        per_idx      = ctx.get("triton_hydro_source_per_idx", {})
-        helper_csv   = ctx.get("triton_hydro_helper_csv", "")
-
-        html = (
-            "<b>.hyg written.</b><br><br>"
-            f"<b>Event window:</b> {event_start} → {event_end}<br>"
-            f"<b>Interval:</b> {interval} h<br>"
-            f"<b>num_sources:</b> {ns}<br>"
-            f"<b>File:</b> {hyg_path}<br>"
-        )
-        if per_idx:
-            rows = ", ".join(f"{k}:{v}" for k, v in sorted(per_idx.items()))
-            html += f"<b>Source providers:</b> {rows}<br>"
-        if helper_csv:
-            html += f"<b>Helper CSV:</b> {helper_csv}<br>"
-        self._report.setText(html)
-        self._report.setVisible(True)
