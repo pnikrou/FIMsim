@@ -86,7 +86,7 @@ class StepTritonBCWidget(QWidget):
             "generated <code>.src</code> / <code>.extbc</code> files directly."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color:#4a5568; font-size:11px; padding:2px 0px;")
+        info.setStyleSheet("color:#2d3748; font-size:12px; padding:2px 0px;")
         layout.addWidget(info)
 
         self._aoi_count_lbl = QLabel("")
