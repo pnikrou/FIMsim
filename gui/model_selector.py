@@ -1,10 +1,15 @@
 """Home screen — two category cards; clicking one reveals its mode options below."""
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QFrame,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
+
+# Logo lives in <repo>/assets/fimsim_logo.png (this file is in <repo>/gui/).
+_LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "fimsim_logo.png"
 
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -49,11 +54,30 @@ class ModelSelectorWidget(QWidget):
         root.setContentsMargins(48, 32, 48, 24)
         root.setSpacing(0)
 
-        # App title
+        # Logo — shown when assets/fimsim_logo.png exists; the image already
+        # contains the "FIMsim" wordmark, so we hide the text title in that
+        # case and only fall back to text when the file is missing.
+        logo_shown = False
+        pix = QPixmap(str(_LOGO_PATH)) if _LOGO_PATH.exists() else QPixmap()
+        if not pix.isNull():
+            logo = QLabel()
+            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo.setPixmap(
+                pix.scaledToHeight(
+                    140,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            logo.setStyleSheet("border:none; margin-bottom:4px;")
+            root.addWidget(logo)
+            logo_shown = True
+
+        # App title — fallback wordmark when the logo image is unavailable.
         title = QLabel("FIMsim")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setFont(QFont("Arial", 26, QFont.Weight.Bold))
         title.setStyleSheet("color:#1a365d; border:none;")
+        title.setVisible(not logo_shown)
         root.addWidget(title)
 
         sub = QLabel("Flood Inundation Model Simulation Tool  ·  v1.0")
