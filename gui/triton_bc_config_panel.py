@@ -61,7 +61,7 @@ class TritonBCConfigPanel(QWidget):
             "Manual coordinates",
         ])
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        gf.addRow("Detect inflow / outflow:", self._mode_combo)
+        gf.addRow("Boundary coordinates:", self._mode_combo)
 
         # Manual coords (shown only in Manual mode)
         self._inflow_x = _coord_spin()
