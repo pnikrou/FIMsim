@@ -976,6 +976,106 @@ def run_triton_hydro_for_all_aois(
     return ctx
 
 
+# ── TRITON: multi-AOI Config step (.cfg) ──────────────────────────────────────
+
+def run_triton_cfg_for_all_aois(
+    ctx_path: str,
+    ctx: dict,
+    per_aoi_configs: list,
+    log_fn=print,
+) -> dict:
+    """Per AOI: auto-generate that AOI's <AOI>.cfg from its prepared inputs.
+    ``per_aoi_configs`` is a list (one per AOI) of cfg-panel dicts
+    (output_format, print_option, time_step, print_interval, courant); the
+    rest of the .cfg is filled in by create_triton_cfg from the AOI's saved
+    context (sim_duration, num_sources/num_extbc, file refs, projection)."""
+    from core.triton_cfg import create_triton_cfg
+
+    aoi_features = ctx.get("aoi_features", [])
+    if not aoi_features:
+        raise RuntimeError("No AOIs in ctx — go back to the AOI step first.")
+    if len(per_aoi_configs) != len(aoi_features):
+        raise RuntimeError(
+            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+            f"there are {len(aoi_features)} AOIs."
+        )
+
+    n = len(aoi_features)
+    parent_project_dir = ctx.get("project_dir")
+    summary = []
+
+    for i, (feat, cfg) in enumerate(zip(aoi_features, per_aoi_configs), 1):
+        try:
+            log_fn(f"▶ Config [{i}/{n}]: '{feat['name']}' …")
+            folder = feat["folder_path"]
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            mf_dir = model_files_subdir(folder, is_triton=True)
+
+            feat_ctx = dict(ctx)
+            # Merge this AOI's full saved context (sim_duration, num_sources,
+            # num_extbc, file refs, dem_epsg, fric_mode, … written by the
+            # earlier steps) so create_triton_cfg has everything it needs.
+            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
+            if per_aoi_ctx_path.exists():
+                try:
+                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
+                        feat_ctx.update(json.load(fr))
+                except Exception:
+                    pass
+            feat_ctx["aoi_name"]    = feat["folder_name"]
+            feat_ctx["project_dir"] = folder
+            feat_ctx["triton_dir"]  = mf_dir
+            feat_ctx["model_dir"]   = mf_dir
+            feat_ctx.pop("lisflood_dir", None)
+            feat_ctx_path = str(per_aoi_ctx_path)
+
+            feat_ctx = create_triton_cfg(
+                ctx_path=feat_ctx_path, ctx=feat_ctx,
+                output_format=cfg.get("output_format", "ASC"),
+                output_option="SEQ",
+                input_format="ASC",
+                print_option=cfg.get("print_option", "huv"),
+                time_step=float(cfg.get("time_step", 10.0)),
+                print_interval=float(cfg.get("print_interval", 3600.0)),
+                courant=float(cfg.get("courant", 0.5)),
+                open_boundaries=0,   # explicit .extbc → other edges closed
+                log_fn=log_fn,
+            )
+            summary.append({
+                "name":     feat["name"],
+                "folder":   folder,
+                "cfg_path": feat_ctx.get("triton_cfg_path"),
+            })
+            log_fn(f"✓ Config [{i}/{n}] finished: '{feat['name']}'")
+        except Exception as _aoi_exc:
+            import traceback
+            log_fn(f"✗ Config [{i}/{n}] ERROR for '{feat['name']}': {_aoi_exc}")
+            log_fn(traceback.format_exc())
+            summary.append({
+                "name":    feat.get("name", f"AOI {i}"),
+                "failed":  True,
+                "error":   str(_aoi_exc),
+            })
+
+    f0 = aoi_features[0]
+    mf_dir0 = model_files_subdir(f0["folder_path"], is_triton=True)
+    ctx["aoi_name"]   = f0["folder_name"]
+    ctx["triton_dir"] = mf_dir0
+    ctx["model_dir"]  = mf_dir0
+    if parent_project_dir:
+        ctx["project_dir"] = parent_project_dir
+    ctx["triton_cfg_per_aoi"] = summary
+
+    try:
+        with open(ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+
+    log_fn(f"Config prepared for all {n} AOI(s).")
+    return ctx
+
+
 # ── LISFLOOD-FP / TRITON: multi-AOI DEM step ──────────────────────────────────
 
 def run_lisflood_triton_dem_all(
