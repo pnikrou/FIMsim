@@ -29,13 +29,13 @@ def _bold_font() -> _QFont:
     f.setBold(True)
     return f
 
-from core.orchestrate import run_lisflood_dem_all
+from core.triton_orchestrate import run_triton_dem_all as run_lisflood_triton_dem_all
 from core.multi_aoi import AOIFeatureInfo
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
-from gui.dem_config_panel import DEMConfigPanel
-from gui.aoi_dem_card import AOIDEMCard
-from gui.raster_preview import RasterPreviewCanvas
+from gui.triton_dem_config_panel import DEMConfigPanel
+from gui.aoi_triton_dem_card import AOIDEMCard
+from gui.triton_raster_preview import RasterPreviewCanvas
 
 
 _DOWNLOADING_RE = re.compile(r"^▶\s+Downloading DEM\s+\[(\d+)/(\d+)\]")
@@ -60,7 +60,7 @@ def _features_from_ctx(ctx) -> list:
     return out
 
 
-class StepDEMWidget(QWidget):
+class StepTritonDEMWidget(QWidget):
     step_completed = pyqtSignal(dict)
 
     def __init__(self, log_fn, parent=None):
@@ -620,7 +620,7 @@ class StepDEMWidget(QWidget):
         # per_aoi_configs and that overrides this default.
         first_res = float(per_aoi[0].get("dem_res_m", 10.0)) if per_aoi else 10.0
         self._worker = Worker(
-            run_lisflood_dem_all,
+            run_lisflood_triton_dem_all,
             ctx_path=self._ctx_path, ctx=self._ctx,
             dem_res_m=first_res,
             per_aoi_configs=per_aoi,

@@ -28,7 +28,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 
 from core.triton_manning import prepare_triton_manning
-from core.orchestrate import run_triton_manning_for_all_aois
+from core.triton_orchestrate import run_triton_manning_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
 from gui.triton_manning_config_panel import ManningConfigPanel

@@ -23,7 +23,9 @@ from gui.step_bci     import StepBCIWidget
 from gui.step_bdy     import StepBDYWidget
 from gui.step_par     import StepPARWidget
 
-# ── TRITON step widgets ──────────────────────────────────────────────────────
+# ── TRITON step widgets (standalone — no shared workflow code) ────────────────
+from gui.step_triton_project import StepTritonProjectWidget
+from gui.step_triton_dem     import StepTritonDEMWidget
 from gui.step_triton_manning import StepTritonManningWidget
 from gui.step_triton_bc      import StepTritonBCWidget
 from gui.step_triton_hydro   import StepTritonHydroWidget
@@ -216,16 +218,18 @@ class MainWindow(QMainWindow):
     # ── Build TRITON tab widget ──────────────────────────────────────────────
 
     def _build_triton_tabs(self, log_fn):
-        from gui.step_multi_aoi import StepMultiAOIWidget   # local to avoid circular
+        from gui.step_triton_aoi import StepTritonAOIWidget   # local to avoid circular
 
         tabs = QTabWidget()
         tabs.setTabPosition(QTabWidget.TabPosition.North)
 
         # Project step uses model="generic" — NO triton-files folder created
         # at this step.  Each AOI gets its own subfolder in the AOI step.
-        proj    = StepProjectWidget(log_fn, model="generic")
-        aoi     = StepMultiAOIWidget(log_fn, model="triton")
-        dem     = StepDEMWidget(log_fn)
+        # These are TRITON-only step widgets — they share no workflow code
+        # with the LISFLOOD-FP tabs.
+        proj    = StepTritonProjectWidget(log_fn, model="generic")
+        aoi     = StepTritonAOIWidget(log_fn, model="triton")
+        dem     = StepTritonDEMWidget(log_fn)
         manning = StepTritonManningWidget(log_fn)
         bc      = StepTritonBCWidget(log_fn)
         hydro   = StepTritonHydroWidget(log_fn)

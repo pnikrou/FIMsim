@@ -184,16 +184,199 @@ def _write_triton_hyg(series_list, start_dt, interval_hours, out_path):
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+# ── discharge fetchers (TRITON-owned copies — kept independent of core.bdy) ─────
+# These mirror the proven LISFLOOD discharge fetchers but live here so the TRITON
+# workflow has no import dependency on the LISFLOOD BDY module.
+
+def _resample_to_interval(ser, start_ts, end_ts, interval_hours):
+    """Time-interpolate ``ser`` (datetime-indexed) onto a regular grid."""
+    target_times = pd.date_range(
+        start=start_ts, end=end_ts,
+        freq=pd.Timedelta(hours=float(interval_hours)),
+    )
+    if len(target_times) == 0 or target_times[-1] != end_ts:
+        target_times = target_times.union(pd.DatetimeIndex([end_ts]))
+    ser2 = (
+        ser.reindex(ser.index.union(target_times))
+           .sort_index().interpolate(method="time")
+    )
+    ser2 = ser2.reindex(target_times)
+    return pd.DataFrame({
+        "datetime":      ser2.index,
+        "discharge_cms": ser2.values.astype(float),
+    }).reset_index(drop=True)
+
+
+def _get_nwm_retrospective(feature_id, start_ts, end_ts, interval_hours, log_fn):
+    """Pull discharge from the NWM v2.1 retrospective Zarr store."""
+    url = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"
+    log_fn("Opening NWM retrospective Zarr store (NOAA v2.1) …")
+    ds = xr.open_zarr(url, consolidated=True, storage_options={"anon": True})
+
+    feature_id = int(feature_id)
+    log_fn(f"Extracting streamflow for feature_id={feature_id} …")
+    fids = ds["feature_id"].values
+    if feature_id not in fids:
+        raise ValueError(
+            f"feature_id={feature_id} not found in the NWM Zarr store.\n"
+            "This reach may not be in the NWM network. Use a CSV file instead."
+        )
+
+    da = ds["streamflow"].sel(time=slice(start_ts, end_ts)) \
+                          .sel(feature_id=feature_id)
+    ser = da.to_series().sort_index()
+    if ser.empty:
+        raise RuntimeError(
+            f"No NWM retrospective streamflow returned for feature_id="
+            f"{feature_id} between {start_ts.date()} and {end_ts.date()}."
+        )
+    log_fn(f"Retrieved {len(ser)} hourly NWM retrospective values.")
+    return _resample_to_interval(ser, start_ts, end_ts, interval_hours)
+
+
+def _get_nwm_forecast(feature_id, start_ts, end_ts, interval_hours, log_fn):
+    """Pull discharge from the NWM operational medium-range forecast."""
+    from core.nwm_discharge import download_nwm_forecast
+    import tempfile
+
+    feature_id = int(feature_id)
+    with tempfile.NamedTemporaryFile(
+        prefix="nwm_forecast_", suffix=".csv", delete=False,
+    ) as tf:
+        tmp_csv = Path(tf.name)
+    try:
+        download_nwm_forecast(
+            feature_ids=feature_id,
+            out_csv=tmp_csv,
+            forecast_set="medium_range_mem1",
+            log_fn=log_fn,
+        )
+        fc = pd.read_csv(tmp_csv, parse_dates=["datetime"])
+    finally:
+        try:
+            tmp_csv.unlink()
+        except Exception:
+            pass
+
+    feat_col = str(feature_id)
+    if feat_col not in fc.columns:
+        raise RuntimeError(
+            f"feature_id={feature_id} not found in the NWM forecast output."
+        )
+    ser = pd.Series(
+        fc[feat_col].astype(float).values,
+        index=pd.DatetimeIndex(fc["datetime"]),
+    ).sort_index()
+
+    in_window = ser[(ser.index >= start_ts) & (ser.index <= end_ts)]
+    if in_window.empty:
+        raise RuntimeError(
+            f"NWM forecast did not return values inside your event window "
+            f"({start_ts.date()} to {end_ts.date()}).\n"
+            "The medium-range forecast covers ~10 days from today's run — "
+            "your window may be too far in the future.  "
+            "Pull back the dates or use a CSV file."
+        )
+    log_fn(
+        f"Retrieved {len(in_window)} hourly NWM forecast values inside the "
+        f"event window."
+    )
+    return _resample_to_interval(in_window, start_ts, end_ts, interval_hours)
+
+
+def _trim_nan_boundaries(df_flow, source_name, log_fn):
+    """Remove leading/trailing NaN discharge rows from df_flow.
+
+    Returns (trimmed_df, warning_strings).
+    """
+    valid = df_flow["discharge_cms"].notna()
+    warns = []
+    if not valid.any():
+        return df_flow.iloc[0:0].reset_index(drop=True), [
+            f"{source_name}: all discharge values are NaN for the requested period — "
+            "no valid data to write."
+        ]
+    first = int(valid.idxmax())
+    last  = int(valid[::-1].idxmax())
+    if first > 0:
+        t0 = pd.Timestamp(df_flow["datetime"].iloc[0])
+        t1 = pd.Timestamp(df_flow["datetime"].iloc[first])
+        h  = round((t1 - t0).total_seconds() / 3600, 1)
+        w  = (f"{source_name}: no discharge data for the first {h}h of the requested "
+              f"period — {first} timestep(s) removed. "
+              f"Hydrograph starts at {t1.strftime('%Y-%m-%d %H:%M')}.")
+        warns.append(w)
+        log_fn(f"  ⚠ {w}")
+    trailing = len(df_flow) - last - 1
+    if trailing > 0:
+        t_end_orig = pd.Timestamp(df_flow["datetime"].iloc[-1])
+        t_end_trim = pd.Timestamp(df_flow["datetime"].iloc[last])
+        h = round((t_end_orig - t_end_trim).total_seconds() / 3600, 1)
+        w  = (f"{source_name}: no discharge data for the last {h}h of the requested "
+              f"period — {trailing} timestep(s) removed. "
+              f"Hydrograph ends at {t_end_trim.strftime('%Y-%m-%d %H:%M')}.")
+        warns.append(w)
+        log_fn(f"  ⚠ {w}")
+    return df_flow.iloc[first:last + 1].reset_index(drop=True), warns
+
+
+def _bdy_read_user_discharge_table(path):
+    """Read a user discharge table, returning (df, has_datetimes, start_dt, end_dt).
+
+    df has columns time_hours (float, relative hours) and discharge_cms (float).
+    """
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix in (".csv", ".txt"):
+        df = pd.read_csv(path)
+    elif suffix in (".xlsx", ".xls"):
+        df = pd.read_excel(path)
+    else:
+        raise ValueError(f"Unsupported file type: {suffix}")
+
+    cols = {c.lower().strip(): c for c in df.columns}
+    if "time_hours" not in cols or "discharge_cms" not in cols:
+        raise ValueError(
+            "File must have columns: time_hours  and  discharge_cms"
+        )
+    df = df[[cols["time_hours"], cols["discharge_cms"]]].copy()
+    df.columns = ["time_hours", "discharge_cms"]
+    df = df.dropna().reset_index(drop=True)
+
+    has_datetimes = False
+    start_dt = end_dt = None
+    is_numeric = pd.api.types.is_numeric_dtype(df["time_hours"])
+    if not is_numeric:
+        try:
+            dt_series = pd.to_datetime(df["time_hours"], utc=True)
+            has_datetimes = True
+            dt_series = dt_series.sort_values().reset_index(drop=True)
+            start_dt = dt_series.iloc[0]
+            end_dt   = dt_series.iloc[-1]
+            df["time_hours"] = (dt_series - start_dt).dt.total_seconds() / 3600.0
+            df["discharge_cms"] = df["discharge_cms"].astype(float)
+            start_dt = start_dt.tz_localize(None)
+            end_dt   = end_dt.tz_localize(None)
+        except Exception:
+            raise ValueError(
+                "The time_hours column contains non-numeric values that could not "
+                "be parsed as datetimes.  Provide either numeric hours (0, 1, 2, …) "
+                "or datetime strings (e.g. 2018-08-26 00:00:00)."
+            )
+
+    df = df.sort_values("time_hours").reset_index(drop=True)
+    return df, has_datetimes, start_dt, end_dt
+
+
 def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
                             interval_hours, gage_id=None, user_csv_path=None,
                             nwm_reach_id=None, log_fn=print):
     """One-inflow TRITON .hyg from a chosen source (NWM retro/forecast, USGS,
-    or uploaded CSV), reusing the proven LISFLOOD-BDY fetchers and the existing
+    or uploaded CSV), using TRITON's own discharge fetchers and the existing
     ``_write_triton_hyg`` writer.  Writes <AOI>.hyg into triton-files and a
     helper CSV (datetime, discharge_cms) in the case folder for previewing.
     Sets ctx['sim_duration'] (seconds) from the last hydrograph time.
     """
-    from core import bdy as _b
     triton_dir  = Path(ctx["triton_dir"])
     project_dir = Path(ctx["project_dir"])
     aoi_name    = ctx.get("aoi_name") or ctx.get("project_name", "triton")
@@ -203,11 +386,11 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
     if bdy_source == "nwm_retro":
         if nwm_reach_id is None:
             raise ValueError("NWM source needs an upstream reach/feature ID (run BC first).")
-        df_flow = _b._get_nwm_retrospective(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
+        df_flow = _get_nwm_retrospective(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
     elif bdy_source == "nwm_forecast":
         if nwm_reach_id is None:
             raise ValueError("NWM source needs an upstream reach/feature ID (run BC first).")
-        df_flow = _b._get_nwm_forecast(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
+        df_flow = _get_nwm_forecast(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
     elif bdy_source == "usgs":
         if not gage_id:
             raise ValueError("gage_id is required when the source is USGS.")
@@ -233,21 +416,21 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
         if di.tz is not None:
             di = di.tz_convert(None)
         ser0 = pd.Series(raw[qcol].astype(float).values, index=di)
-        df_flow = _b._resample_to_interval(ser0, start_ts, end_ts, interval_hours)
+        df_flow = _resample_to_interval(ser0, start_ts, end_ts, interval_hours)
     elif bdy_source == "csv":
         if not user_csv_path:
             raise ValueError("A CSV path is required when the source is 'csv'.")
-        tbl, has_dt, csv_start, _csv_end = _b._read_user_discharge_table(user_csv_path)
+        tbl, has_dt, csv_start, _csv_end = _bdy_read_user_discharge_table(user_csv_path)
         anchor = pd.Timestamp(csv_start) if (has_dt and csv_start is not None) else start_ts
         di = anchor + pd.to_timedelta(tbl["time_hours"].astype(float), unit="h")
         ser0 = pd.Series(tbl["discharge_cms"].astype(float).values, index=pd.DatetimeIndex(di))
         s2 = anchor if (has_dt and csv_start is not None) else start_ts
         e2 = pd.Timestamp(ser0.index.max())
-        df_flow = _b._resample_to_interval(ser0, s2, e2, interval_hours)
+        df_flow = _resample_to_interval(ser0, s2, e2, interval_hours)
     else:
         raise ValueError(f"Unsupported hydrograph source: {bdy_source!r}")
 
-    df_flow, _trim = _b._trim_nan_boundaries(df_flow, bdy_source, log_fn)
+    df_flow, _trim = _trim_nan_boundaries(df_flow, bdy_source, log_fn)
     if df_flow.empty:
         raise RuntimeError(f"{bdy_source}: no valid discharge data for the requested period.")
 
