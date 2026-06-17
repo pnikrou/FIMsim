@@ -787,10 +787,25 @@ def run_triton_bc_for_all_aois(
                     pass
             feat_ctx_path = str(per_aoi_ctx_path)
 
-            # Auto-detect the inflow point + downstream segment (unchanged core).
-            detected = detect_main_river(feat_ctx, log_fn=log_fn)
-            up = detected["upstream_pt"]
-            seg = detected["downstream_segment"]
+            # Inflow point + downstream segment: either auto-detected from the
+            # flowline/DEM (unchanged core) or taken from manual coordinates.
+            if cfg.get("detect_mode") == "manual":
+                up = cfg.get("inflow_xy")
+                seg = cfg.get("segment")
+                if not up or not seg:
+                    raise RuntimeError(
+                        "Manual mode needs an inflow point and an outflow segment."
+                    )
+                main_river_name = None
+                upstream_reach_id = None
+                log_fn(f"  Manual coordinates: inflow {up}, outflow segment {seg}")
+            else:
+                detected = detect_main_river(feat_ctx, log_fn=log_fn)
+                up = detected["upstream_pt"]
+                seg = detected["downstream_segment"]
+                main_river_name = detected.get("main_river_name")
+                upstream_reach_id = detected.get("upstream_reach_id")
+
             bt = int(cfg["bc_type"])
             entry = {"bc_type": bt, "x1": seg[0], "y1": seg[1],
                      "x2": seg[2], "y2": seg[3]}
@@ -802,8 +817,8 @@ def run_triton_bc_for_all_aois(
             feat_ctx = prepare_triton_bc(
                 ctx_path=feat_ctx_path, ctx=feat_ctx,
                 inflow_sources=[up], bc_entries=[entry],
-                main_river_name=detected.get("main_river_name"),
-                upstream_reach_id=detected.get("upstream_reach_id"),
+                main_river_name=main_river_name,
+                upstream_reach_id=upstream_reach_id,
                 log_fn=log_fn,
             )
             summary.append({

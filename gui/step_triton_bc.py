@@ -19,6 +19,7 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
+    QPlainTextEdit,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -77,11 +78,13 @@ class StepTritonBCWidget(QWidget):
         layout.setSpacing(12)
 
         info = QLabel(
-            "<b>ℹ️  Auto boundary detection.</b>  For each AOI the app finds the "
-            "main river inflow point and a downstream boundary segment from the "
-            "DEM, writes <code>&lt;AOI&gt;.src</code> (inflow) and "
-            "<code>&lt;AOI&gt;.extbc</code> (outflow).  You only choose the "
-            "downstream boundary type."
+            "<b>ℹ️  NHD auto-detect</b> downloads NHD flowlines, picks the "
+            "highest-order river, and derives the inflow point + downstream "
+            "boundary segment from the DEM.  Works for <b>USA only</b>.<br>"
+            "Outside the USA (or to override auto-detection), choose "
+            "<b>Manual coordinates</b> in an AOI and enter the inflow point + "
+            "outflow segment, or edit the generated <code>.src</code> / "
+            "<code>.extbc</code> files directly."
         )
         info.setWordWrap(True)
         info.setStyleSheet(
@@ -179,14 +182,36 @@ class StepTritonBCWidget(QWidget):
         self._error_lbl.setVisible(False)
         layout.addWidget(self._error_lbl)
 
-        # Post-run results: per-AOI list of generated files
-        self._results_gb = QGroupBox("Per-AOI BC outputs")
+        # Post-run results: simple clickable per-AOI lines + two-pane preview
+        self._results_gb = QGroupBox(
+            "Per-AOI BC outputs  —  click an AOI to preview its files"
+        )
         rgl = QVBoxLayout(self._results_gb)
         self._results_inner = QVBoxLayout()
-        self._results_inner.setSpacing(0)
+        self._results_inner.setSpacing(1)
         rgl.addLayout(self._results_inner)
         self._results_gb.setVisible(False)
         layout.addWidget(self._results_gb)
+
+        self._preview_gb = QGroupBox("File preview")
+        pv = QHBoxLayout(self._preview_gb)
+        src_col = QVBoxLayout()
+        src_col.addWidget(QLabel("<b>.src</b>  (inflow points)"))
+        self._src_view = QPlainTextEdit()
+        self._src_view.setReadOnly(True)
+        self._src_view.setStyleSheet("font-family:monospace; font-size:11px;")
+        src_col.addWidget(self._src_view)
+        pv.addLayout(src_col, 1)
+        extbc_col = QVBoxLayout()
+        extbc_col.addWidget(QLabel("<b>.extbc</b>  (outflow boundary)"))
+        self._extbc_view = QPlainTextEdit()
+        self._extbc_view.setReadOnly(True)
+        self._extbc_view.setStyleSheet("font-family:monospace; font-size:11px;")
+        extbc_col.addWidget(self._extbc_view)
+        pv.addLayout(extbc_col, 1)
+        self._preview_gb.setMinimumHeight(180)
+        self._preview_gb.setVisible(False)
+        layout.addWidget(self._preview_gb)
 
     # ── layout switching ───────────────────────────────────────────────────────
 
@@ -337,52 +362,69 @@ class StepTritonBCWidget(QWidget):
                 w.setParent(None)
         if hasattr(self, "_results_gb"):
             self._results_gb.setVisible(False)
+        if hasattr(self, "_preview_gb"):
+            self._preview_gb.setVisible(False)
+            self._src_view.clear()
+            self._extbc_view.clear()
 
     def _build_results(self, ctx):
         self._clear_results()
         per_aoi = ctx.get("triton_bc_per_aoi", []) or []
         if not per_aoi:
-            # single-AOI fallback from bridge keys
             if ctx.get("triton_extbc_path"):
                 per_aoi = [{
                     "name":        ctx.get("aoi_name", "AOI"),
                     "bc_type":     None,
                     "extbc_path":  ctx.get("triton_extbc_path"),
                     "src_path":    ctx.get("triton_src_loc_path"),
-                    "num_sources": ctx.get("num_sources"),
                 }]
         if not per_aoi:
             return
+        # One simple line per AOI (clickable name + plain-text file names).
         for entry in per_aoi:
-            row = QFrame()
-            row.setStyleSheet(
-                "QFrame { background:#f9fafb; border:1px solid #e2e8f0; "
-                "border-radius:3px; padding:4px 6px; }"
-            )
-            rl = QVBoxLayout(row)
-            rl.setContentsMargins(6, 3, 6, 3)
-            rl.setSpacing(1)
             name = entry.get("name", "?")
             if entry.get("failed"):
-                lbl = QLabel(f"<b>{name}</b>  —  ⚠ {str(entry.get('error','error')).splitlines()[0]}")
+                lbl = QLabel(
+                    f"<b>{name}</b>  —  ⚠ "
+                    f"{str(entry.get('error', 'error')).splitlines()[0]}"
+                )
                 lbl.setStyleSheet("color:#c53030; font-size:11px;")
                 lbl.setWordWrap(True)
-                rl.addWidget(lbl)
-            else:
-                name_lbl = QLabel(f"<b>{name}</b>")
-                name_lbl.setStyleSheet("color:#2d3748;")
-                rl.addWidget(name_lbl)
-                src = Path(entry.get("src_path") or "").name
-                extbc = Path(entry.get("extbc_path") or "").name
-                bt = entry.get("bc_type")
-                det = (f"src: {src}  ·  extbc: {extbc}"
-                       + (f"  ·  outflow type {bt}" if bt is not None else ""))
-                d = QLabel(det)
-                d.setStyleSheet("color:#718096; font-size:11px; padding-left:4px;")
-                d.setWordWrap(True)
-                rl.addWidget(d)
-            self._results_inner.addWidget(row)
+                self._results_inner.addWidget(lbl)
+                continue
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            btn = QPushButton(name)
+            btn.setStyleSheet(
+                "QPushButton { text-align:left; background:transparent; "
+                "border:none; color:#2d3748; font-weight:bold; padding:1px; }"
+                "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
+            )
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _c, e=entry: self._show_files_for_aoi(e))
+            row.addWidget(btn)
+            src = Path(entry.get("src_path") or "").name
+            extbc = Path(entry.get("extbc_path") or "").name
+            files_lbl = QLabel(f"{src}   {extbc}")
+            files_lbl.setStyleSheet("color:#718096; font-size:11px;")
+            row.addWidget(files_lbl)
+            row.addStretch()
+            line = QWidget()
+            line.setLayout(row)
+            self._results_inner.addWidget(line)
         self._results_gb.setVisible(True)
+
+    def _show_files_for_aoi(self, entry: dict):
+        def _load(path):
+            try:
+                if path and Path(path).exists():
+                    return Path(path).read_text(encoding="utf-8", errors="replace")
+                return f"(file not found: {path})"
+            except Exception as ex:
+                return f"(could not read: {ex})"
+        self._src_view.setPlainText(_load(entry.get("src_path")))
+        self._extbc_view.setPlainText(_load(entry.get("extbc_path")))
+        self._preview_gb.setVisible(True)
 
     def _on_done(self, ctx):
         self._error_lbl.setVisible(False)
