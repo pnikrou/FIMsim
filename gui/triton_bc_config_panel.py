@@ -70,7 +70,8 @@ class TritonBCConfigPanel(QWidget):
         in_row.addWidget(QLabel("X")); in_row.addWidget(self._inflow_x)
         in_row.addWidget(QLabel("Y")); in_row.addWidget(self._inflow_y)
         self._inflow_lbl = QLabel("Inflow point:")
-        gf.addRow(self._inflow_lbl, _wrap(in_row))
+        self._inflow_row_w = _wrap(in_row)
+        gf.addRow(self._inflow_lbl, self._inflow_row_w)
 
         self._seg_x1 = _coord_spin(); self._seg_y1 = _coord_spin()
         self._seg_x2 = _coord_spin(); self._seg_y2 = _coord_spin()
@@ -79,7 +80,8 @@ class TritonBCConfigPanel(QWidget):
                        ("X2", self._seg_x2), ("Y2", self._seg_y2)):
             seg_row.addWidget(QLabel(lab)); seg_row.addWidget(w)
         self._seg_lbl = QLabel("Outflow segment:")
-        gf.addRow(self._seg_lbl, _wrap(seg_row))
+        self._seg_row_w = _wrap(seg_row)
+        gf.addRow(self._seg_lbl, self._seg_row_w)
 
         self._manual_note = QLabel(
             "<small><i>Coordinates must be in the DEM's projected CRS. The "
@@ -145,9 +147,10 @@ class TritonBCConfigPanel(QWidget):
 
     def _on_mode_changed(self, *_):
         manual = self._mode_combo.currentIndex() == 1
-        for w in (self._inflow_lbl, self._inflow_x, self._inflow_y,
-                  self._seg_lbl, self._seg_x1, self._seg_y1, self._seg_x2,
-                  self._seg_y2, self._manual_note):
+        # Hide the whole rows (label + the X/Y… wrapper) so no stray axis
+        # labels show in Auto mode.
+        for w in (self._inflow_lbl, self._inflow_row_w,
+                  self._seg_lbl, self._seg_row_w, self._manual_note):
             w.setVisible(manual)
 
     def _on_type_changed(self, *_):

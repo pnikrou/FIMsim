@@ -78,19 +78,15 @@ class StepTritonBCWidget(QWidget):
         layout.setSpacing(12)
 
         info = QLabel(
-            "<b>ℹ️  NHD auto-detect</b> downloads NHD flowlines, picks the "
+            "★ <b>NHD auto-detect</b> downloads NHD flowlines, picks the "
             "highest-order river, and derives the inflow point + downstream "
-            "boundary segment from the DEM.  Works for <b>USA only</b>.<br>"
-            "Outside the USA (or to override auto-detection), choose "
-            "<b>Manual coordinates</b> in an AOI and enter the inflow point + "
-            "outflow segment, or edit the generated <code>.src</code> / "
-            "<code>.extbc</code> files directly."
+            "boundary segment from the DEM. Works for <b>USA only</b>. "
+            "Outside the USA (or to override), choose <b>Manual coordinates</b> "
+            "in an AOI and enter the inflow point + outflow segment, or edit the "
+            "generated <code>.src</code> / <code>.extbc</code> files directly."
         )
         info.setWordWrap(True)
-        info.setStyleSheet(
-            "padding:8px; background:#fffbeb; border:1px solid #f6e05e; "
-            "border-radius:4px;"
-        )
+        info.setStyleSheet("color:#4a5568; font-size:11px; padding:2px 0px;")
         layout.addWidget(info)
 
         self._aoi_count_lbl = QLabel("")
