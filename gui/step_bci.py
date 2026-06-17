@@ -88,17 +88,14 @@ class StepBCIWidget(QWidget):
 
         # Info banner — same wording as before, applies to both layouts.
         info = QLabel(
-            "<b>ℹ️  NHD auto-detect</b> downloads NHD flowlines, identifies the "
+            "★ <b>NHD auto-detect</b> downloads NHD flowlines, identifies the "
             "highest-order river, and derives upstream / downstream boundary "
             "points from DEM elevations.  Works for <b>USA only</b>.<br>"
             "Use <b>Manual</b> mode outside the USA or to override "
             "auto-detection."
         )
         info.setWordWrap(True)
-        info.setStyleSheet(
-            "padding:8px; background:#fffbeb; border:1px solid #f6e05e; "
-            "border-radius:4px;"
-        )
+        info.setStyleSheet("color:#2d3748; font-size:12px; padding:2px 0px;")
         layout.addWidget(info)
 
         # AOI count line

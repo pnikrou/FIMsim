@@ -408,7 +408,7 @@ class MultiAOIWidget(QWidget):
         # exactly — neither the upload-area collapse nor any other layout
         # shift can stretch or shrink it.
         intro = QLabel(
-            "<b>Select your Area(s) of Interest (AOI).</b>  "
+            "★ <b>Select your Area(s) of Interest (AOI).</b>  "
             "Browse for a shapefile or GeoPackage and pick the feature(s) you want.  "
             "To add more AOIs from another file, click "
             "<b>“➕ Add another AOI file”</b>.  "
