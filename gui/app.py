@@ -545,7 +545,8 @@ class MainWindow(QMainWindow):
     def _update_nav(self):
         tabs = self._current_tabs()
         on_selector = (self._stack.currentIndex() == _PAGE_SELECTOR)
-        is_tab_mode = self._active_model in ("lisflood", "triton") and tabs is not None
+        is_tab_mode = self._active_model in (
+            "lisflood", "triton", "arc_curve2flood") and tabs is not None
         is_standalone = self._active_model in (
             "dem", "lulc_manning", "flowline", "streamflow"
         )
