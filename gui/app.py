@@ -26,6 +26,15 @@ from gui.step_par     import StepPARWidget
 # ── TRITON step widgets (standalone — no shared workflow code) ────────────────
 from gui.step_triton_project import StepTritonProjectWidget
 from gui.step_triton_dem     import StepTritonDEMWidget
+
+# ── ARC-Curve2Flood step widgets (standalone) ────────────────────────────────
+from gui.step_arc_project    import StepArcProjectWidget
+from gui.step_arc_aoi        import StepArcAOIWidget
+from gui.step_arc_dem        import StepArcDEMWidget
+from gui.step_arc_landcover  import StepArcLandCoverWidget
+from gui.step_arc_flowline   import StepArcFlowlineWidget
+from gui.step_arc_streamflow import StepArcStreamflowWidget
+from gui.step_arc_config     import StepArcConfigWidget
 from gui.step_triton_manning import StepTritonManningWidget
 from gui.step_triton_bc      import StepTritonBCWidget
 from gui.step_triton_hydro   import StepTritonHydroWidget
@@ -46,6 +55,7 @@ _PAGE_FLOWLINE     = 3
 _PAGE_LISFLOOD     = 4
 _PAGE_TRITON       = 5
 _PAGE_STREAMFLOW   = 6
+_PAGE_ARC          = 7
 
 
 class MainWindow(QMainWindow):
@@ -55,9 +65,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         # Per-model state
-        self._ctx_path = {"lisflood": None, "triton": None}
-        self._ctx      = {"lisflood": {},    "triton": {}}
-        self._active_model = None          # "lisflood" | "triton"
+        self._ctx_path = {"lisflood": None, "triton": None, "arc_curve2flood": None}
+        self._ctx      = {"lisflood": {},    "triton": {},   "arc_curve2flood": {}}
+        self._active_model = None          # "lisflood" | "triton" | "arc_curve2flood"
         self._setup_ui()
 
     # ── UI construction ──────────────────────────────────────────────────────
@@ -122,6 +132,10 @@ class MainWindow(QMainWindow):
         self._mode_streamflow.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_streamflow)        # index 6
 
+        # ── Page 7: ARC-Curve2Flood tabs ─────────────────────────────────────
+        self._arc_tabs, self._arc_steps = self._build_arc_tabs(log_fn)
+        self._stack.addWidget(self._arc_tabs)               # index 7
+
         splitter.addWidget(self._stack)
         splitter.addWidget(self._log_panel)
         splitter.setSizes([600, 180])
@@ -158,6 +172,7 @@ class MainWindow(QMainWindow):
         # Connect tab-change for each workflow (after buttons exist)
         self._lfp_tabs.currentChanged.connect(self._on_tab_changed)
         self._triton_tabs.currentChanged.connect(self._on_tab_changed)
+        self._arc_tabs.currentChanged.connect(self._on_tab_changed)
 
         self._stack.setCurrentIndex(_PAGE_SELECTOR)
         self._update_nav()
@@ -261,6 +276,47 @@ class MainWindow(QMainWindow):
 
         return tabs, widgets
 
+    # ── Build ARC-Curve2Flood tab widget ─────────────────────────────────────
+
+    def _build_arc_tabs(self, log_fn):
+        tabs = QTabWidget()
+        tabs.setTabPosition(QTabWidget.TabPosition.North)
+
+        # ARC-Curve2Flood prepares a NenCarta input package.  These are
+        # ARC-only step widgets — they share no workflow code with the
+        # LISFLOOD-FP or TRITON tabs.
+        proj       = StepArcProjectWidget(log_fn, model="generic")
+        aoi        = StepArcAOIWidget(log_fn, model="arc_curve2flood")
+        dem        = StepArcDEMWidget(log_fn)
+        landcover  = StepArcLandCoverWidget(log_fn)
+        flowline   = StepArcFlowlineWidget(log_fn)
+        streamflow = StepArcStreamflowWidget(log_fn)
+        config     = StepArcConfigWidget(log_fn)
+
+        step_list = [
+            ("1. Project",          proj),
+            ("2. AOI",              aoi),
+            ("3. DEM",              dem),
+            ("4. Land Cover",       landcover),
+            ("5. Flowline",         flowline),
+            ("6. Streamflow",       streamflow),
+            ("7. Config",           config),
+        ]
+        widgets = [w for _, w in step_list]
+
+        for label, w in step_list:
+            sa = QScrollArea(); sa.setWidgetResizable(True); sa.setWidget(w)
+            tabs.addTab(sa, label)
+
+        proj.step_completed.connect(
+            self._make_project_done_slot("arc_curve2flood", tabs, widgets))
+        for i in range(1, len(widgets)):
+            nxt = i + 1 if i + 1 < len(widgets) else None
+            widgets[i].step_completed.connect(
+                self._make_step_done_slot("arc_curve2flood", tabs, widgets, i, nxt))
+
+        return tabs, widgets
+
     # ── Mode selection ───────────────────────────────────────────────────────
 
     _MODE_TO_PAGE = {
@@ -270,6 +326,7 @@ class MainWindow(QMainWindow):
         "lisflood":     _PAGE_LISFLOOD,
         "triton":       _PAGE_TRITON,
         "streamflow":   _PAGE_STREAMFLOW,
+        "arc_curve2flood": _PAGE_ARC,
     }
     _MODE_LABELS = {
         "dem":          ("DEM",
@@ -284,6 +341,8 @@ class MainWindow(QMainWindow):
                          "Prepare all input files for a TRITON flood simulation"),
         "streamflow":   ("Streamflow Data",
                          "Download NWM or USGS discharge time series by feature ID or gage number"),
+        "arc_curve2flood": ("ARC-Curve2Flood",
+                         "Prepare a NenCarta input package (rapid flood mapping)"),
     }
 
     def _on_mode_selected(self, mode: str):
@@ -301,7 +360,7 @@ class MainWindow(QMainWindow):
             f"FIMsim  |  Flood Inundation Model Simulation Tool  v1.0  ({label})"
         )
 
-        is_tab_mode = mode in ("lisflood", "triton")
+        is_tab_mode = mode in ("lisflood", "triton", "arc_curve2flood")
         self._back_btn.setVisible(True)   # show for all modes
         self._prev_btn.setVisible(True)
         self._next_btn.setVisible(True)
@@ -361,6 +420,8 @@ class MainWindow(QMainWindow):
             self._reset_workflow("lisflood", self._lfp_tabs, self._lfp_steps)
         elif mode == "triton":
             self._reset_workflow("triton", self._triton_tabs, self._triton_steps)
+        elif mode == "arc_curve2flood":
+            self._reset_workflow("arc_curve2flood", self._arc_tabs, self._arc_steps)
 
     def _reset_workflow(self, model: str, tabs, widgets):
         """Reset a tab-based workflow (LISFLOOD-FP / TRITON) for a fresh start."""
@@ -402,6 +463,8 @@ class MainWindow(QMainWindow):
             return self._lfp_tabs
         if self._active_model == "triton":
             return self._triton_tabs
+        if self._active_model == "arc_curve2flood":
+            return self._arc_tabs
         return None
 
     def _standalone_widget(self, mode):
@@ -447,10 +510,14 @@ class MainWindow(QMainWindow):
         how the user navigates.
         """
         model = self._active_model
-        if model not in ("lisflood", "triton"):
+        if model not in ("lisflood", "triton", "arc_curve2flood"):
             return
         tabs = self._current_tabs()
-        widgets = self._lfp_steps if model == "lisflood" else self._triton_steps
+        widgets = {
+            "lisflood":        self._lfp_steps,
+            "triton":          self._triton_steps,
+            "arc_curve2flood": self._arc_steps,
+        }[model]
         if tabs is None or not widgets:
             return
         idx = tabs.currentIndex()
@@ -528,9 +595,12 @@ class MainWindow(QMainWindow):
         # the matching done-slot then advances the tab automatically.
         # If no AOIs are confirmed, proceed_to_next() pops a warning and
         # we stay on the AOI tab.
-        if idx == 1 and self._active_model in ("lisflood", "triton"):
-            widgets = (self._lfp_steps if self._active_model == "lisflood"
-                       else self._triton_steps)
+        if idx == 1 and self._active_model in ("lisflood", "triton", "arc_curve2flood"):
+            widgets = {
+                "lisflood":        self._lfp_steps,
+                "triton":          self._triton_steps,
+                "arc_curve2flood": self._arc_steps,
+            }[self._active_model]
             aoi_widget = widgets[1]
             if hasattr(aoi_widget, "proceed_to_next"):
                 aoi_widget.proceed_to_next()
@@ -591,6 +661,8 @@ class MainWindow(QMainWindow):
         for w in (self._lfp_steps or []):
             yield w
         for w in (self._triton_steps or []):
+            yield w
+        for w in (self._arc_steps or []):
             yield w
         for w in (self._mode_dem, self._mode_lulc,
                   self._mode_flowline, self._mode_streamflow):

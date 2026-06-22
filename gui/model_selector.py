@@ -34,6 +34,8 @@ _INPUT_MODES = [
 _MODEL_MODES = [
     {"title": "LISFLOOD-FP", "mode_key": "lisflood", "desc": "7-step wizard → .par .bci .bdy"},
     {"title": "TRITON",      "mode_key": "triton",   "desc": "7-step wizard → .cfg .extbc .hyg"},
+    {"title": "ARC-Curve2Flood", "mode_key": "arc_curve2flood",
+     "desc": "7-step wizard → NenCarta .json (rapid flood mapping)"},
 ]
 
 
