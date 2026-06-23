@@ -61,6 +61,7 @@ class USMapCanvas(FigureCanvasQTAgg):
         all_flowlines_gdf=None,      # GeoDataFrame — all NHD reaches (thin underlay)
         usgs_gages: Optional[List[dict]] = None,
         legend_entries: Optional[List[str]] = None,
+        huc8_gdf=None,               # GeoDataFrame — HUC8 polygon(s) the model runs over
     ):
         """Refresh the map.
 
@@ -95,8 +96,11 @@ class USMapCanvas(FigureCanvasQTAgg):
         # ── reset and rebuild subplot layout ─────────────────────────────────
         self._fig.clear()
         ax_close = None
-        if n == 1 and aoi_gdf is not None:
-            # 3-panel: US + state zoom + AOI close-up with rivers / gages
+        # A close-up panel is shown when there's an AOI polygon OR a HUC8
+        # polygon to display (FIMserv shows the HUC8 run-area + the AOI).
+        want_close = (aoi_gdf is not None) or (huc8_gdf is not None)
+        if n == 1 and want_close:
+            # 3-panel: US + state zoom + close-up (HUC8 run-area + AOI)
             ax_us    = self._fig.add_subplot(1, 3, 1)
             ax_zoom  = self._fig.add_subplot(1, 3, 2)
             ax_close = self._fig.add_subplot(1, 3, 3)
@@ -201,14 +205,22 @@ class USMapCanvas(FigureCanvasQTAgg):
             else:
                 ax_zoom.set_title("State view (AOI outside CONUS)", fontsize=10)
 
-        # ── AOI close-up panel (3-panel layout only) ─────────────────────────
-        if ax_close is not None and aoi_gdf is not None:
+        # ── Close-up panel (3-panel layout only) ─────────────────────────────
+        if ax_close is not None and want_close:
             ax_close.set_xticks([]); ax_close.set_yticks([])
             try:
+                # HUC8 run-area polygon(s) drawn first as a tan underlay so the
+                # user sees the region the model runs over.
+                huc8_4326 = None
+                if huc8_gdf is not None:
+                    huc8_4326 = huc8_gdf.to_crs("EPSG:4326")
+                    huc8_4326.plot(ax=ax_close, facecolor="#fefcbf",
+                                   edgecolor="#b7791f", linewidth=1.2, alpha=0.5)
                 # Reproject AOI / river / gages to EPSG:4326 so overlays match.
-                aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
-                aoi_4326.plot(ax=ax_close, facecolor="#ebf8ff",
-                              edgecolor="#2c5282", linewidth=1.2, alpha=0.7)
+                aoi_4326 = aoi_gdf.to_crs("EPSG:4326") if aoi_gdf is not None else None
+                if aoi_4326 is not None:
+                    aoi_4326.plot(ax=ax_close, facecolor="#ebf8ff",
+                                  edgecolor="#2c5282", linewidth=1.4, alpha=0.7)
                 # All flowlines thin underlay (light blue/gray, drawn first)
                 if all_flowlines_gdf is not None and not all_flowlines_gdf.empty:
                     all_flowlines_gdf.to_crs("EPSG:4326").plot(
@@ -233,7 +245,7 @@ class USMapCanvas(FigureCanvasQTAgg):
                             xytext=(4, 4), textcoords="offset points",
                             fontsize=7, color="#22543d", weight="bold",
                         )
-                # Title: river name only — no "AOI close-up" label
+                # Title: river name when known, else label the run area.
                 river_title = ""
                 if main_river_gdf is not None and not main_river_gdf.empty:
                     try:
@@ -244,15 +256,33 @@ class USMapCanvas(FigureCanvasQTAgg):
                                 break
                     except Exception:
                         pass
-                # Tight bounds with a small margin
-                minx, miny, maxx, maxy = aoi_4326.total_bounds
+                if not river_title:
+                    if aoi_4326 is not None and huc8_4326 is not None:
+                        river_title = "HUC8 run area  &  AOI"
+                    elif huc8_4326 is not None:
+                        river_title = "HUC8 run area"
+                # Legend so tan (run area) vs blue (AOI) is unambiguous.
+                if huc8_4326 is not None or aoi_4326 is not None:
+                    from matplotlib.patches import Patch
+                    handles = []
+                    if huc8_4326 is not None:
+                        handles.append(Patch(facecolor="#fefcbf", edgecolor="#b7791f",
+                                             alpha=0.5, label="HUC8 run area"))
+                    if aoi_4326 is not None:
+                        handles.append(Patch(facecolor="#ebf8ff", edgecolor="#2c5282",
+                                             alpha=0.7, label="Area of interest"))
+                    ax_close.legend(handles=handles, fontsize=7, loc="lower left")
+                # Tight bounds with a small margin — frame the AOI when present,
+                # otherwise the HUC8 run area.
+                frame = aoi_4326 if aoi_4326 is not None else huc8_4326
+                minx, miny, maxx, maxy = frame.total_bounds
                 mx = (maxx - minx) * 0.10 or 0.01
                 my = (maxy - miny) * 0.10 or 0.01
                 ax_close.set_xlim(minx - mx, maxx + mx)
                 ax_close.set_ylim(miny - my, maxy + my)
                 ax_close.set_title(river_title, fontsize=10)
             except Exception as ex:
-                ax_close.text(0.5, 0.5, f"AOI close-up failed:\n{ex}",
+                ax_close.text(0.5, 0.5, f"Close-up failed:\n{ex}",
                               ha="center", va="center",
                               transform=ax_close.transAxes,
                               fontsize=8, color="red")

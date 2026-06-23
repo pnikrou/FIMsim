@@ -106,9 +106,16 @@ class RasterPreviewCanvas(FigureCanvas):
 
         # Ensure masked / nodata pixels render as white, not the colormap's
         # default "bad" colour (which can be dark or semi-transparent).
-        import matplotlib.cm as _cm
+        # matplotlib.cm.get_cmap was removed in 3.9 — use the colormap registry
+        # (3.5+) and fall back to the old API for older matplotlib.
         import copy as _copy
-        cmap_obj = _copy.copy(_cm.get_cmap(cmap))
+        import matplotlib as _mpl
+        try:
+            base_cmap = _mpl.colormaps[cmap]
+        except Exception:
+            import matplotlib.cm as _cm
+            base_cmap = _cm.get_cmap(cmap)
+        cmap_obj = _copy.copy(base_cmap)
         cmap_obj.set_bad(color="white", alpha=1.0)
 
         im = ax.imshow(arr, extent=extent, cmap=cmap_obj, origin="upper")

@@ -42,6 +42,7 @@ class RasterPreviewCanvas(FigureCanvas):
         cmap: str = "terrain",
         colorbar_label: str = "",
         colorbar_location: str = "right",
+        overlay_gdf=None,
     ):
         """Render ``path`` (a single-band GeoTIFF) as a flat image.
 
@@ -51,6 +52,9 @@ class RasterPreviewCanvas(FigureCanvas):
             ``"right"`` (vertical, default) or ``"bottom"`` (horizontal).
             Use ``"bottom"`` to maximise the map's width at the cost of a
             thin horizontal strip below the image.
+        overlay_gdf
+            Optional GeoDataFrame (e.g. the AOI) drawn as a boundary on top of
+            the raster so the user sees the FIM against their area of interest.
         """
         try:
             import rasterio
@@ -73,6 +77,7 @@ class RasterPreviewCanvas(FigureCanvas):
                 arr = src.read(1, masked=True)
                 extent = plotting_extent(src)
                 nodata = src.nodata
+                raster_crs = src.crs
         except Exception as ex:
             self._fig.clear()
             ax = self._fig.add_subplot(1, 1, 1)
@@ -106,12 +111,30 @@ class RasterPreviewCanvas(FigureCanvas):
 
         # Ensure masked / nodata pixels render as white, not the colormap's
         # default "bad" colour (which can be dark or semi-transparent).
-        import matplotlib.cm as _cm
+        # matplotlib.cm.get_cmap was removed in 3.9 — use the colormap registry
+        # (3.5+) and fall back to the old API for older matplotlib.
         import copy as _copy
-        cmap_obj = _copy.copy(_cm.get_cmap(cmap))
+        import matplotlib as _mpl
+        try:
+            base_cmap = _mpl.colormaps[cmap]
+        except Exception:
+            import matplotlib.cm as _cm
+            base_cmap = _cm.get_cmap(cmap)
+        cmap_obj = _copy.copy(base_cmap)
         cmap_obj.set_bad(color="white", alpha=1.0)
 
         im = ax.imshow(arr, extent=extent, cmap=cmap_obj, origin="upper")
+
+        # AOI boundary overlay (reprojected to the raster's CRS so it aligns).
+        if overlay_gdf is not None:
+            try:
+                ov = overlay_gdf
+                if raster_crs is not None and ov.crs is not None:
+                    ov = ov.to_crs(raster_crs)
+                ov.boundary.plot(ax=ax, edgecolor="#c53030", linewidth=1.6, zorder=5)
+            except Exception:
+                pass
+
         ax.set_xticks([]); ax.set_yticks([])
         if title:
             ax.set_title(title, fontsize=10, pad=3)

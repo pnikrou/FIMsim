@@ -36,6 +36,7 @@ from gui.mode_dem            import ModeDEMWidget
 from gui.mode_lulc_manning   import ModeLULCManningWidget
 from gui.mode_flowline       import ModeFlowlineWidget
 from gui.mode_streamflow     import ModeStreamflowWidget
+from gui.mode_fimserv        import ModeFIMservWidget
 
 
 # ── Page indices inside the QStackedWidget ───────────────────────────────────
@@ -46,6 +47,7 @@ _PAGE_FLOWLINE     = 3
 _PAGE_LISFLOOD     = 4
 _PAGE_TRITON       = 5
 _PAGE_STREAMFLOW   = 6
+_PAGE_FIMSERV      = 7
 
 
 class MainWindow(QMainWindow):
@@ -121,6 +123,11 @@ class MainWindow(QMainWindow):
         self._mode_streamflow = ModeStreamflowWidget(log_fn)
         self._mode_streamflow.mode_finished.connect(self._go_to_selector)
         self._stack.addWidget(self._mode_streamflow)        # index 6
+
+        # ── Page 7: FIMserv (OWP HAND FIM) standalone mode ────────────────────
+        self._mode_fimserv = ModeFIMservWidget(log_fn)
+        self._mode_fimserv.mode_finished.connect(self._go_to_selector)
+        self._stack.addWidget(self._mode_fimserv)           # index 7
 
         splitter.addWidget(self._stack)
         splitter.addWidget(self._log_panel)
@@ -270,6 +277,7 @@ class MainWindow(QMainWindow):
         "lisflood":     _PAGE_LISFLOOD,
         "triton":       _PAGE_TRITON,
         "streamflow":   _PAGE_STREAMFLOW,
+        "fimserv":      _PAGE_FIMSERV,
     }
     _MODE_LABELS = {
         "dem":          ("DEM",
@@ -284,6 +292,8 @@ class MainWindow(QMainWindow):
                          "Prepare all input files for a TRITON flood simulation"),
         "streamflow":   ("Streamflow Data",
                          "Download NWM or USGS discharge time series by feature ID or gage number"),
+        "fimserv":      ("FIMserv",
+                         "Generate OWP HAND flood inundation maps from an AOI (HUC8 → NWM → FIM)"),
     }
 
     def _on_mode_selected(self, mode: str):
@@ -323,7 +333,7 @@ class MainWindow(QMainWindow):
     def _go_to_selector(self):
         """Return from a mode back to the category model-selector page."""
         for w in (self._mode_dem, self._mode_lulc, self._mode_flowline,
-                  self._mode_streamflow):
+                  self._mode_streamflow, self._mode_fimserv):
             try:
                 w.nav_changed.disconnect()
             except Exception:
@@ -357,6 +367,8 @@ class MainWindow(QMainWindow):
             self._mode_flowline.reset()
         elif mode == "streamflow":
             self._mode_streamflow.reset()
+        elif mode == "fimserv":
+            self._mode_fimserv.reset()
         elif mode == "lisflood":
             self._reset_workflow("lisflood", self._lfp_tabs, self._lfp_steps)
         elif mode == "triton":
@@ -410,6 +422,7 @@ class MainWindow(QMainWindow):
             "lulc_manning": self._mode_lulc,
             "flowline":     self._mode_flowline,
             "streamflow":   self._mode_streamflow,
+            "fimserv":      self._mode_fimserv,
         }.get(mode)
 
     @staticmethod
@@ -480,7 +493,7 @@ class MainWindow(QMainWindow):
         on_selector = (self._stack.currentIndex() == _PAGE_SELECTOR)
         is_tab_mode = self._active_model in ("lisflood", "triton") and tabs is not None
         is_standalone = self._active_model in (
-            "dem", "lulc_manning", "flowline", "streamflow"
+            "dem", "lulc_manning", "flowline", "streamflow", "fimserv"
         )
         show_nav = not on_selector
         self._prev_btn.setVisible(show_nav and (is_tab_mode or is_standalone))
@@ -593,7 +606,8 @@ class MainWindow(QMainWindow):
         for w in (self._triton_steps or []):
             yield w
         for w in (self._mode_dem, self._mode_lulc,
-                  self._mode_flowline, self._mode_streamflow):
+                  self._mode_flowline, self._mode_streamflow,
+                  self._mode_fimserv):
             if w is not None:
                 yield w
 

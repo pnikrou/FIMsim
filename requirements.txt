@@ -35,5 +35,8 @@ numcodecs
 h5py           # Read/write HEC-RAS HDF5 geometry and results files
 gmsh           # Triangular mesh generation for HEC-RAS 2D (Tab 7: Build Mesh)
 
+# ── OWP HAND FIM generation (FIM as a Service) ─────────────────────────────────
+fimserve ==0.1.99     # AOI -> HUC8 -> NWM discharge -> OWP HAND flood inundation map
+
 # ── Build tool (only needed to create standalone executables, not to run) ──────
 # pyinstaller  # Uncomment and install separately when building an installer
