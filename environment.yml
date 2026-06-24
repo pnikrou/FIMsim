@@ -36,7 +36,7 @@ dependencies:
   - branca
   - pip
   - pip:
-      - pyqt6
+      - pyqt6==6.7.1
       - gmsh
       - h5py
       - hydrosignatures
