@@ -1,5 +1,13 @@
 """Entry point for the Flood Model Preprocessing Tool (5-mode)."""
 import sys
+import os
+
+# On Windows, add conda env's Library\bin to the DLL search path so that
+# GDAL, PROJ, and other native libraries are found before any system copies.
+if sys.platform == "win32":
+    _conda_bin = os.path.join(os.path.dirname(sys.executable), "Library", "bin")
+    if os.path.isdir(_conda_bin):
+        os.add_dll_directory(_conda_bin)
 
 # Configure matplotlib for Qt6 BEFORE any figure is created
 import matplotlib
