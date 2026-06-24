@@ -4,49 +4,47 @@ channels:
   - defaults
 dependencies:
   - python=3.11
+
+  # Geospatial stack via conda-forge — all share the same GDAL, no DLL conflicts
+  - rasterio
+  - pyproj
+  - pyogrio
+  - shapely
+  - fiona
+  - geopandas
+  - rioxarray
+
+  # Scientific / numerical
+  - numpy
+  - scipy
+  - pandas
+  - openpyxl
+  - matplotlib-base   # NOT matplotlib — avoids pulling in Qt/PySide6 from conda
+
+  # NetCDF / HDF / cloud storage (NWM retrospective)
+  - xarray
+  - zarr
+  - s3fs
+  - fsspec
+  - numcodecs
+  - netcdf4
+  - h5netcdf
+  - h5py
+  - aiofiles
+  - aiobotocore
+
+  # Hydrology data download (NHD flowlines, LULC, NWM)
+  - pynhd
+  - pygeoogc
+  - pygeoutils
+  - async-retriever
+
+  # HTTP / networking
+  - requests
+  - certifi
+  - urllib3
+  - aiohttp
+
   - pip
   - pip:
-      # GUI
-      - pyqt6==6.7.1
-
-      # Geospatial stack (pip wheels bundle their own GDAL/PROJ — avoids Windows DLL conflicts)
-      - rasterio
-      - pyproj
-      - pyogrio
-      - shapely
-      - fiona
-      - geopandas
-      - rioxarray
-
-      # Numerical / scientific
-      - numpy
-      - scipy
-      - pandas
-      - openpyxl
-
-      # Plotting
-      - matplotlib
-
-      # NetCDF / HDF / cloud storage (NWM retrospective)
-      - xarray
-      - zarr
-      - s3fs
-      - fsspec
-      - numcodecs
-      - netcdf4
-      - h5netcdf
-      - h5py
-      - aiofiles
-      - aiobotocore
-
-      # Hydrology data download (NHD flowlines, LULC, NWM)
-      - pynhd
-      - pygeoogc
-      - pygeoutils
-      - async-retriever
-
-      # HTTP / networking
-      - requests
-      - certifi
-      - urllib3
-      - aiohttp
+      - pyqt6==6.7.1   # pip-only — conda's Qt6 would conflict with this
