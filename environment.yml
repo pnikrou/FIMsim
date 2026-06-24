@@ -4,39 +4,39 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - geopandas
-  - rasterio
-  - pyproj
-  - pyogrio
-  - shapely
-  - fiona
-  - numpy
-  - scipy
-  - pandas
-  - openpyxl
-  - matplotlib-base
-  - xarray
-  - zarr
-  - s3fs
-  - fsspec
-  - numcodecs
-  - netcdf4
-  - h5netcdf
-  - rioxarray
-  - pynhd
-  - pygeoogc
-  - pyflwdir
-  - requests
-  - certifi
-  - urllib3
-  - aiohttp
-  - aiofiles
-  - aiobotocore
-  - folium
-  - branca
   - pip
   - pip:
       - pyqt6==6.7.1
+      - rasterio
+      - pyproj
+      - pyogrio
+      - shapely
+      - fiona
+      - geopandas
+      - numpy
+      - scipy
+      - pandas
+      - openpyxl
+      - matplotlib
+      - xarray
+      - zarr
+      - s3fs
+      - fsspec
+      - numcodecs
+      - netcdf4
+      - h5netcdf
+      - rioxarray
+      - pynhd
+      - pygeoogc
+      - pyflwdir
+      - requests
+      - certifi
+      - urllib3
+      - aiohttp
+      - aiofiles
+      - aiobotocore
+      - folium
+      - branca
       - gmsh
       - h5py
       - hydrosignatures
