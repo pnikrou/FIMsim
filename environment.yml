@@ -34,8 +34,8 @@ dependencies:
   - aiobotocore
   - folium
   - branca
+  - pyqt6
   - pip:
-      - pyqt6
       - gmsh
       - h5py
       - hydrosignatures
