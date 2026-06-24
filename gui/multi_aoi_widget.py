@@ -117,9 +117,18 @@ class _AOIFileBlock(QFrame):
         try:
             self._features = inspect_features(path, log_fn=self._log)
         except Exception as ex:
-            self._log(f"ERROR loading {path}: {ex}")
+            import traceback
+            detail = traceback.format_exc()
+            self._log(f"ERROR loading {path}: {ex}\n{detail}")
             self._features = []
             self._table.setRowCount(0)
+            from PyQt6.QtWidgets import QMessageBox
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Failed to load AOI file")
+            msg.setIcon(QMessageBox.Icon.Critical)
+            msg.setText(f"Could not read:\n{path}\n\nError: {ex}")
+            msg.setDetailedText(detail)
+            msg.exec()
             return
         self._populate_table()
         self.file_changed.emit()
