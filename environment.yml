@@ -1,0 +1,41 @@
+name: lisflood_workflow
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - geopandas
+  - rasterio
+  - pyproj
+  - pyogrio
+  - shapely
+  - fiona
+  - numpy
+  - scipy
+  - pandas
+  - openpyxl
+  - matplotlib
+  - xarray
+  - zarr
+  - s3fs
+  - fsspec
+  - numcodecs
+  - netcdf4
+  - h5netcdf
+  - rioxarray
+  - pynhd
+  - pygeoogc
+  - pyflwdir
+  - requests
+  - certifi
+  - urllib3
+  - aiohttp
+  - aiofiles
+  - aiobotocore
+  - folium
+  - branca
+  - pip:
+      - pyqt6
+      - gmsh
+      - h5py
+      - hydrosignatures
