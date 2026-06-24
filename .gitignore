@@ -33,3 +33,7 @@ cache/
 # Logs
 *.log
 lisflood-manual-v5.9.6.pdf
+
+# Large sample input data (too big for GitHub)
+ARC-Curve2Flood_input_formats/DEM_projected/DEM.tif
+ARC-Curve2Flood_input_formats/DEM_projected/DEM.tif.aux.xml
