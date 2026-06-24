@@ -14,7 +14,7 @@ dependencies:
   - scipy
   - pandas
   - openpyxl
-  - matplotlib
+  - matplotlib-base
   - xarray
   - zarr
   - s3fs
@@ -34,8 +34,9 @@ dependencies:
   - aiobotocore
   - folium
   - branca
-  - pyqt6
+  - pip
   - pip:
+      - pyqt6
       - gmsh
       - h5py
       - hydrosignatures
