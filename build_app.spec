@@ -52,11 +52,14 @@ for pkg in [
     binaries += b
     hidden   += h
 
-# ── App data files (bundled GeoJSON) ──────────────────────────────────────────
+# ── App data files ────────────────────────────────────────────────────────────
 datas += [
+    # GeoJSON boundary files
     (str(ROOT / "data" / "us_states.geojson"), "data"),
     (str(ROOT / "data" / "us_huc6.geojson"),   "data"),
     (str(ROOT / "data" / "us_huc8.geojson"),   "data"),
+    # App assets (logo, workflow diagram)
+    (str(ROOT / "assets"),                     "assets"),
 ]
 
 # ── Hidden imports that collect_all misses ────────────────────────────────────
@@ -86,6 +89,18 @@ hidden += [
     # pynhd / pygeoogc
     "pynhd.core", "pynhd.nhdplus_derived", "pynhd.waterdata",
     "pygeoogc.core",
+    # netCDF4 / h5netcdf (NWM retrospective downloads)
+    "netCDF4", "h5netcdf", "h5netcdf.legacyapi",
+    # aiofiles (async file I/O used by pynhd / pygeoogc)
+    "aiofiles",
+    # App modules — guarantee all core + gui submodules are included
+    "core.arc_manning", "core.arc_orchestrate",
+    "core.triton_manning", "core.triton_bc", "core.triton_hydro",
+    "core.triton_cfg", "core.triton_orchestrate",
+    "core.orchestrate", "core.bci", "core.bdy", "core.par",
+    "core.dem", "core.manning", "core.nlcd", "core.nwm_discharge",
+    "core.flowline_mode", "core.multi_aoi", "core.aoi", "core.context",
+    "core.export", "core.hand", "core.crs_utils",
 ]
 
 # ── PyInstaller Analysis ──────────────────────────────────────────────────────

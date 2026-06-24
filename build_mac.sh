@@ -1,61 +1,95 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────────────────────────
-# build_mac.sh  —  Build FIMsim.app and package it as FIMsim-mac.dmg
+# =============================================================================
+# build_mac.sh  —  Build FIMsim.app for macOS and package as a .zip
 #
-# Usage (from lisflood_prep_app/ directory):
+# Usage (from the lisflood_prep_app/ directory):
 #   chmod +x build_mac.sh
 #   ./build_mac.sh
 #
 # Requirements:
-#   - conda env "lisflood_workflow" with all packages installed
-#   - pip install pyinstaller  (inside that env)
-#   - Optional: brew install create-dmg   (for the nice .dmg step)
-# ─────────────────────────────────────────────────────────────────────────────
-set -e
+#   - conda environment "lisflood_workflow" with all packages installed
+#   - PyInstaller is installed automatically by this script
+#
+# Output:
+#   dist/FIMsim.app       ← the macOS app bundle
+#   dist/FIMsim-mac.zip   ← zip this and share it
+# =============================================================================
+set -euo pipefail
 
 CONDA_ENV="lisflood_workflow"
 APP_NAME="FIMsim"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "==> Activating conda env: $CONDA_ENV"
+echo ""
+echo "============================================================"
+echo "  FIMsim — macOS Build"
+echo "============================================================"
+echo ""
+
+# ── Activate conda env ────────────────────────────────────────────────────────
+echo "► Activating conda env: $CONDA_ENV"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV"
 
-echo "==> Installing / upgrading PyInstaller"
-pip install --quiet --upgrade pyinstaller
+PYTHON="$(which python)"
+PIP="$(which pip)"
+PYINSTALLER="$(which pyinstaller)"
 
-echo "==> Cleaning previous build artifacts"
+echo "  Python    : $PYTHON"
+echo "  PyInstaller: $PYINSTALLER"
+echo ""
+
+# ── Install / upgrade PyInstaller ─────────────────────────────────────────────
+echo "► Installing/upgrading PyInstaller..."
+"$PIP" install --quiet --upgrade pyinstaller
+echo "  PyInstaller $(pyinstaller --version) ready"
+echo ""
+
+# ── Clean previous build ──────────────────────────────────────────────────────
+echo "► Cleaning previous build artifacts..."
 rm -rf "$SCRIPT_DIR/build" "$SCRIPT_DIR/dist"
+echo "  Cleaned."
+echo ""
 
-echo "==> Running PyInstaller..."
+# ── Run PyInstaller ───────────────────────────────────────────────────────────
+echo "► Running PyInstaller (this takes 3–8 minutes)..."
 cd "$SCRIPT_DIR"
-pyinstaller build_app.spec --noconfirm
-
+"$PYINSTALLER" build_mac.spec --noconfirm
 echo ""
-echo "✓ App bundle created: dist/FIMsim.app"
 
-# ── Package as .dmg ───────────────────────────────────────────────────────────
-if command -v create-dmg &>/dev/null; then
-    echo "==> Packaging as .dmg with create-dmg..."
-    create-dmg \
-        --volname "$APP_NAME" \
-        --window-size 600 400 \
-        --icon-size 128 \
-        --icon "${APP_NAME}.app" 150 185 \
-        --app-drop-link 450 185 \
-        --no-internet-enable \
-        "dist/${APP_NAME}-mac.dmg" \
-        "dist/${APP_NAME}.app"
-    echo "✓ Installer ready: dist/${APP_NAME}-mac.dmg"
-else
-    echo ""
-    echo "  (create-dmg not found — skipping .dmg step)"
-    echo "  To install: brew install create-dmg"
-    echo "  Or just zip the .app: cd dist && zip -r FIMsim-mac.zip FIMsim.app"
-    cd dist && zip -r "${APP_NAME}-mac.zip" "${APP_NAME}.app"
-    echo "✓ Created dist/${APP_NAME}-mac.zip instead"
+# ── Verify output ─────────────────────────────────────────────────────────────
+if [ ! -d "$SCRIPT_DIR/dist/${APP_NAME}.app" ]; then
+    echo "ERROR: dist/${APP_NAME}.app was not created. Check the output above."
+    exit 1
 fi
-
+echo "✓ App bundle created: dist/${APP_NAME}.app"
 echo ""
-echo "Done! Distribute dist/${APP_NAME}-mac.dmg (or .zip) to Mac users."
-echo "They just double-click — no Python, no terminal, no setup required."
+
+# ── Remove quarantine flag so macOS does not block the app ────────────────────
+echo "► Removing quarantine flags (prevents 'damaged app' warnings)..."
+xattr -cr "$SCRIPT_DIR/dist/${APP_NAME}.app" 2>/dev/null || true
+echo "  Done."
+echo ""
+
+# ── Package as zip ────────────────────────────────────────────────────────────
+echo "► Creating zip archive for distribution..."
+(cd "$SCRIPT_DIR/dist" && zip -r --symlinks "${APP_NAME}-mac.zip" "${APP_NAME}.app")
+ZIP_SIZE=$(du -sh "$SCRIPT_DIR/dist/${APP_NAME}-mac.zip" | cut -f1)
+echo ""
+echo "============================================================"
+echo "  BUILD COMPLETE"
+echo "============================================================"
+echo ""
+echo "  File to share:  dist/${APP_NAME}-mac.zip  (${ZIP_SIZE})"
+echo ""
+echo "  HOW TO DISTRIBUTE:"
+echo "  1. Upload dist/${APP_NAME}-mac.zip to Google Drive, Dropbox,"
+echo "     Dropbox, or WeTransfer."
+echo "  2. Share the download link."
+echo ""
+echo "  HOW THE RECIPIENT OPENS IT:"
+echo "  1. Download and unzip — FIMsim.app appears."
+echo "  2. Right-click FIMsim.app → Open  (first time only, to bypass"
+echo "     Gatekeeper on unsigned apps)."
+echo "  3. After the first launch, double-click works normally."
+echo ""
