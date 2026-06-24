@@ -6,18 +6,28 @@ dependencies:
   - python=3.11
   - pip
   - pip:
+      # GUI
       - pyqt6==6.7.1
+
+      # Geospatial stack (pip wheels bundle their own GDAL/PROJ — avoids Windows DLL conflicts)
       - rasterio
       - pyproj
       - pyogrio
       - shapely
       - fiona
       - geopandas
+      - rioxarray
+
+      # Numerical / scientific
       - numpy
       - scipy
       - pandas
       - openpyxl
+
+      # Plotting
       - matplotlib
+
+      # NetCDF / HDF / cloud storage (NWM retrospective)
       - xarray
       - zarr
       - s3fs
@@ -25,18 +35,18 @@ dependencies:
       - numcodecs
       - netcdf4
       - h5netcdf
-      - rioxarray
+      - h5py
+      - aiofiles
+      - aiobotocore
+
+      # Hydrology data download (NHD flowlines, LULC, NWM)
       - pynhd
       - pygeoogc
-      - pyflwdir
+      - pygeoutils
+      - async-retriever
+
+      # HTTP / networking
       - requests
       - certifi
       - urllib3
       - aiohttp
-      - aiofiles
-      - aiobotocore
-      - folium
-      - branca
-      - gmsh
-      - h5py
-      - hydrosignatures
