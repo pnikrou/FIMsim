@@ -88,7 +88,21 @@ def inspect_features(aoi_path, selected_indices=None, log_fn=print) -> List[AOIF
     list of AOIFeatureInfo
     """
     aoi_path = Path(aoi_path)
-    gdf = gpd.read_file(aoi_path)
+    log_fn(f"Reading AOI file: {aoi_path}")
+    try:
+        gdf = gpd.read_file(aoi_path, engine="pyogrio")
+        log_fn(f"  pyogrio: read {len(gdf)} feature(s)")
+    except Exception as e1:
+        log_fn(f"  pyogrio failed ({e1}), trying fiona...")
+        try:
+            gdf = gpd.read_file(aoi_path, engine="fiona")
+            log_fn(f"  fiona: read {len(gdf)} feature(s)")
+        except Exception as e2:
+            raise RuntimeError(
+                f"Could not read shapefile with pyogrio or fiona.\n"
+                f"pyogrio error: {e1}\n"
+                f"fiona error:   {e2}"
+            ) from e2
 
     if selected_indices is None:
         selected_indices = list(range(len(gdf)))
