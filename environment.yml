@@ -1,4 +1,4 @@
-name: lisflood_workflow
+name: FIMsim
 channels:
   - conda-forge
   - defaults
