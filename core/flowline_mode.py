@@ -292,7 +292,10 @@ def _download_usgs_discharge(
 
             # Always overwrite — use fixed name so re-runs stay consistent
             out_csv = out_folder / f"usgs_discharge_{site}.csv"
-            df.to_csv(out_csv, index_label="datetime")
+            df_out = df.reset_index()
+            df_out["time_hours"] = (df_out["datetime"] - df_out["datetime"].iloc[0]).dt.total_seconds() / 3600.0
+            df_out = df_out.rename(columns={"streamflow_m3s": "discharge_cms"})
+            df_out[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
             log_fn(f"  ✓ Saved {out_csv.name} ({len(df)} rows @ {resample_rule})")
             saved.append(str(out_csv))
 
@@ -512,9 +515,11 @@ def run_flowdata_mode(
                         out_csv = next_free_path(
                             out_folder, f"nwm_{tag}_{col}", "csv"
                         )
-                        (df_all[[col]]
-                         .rename(columns={col: "streamflow_m3s"})
-                         .to_csv(out_csv, index_label="datetime"))
+                        df_nwm = df_all[[col]].reset_index()
+                        df_nwm.columns = ["datetime", "discharge_cms"]
+                        dt = pd.to_datetime(df_nwm["datetime"], utc=True, errors="coerce")
+                        df_nwm["time_hours"] = (dt - dt.iloc[0]).dt.total_seconds() / 3600.0
+                        df_nwm[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
                         log_fn(f"  ✓ Saved {out_csv.name}")
                         feat_out["files"][f"nwm_{col}"] = str(out_csv)
                     tmp_csv.unlink(missing_ok=True)

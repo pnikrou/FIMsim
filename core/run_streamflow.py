@@ -19,6 +19,17 @@ from core.nwm_discharge import (
 from core.flowline_mode import _download_usgs_discharge, _coerce_gage_ids
 
 
+def _to_time_hours_csv(df: pd.DataFrame, datetime_col: str, flow_col: str, out_path) -> pd.DataFrame:
+    """Convert a datetime+flow DataFrame to time_hours/discharge_cms and save as CSV."""
+    out = df[[datetime_col, flow_col]].copy()
+    dt = pd.to_datetime(out[datetime_col], utc=True, errors="coerce")
+    out["time_hours"] = (dt - dt.iloc[0]).dt.total_seconds() / 3600.0
+    out["discharge_cms"] = out[flow_col].astype(float)
+    out = out[["time_hours", "discharge_cms"]]
+    out.to_csv(out_path, index=False)
+    return out
+
+
 def _check_coverage(df, dt_col, req_start, req_end, interval_hours, label, log_fn):
     """Warn if the downloaded data doesn't cover the full requested date range.
 
@@ -133,12 +144,10 @@ def run_streamflow_mode(
                             continue
                         csv_path = out_dir / f"nwm_retro_{fid}.csv"
                         try:
-                            df_single = df_wide[["datetime", col]].copy()
-                            df_single.columns = ["datetime", "streamflow_m3s"]
-                            df_single.to_csv(csv_path, index=False)
-                            n_ts = len(df_single.dropna(subset=["streamflow_m3s"]))
+                            df_single = _to_time_hours_csv(df_wide, "datetime", col, csv_path)
+                            n_ts = len(df_single.dropna(subset=["discharge_cms"]))
                             try:
-                                peak = float(df_single["streamflow_m3s"].max())
+                                peak = float(df_single["discharge_cms"].max())
                             except Exception:
                                 peak = None
                             # Coverage check
@@ -161,7 +170,7 @@ def run_streamflow_mode(
                             if csv_path.exists():
                                 try:
                                     df_rec = pd.read_csv(csv_path)
-                                    q_col = next((c for c in ("streamflow_m3s", "discharge_cms")
+                                    q_col = next((c for c in ("discharge_cms", "streamflow_m3s")
                                                   if c in df_rec.columns), None)
                                     n_ts = len(df_rec.dropna(subset=[q_col])) if q_col else 0
                                     peak = float(df_rec[q_col].max()) if q_col else None
@@ -212,12 +221,10 @@ def run_streamflow_mode(
                             continue
                         csv_path = out_dir / f"nwm_forecast_{fid}.csv"
                         try:
-                            df_single = df_wide[["datetime", col]].copy()
-                            df_single.columns = ["datetime", "streamflow_m3s"]
-                            df_single.to_csv(csv_path, index=False)
-                            n_ts = len(df_single.dropna(subset=["streamflow_m3s"]))
+                            df_single = _to_time_hours_csv(df_wide, "datetime", col, csv_path)
+                            n_ts = len(df_single.dropna(subset=["discharge_cms"]))
                             try:
-                                peak = float(df_single["streamflow_m3s"].max())
+                                peak = float(df_single["discharge_cms"].max())
                             except Exception:
                                 peak = None
                             # Coverage check
@@ -239,7 +246,7 @@ def run_streamflow_mode(
                             if csv_path.exists():
                                 try:
                                     df_rec = pd.read_csv(csv_path)
-                                    q_col = next((c for c in ("streamflow_m3s", "discharge_cms")
+                                    q_col = next((c for c in ("discharge_cms", "streamflow_m3s")
                                                   if c in df_rec.columns), None)
                                     n_ts = len(df_rec.dropna(subset=[q_col])) if q_col else 0
                                     peak = float(df_rec[q_col].max()) if q_col else None
@@ -317,7 +324,7 @@ def run_streamflow_mode(
                 try:
                     df = pd.read_csv(csv_path)
                     q_col = next(
-                        (c for c in ("streamflow_m3s", "discharge_cms")
+                        (c for c in ("discharge_cms", "streamflow_m3s")
                          if c in df.columns), None
                     )
                     if q_col:
