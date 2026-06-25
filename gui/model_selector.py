@@ -261,13 +261,12 @@ class ModelSelectorWidget(QWidget):
         lbl_title.setStyleSheet(f"color:{accent}; border:none;")
         layout.addWidget(lbl_title)
 
-        if mode_data.get("subtitle"):
-            lbl_sub = QLabel(mode_data["subtitle"])
-            lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl_sub.setStyleSheet(
-                f"color:{accent}; font-size:11px; font-style:italic; border:none;"
-            )
-            layout.addWidget(lbl_sub)
+        lbl_sub = QLabel(mode_data.get("subtitle", ""))
+        lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_sub.setStyleSheet(
+            f"color:{accent}; font-size:11px; font-style:italic; border:none;"
+        )
+        layout.addWidget(lbl_sub)
 
         lbl_desc = QLabel(mode_data.get("desc", ""))
         lbl_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
