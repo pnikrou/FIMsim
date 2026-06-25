@@ -443,6 +443,7 @@ def create_bdy(ctx_path, ctx: dict,
                user_csv_path: str = None,
                gap_handling: str = "interpolate",  # "interpolate" | "as_is"
                gage_id: str = None,                # USGS source only
+               manual_feature_id: str = None,      # NWM: override auto-detected reach ID
                log_fn=print):
     """Create the <AOI>.bdy file.  Returns updated ctx."""
 
@@ -456,7 +457,12 @@ def create_bdy(ctx_path, ctx: dict,
     from core.export import next_free_path
     bdy_path = next_free_path(lisflood_dir, aoi_name, "bdy")
     upstream_mode = ctx.get("upstream_mode")
-    upstream_reach_id = ctx.get("upstream_reach_id")
+    # Manual feature ID overrides the auto-detected one from the BCI step
+    if manual_feature_id and str(manual_feature_id).strip():
+        upstream_reach_id = str(manual_feature_id).strip()
+        log_fn(f"Using manually entered NWM feature ID: {upstream_reach_id}")
+    else:
+        upstream_reach_id = ctx.get("upstream_reach_id")
 
     if upstream_mode == "fixed_discharge":
         log_fn("Upstream boundary is FIXED DISCHARGE — no BDY file needed.")

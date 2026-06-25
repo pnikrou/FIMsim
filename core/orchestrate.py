@@ -271,6 +271,7 @@ def run_lisflood_bdy_for_all_aois(
                                if cfg["bdy_source"] == "csv" else None),
                 gap_handling=cfg.get("gap_handling", "interpolate"),
                 gage_id=cfg.get("gage_id"),
+                manual_feature_id=cfg.get("manual_feature_id"),
             )
 
             feat_ctx = create_bdy(

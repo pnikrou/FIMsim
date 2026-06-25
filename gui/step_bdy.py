@@ -477,6 +477,7 @@ class StepBDYWidget(QWidget):
             user_csv_path=file_path if bdy_source == "csv" else None,
             gap_handling=gap_handling,
             gage_id=cfg.get("gage_id"),
+            manual_feature_id=cfg.get("manual_feature_id"),
         )
         self._worker = Worker(create_bdy, **kw)
         self._worker.message.connect(self._on_message)

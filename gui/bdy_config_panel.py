@@ -11,6 +11,7 @@ Used in step_bdy directly (single AOI) and inside AOIBDYCard (multi-AOI).
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QComboBox, QDateTimeEdit, QDoubleSpinBox,
+    QRadioButton, QButtonGroup,
 )
 from PyQt6.QtCore import pyqtSignal, QDateTime, QDate, QTime
 
@@ -62,6 +63,36 @@ class BDYConfigPanel(QWidget):
         usgs_avail.setStyleSheet("color:#718096; font-size:11px;")
         self._usgs_note = usgs_avail
         form.addRow(self._usgs_note)
+
+        # ── NWM feature ID (auto-detect vs manual) ───────────────────────
+        self._fid_lbl = QLabel("Feature ID:")
+        fid_row = QHBoxLayout()
+        fid_row.setSpacing(10)
+        self._fid_auto_rb  = QRadioButton("Auto-detect")
+        self._fid_manual_rb = QRadioButton("Enter manually:")
+        self._fid_auto_rb.setChecked(True)
+        self._fid_group = QButtonGroup(self)
+        self._fid_group.addButton(self._fid_auto_rb,  0)
+        self._fid_group.addButton(self._fid_manual_rb, 1)
+        self._fid_edit = QLineEdit()
+        self._fid_edit.setPlaceholderText("e.g.  23212900")
+        self._fid_edit.setFixedWidth(130)
+        self._fid_edit.setEnabled(False)
+        fid_row.addWidget(self._fid_auto_rb)
+        fid_row.addWidget(self._fid_manual_rb)
+        fid_row.addWidget(self._fid_edit)
+        fid_row.addStretch()
+        self._fid_manual_rb.toggled.connect(
+            lambda checked: self._fid_edit.setEnabled(checked)
+        )
+        self._fid_manual_rb.toggled.connect(self._emit_changed)
+        self._fid_edit.textChanged.connect(self._emit_changed)
+
+        fid_widget = QWidget()
+        fid_widget.setLayout(fid_row)
+        self._fid_lbl_widget = self._fid_lbl
+        form.addRow(self._fid_lbl_widget, fid_widget)
+        self._fid_row_widget = fid_widget
 
         # ── File picker (CSV / existing BDY) ─────────────────────────────
         self._file_edit = QLineEdit()
@@ -153,10 +184,16 @@ class BDYConfigPanel(QWidget):
         need_dates = any_picked and not is_csv
         need_file  = is_csv
         need_gage  = is_usgs
+        need_fid   = is_retro or is_fore
 
         self._gage_lbl.setVisible(need_gage)
         self._gage_edit.setVisible(need_gage)
         self._usgs_note.setVisible(need_gage)
+
+        self._fid_lbl_widget.setVisible(need_fid)
+        self._fid_row_widget.setVisible(need_fid)
+        if not need_fid:
+            self._fid_auto_rb.setChecked(True)
 
         self._file_lbl.setVisible(need_file)
         self._file_edit.setVisible(need_file)
@@ -210,7 +247,10 @@ class BDYConfigPanel(QWidget):
         idx = self._src_combo.currentIndex()
         if idx == 0:
             return False
-        if idx in (1, 2):       # NWM retro / forecast — dates always set
+        if idx in (1, 2):       # NWM retro / forecast
+            # If manual entry chosen, a feature ID must be filled in
+            if self._fid_manual_rb.isChecked():
+                return bool(self._fid_edit.text().strip())
             return True
         if idx == 3:            # USGS — needs gage number
             return bool(self._gage_edit.text().strip())
@@ -226,13 +266,19 @@ class BDYConfigPanel(QWidget):
     def get_config(self) -> dict:
         idx        = self._src_combo.currentIndex()
         bdy_source = self._SRC_KEYS[idx] if idx < len(self._SRC_KEYS) else ""
+        manual_fid = (
+            self._fid_edit.text().strip()
+            if self._fid_manual_rb.isChecked()
+            else ""
+        )
         return {
-            "bdy_source":     bdy_source,
-            "gage_id":        self._gage_edit.text().strip(),
-            "file_path":      self._file_edit.text().strip(),
-            "start_dt":       self._start_date.dateTime().toPyDateTime(),
-            "end_dt":         self._end_date.dateTime().toPyDateTime(),
-            "interval_hours": float(self._interval_spin.value()),
+            "bdy_source":        bdy_source,
+            "gage_id":           self._gage_edit.text().strip(),
+            "file_path":         self._file_edit.text().strip(),
+            "start_dt":          self._start_date.dateTime().toPyDateTime(),
+            "end_dt":            self._end_date.dateTime().toPyDateTime(),
+            "interval_hours":    float(self._interval_spin.value()),
+            "manual_feature_id": manual_fid,
         }
 
     def set_config(self, cfg: dict):
@@ -247,6 +293,13 @@ class BDYConfigPanel(QWidget):
         self._src_combo.setCurrentIndex(src_idx)
         self._gage_edit.setText(cfg.get("gage_id", ""))
         self._file_edit.setText(cfg.get("file_path", ""))
+        manual_fid = cfg.get("manual_feature_id", "")
+        if manual_fid:
+            self._fid_manual_rb.setChecked(True)
+            self._fid_edit.setText(manual_fid)
+        else:
+            self._fid_auto_rb.setChecked(True)
+            self._fid_edit.clear()
         try:
             from datetime import datetime as dt
             sd = cfg.get("start_dt")
