@@ -112,6 +112,48 @@ def _mean_end_elevation(line, dem_path, cell_size):
     return float(np.mean(start_vals)), float(np.mean(end_vals))
 
 
+def _edge_boundary_line(dem_path, outlet_pt, downstream_type, value,
+                        half_span=1000.0, log_fn=print):
+    """Return the downstream BCI line as an edge boundary segment.
+
+    Detects which side of the DEM the outlet is closest to (E/W/N/S),
+    then writes a segment that brackets the outlet coordinate by ±half_span
+    (clamped to the DEM extent).
+
+    East/West edges use Y coordinates; North/South edges use X coordinates.
+    """
+    with rasterio.open(dem_path) as src:
+        b = src.bounds
+
+    xmin, ymin, xmax, ymax = b.left, b.bottom, b.right, b.top
+    ox, oy = outlet_pt.x, outlet_pt.y
+
+    d_east  = abs(ox - xmax)
+    d_west  = abs(ox - xmin)
+    d_north = abs(oy - ymax)
+    d_south = abs(oy - ymin)
+    min_d   = min(d_east, d_west, d_north, d_south)
+
+    if min_d == d_east:
+        edge, center, lo, hi = "E", oy, ymin, ymax
+    elif min_d == d_west:
+        edge, center, lo, hi = "W", oy, ymin, ymax
+    elif min_d == d_north:
+        edge, center, lo, hi = "N", ox, xmin, xmax
+    else:
+        edge, center, lo, hi = "S", ox, xmin, xmax
+
+    c1 = max(lo, center - half_span)
+    c2 = min(hi, center + half_span)
+
+    log_fn(
+        f"  Downstream boundary: {edge} edge  "
+        f"(distance to edge: {min_d:.1f} m)  "
+        f"coord range [{c1:.3f}, {c2:.3f}]"
+    )
+    return f"{edge}\t{c1:.3f}\t{c2:.3f}\t{downstream_type}\t{value}"
+
+
 def _shift_toward(pt, target, distance=100.0):
     dx, dy = target.x - pt.x, target.y - pt.y
     L = math.hypot(dx, dy)
@@ -361,13 +403,18 @@ def create_bci(
             f"P\t{bci_up_pt.x:.3f}\t{bci_up_pt.y:.3f}\tQVAR\tupstream1"
         )
 
+    # Use the raw downstream point (before the 100 m inward shift) for edge
+    # detection so we know which DEM boundary it truly sits on.  In manual
+    # mode there is no shift, so bci_dn_pt already equals the outlet.
+    _edge_pt = downstream_pt if downstream_pt is not None else bci_dn_pt
+
     if downstream_type == "FREE":
-        dn_line = (
-            f"E\t{bci_dn_pt.x:.3f}\t{bci_dn_pt.y:.3f}\tFREE\t{downstream_slope}"
+        dn_line = _edge_boundary_line(
+            dem_tif_path, _edge_pt, "FREE", downstream_slope, log_fn=log_fn
         )
     else:
-        dn_line = (
-            f"E\t{bci_dn_pt.x:.3f}\t{bci_dn_pt.y:.3f}\tHFIX\t{downstream_hfix}"
+        dn_line = _edge_boundary_line(
+            dem_tif_path, _edge_pt, "HFIX", downstream_hfix, log_fn=log_fn
         )
 
     bci_path.write_text(up_line + "\n" + dn_line + "\n", encoding="utf-8")
