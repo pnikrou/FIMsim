@@ -2,9 +2,8 @@
 
 Sources:
   1. NWM Retrospective  — 1979-02-01 → 2020-12-31 (NOAA v2.1)
-  2. NWM Forecast       — rolling ~10-day window from today
-  3. USGS Stream Gage   — any gage with instantaneous (15-min) data
-  4. CSV / XLSX file    — user-supplied discharge table
+  2. USGS Stream Gage   — any gage with instantaneous (15-min) data
+  3. CSV / XLSX file    — user-supplied discharge table
 
 Used in step_bdy directly (single AOI) and inside AOIBDYCard (multi-AOI).
 """
@@ -19,7 +18,7 @@ class BDYConfigPanel(QWidget):
     config_changed = pyqtSignal()
 
     # Combo index → internal key
-    _SRC_KEYS = ["", "nwm_retro", "nwm_forecast", "usgs", "csv"]
+    _SRC_KEYS = ["", "nwm_retro", "usgs", "csv"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,7 +40,6 @@ class BDYConfigPanel(QWidget):
         self._src_combo.addItems([
             "— pick a data source —",
             "NWM Retrospective  (NOAA — USA only)",
-            "NWM Forecast  (NOAA — USA only)",
             "USGS Stream Gage",
             "I have a discharge CSV / XLSX file",
         ])
@@ -113,15 +111,6 @@ class BDYConfigPanel(QWidget):
         self._retro_note.setStyleSheet("color:#718096; font-size:11px;")
         form.addRow(self._retro_note)
 
-        self._forecast_note = QLabel(
-            "★ NWM operational forecast running since 2016  |  "
-            "Rolling ~10-day window from current date  |  "
-            "Updated every 6 hours  |  USA only  |  No historical archive"
-        )
-        self._forecast_note.setWordWrap(True)
-        self._forecast_note.setStyleSheet("color:#718096; font-size:11px;")
-        form.addRow(self._forecast_note)
-
         # ── Interval ──────────────────────────────────────────────────────
         self._interval_spin = QDoubleSpinBox()
         self._interval_spin.setRange(0.05, 168.0)
@@ -146,9 +135,8 @@ class BDYConfigPanel(QWidget):
     def _on_source_changed(self, *_):
         idx        = self._src_combo.currentIndex()
         is_retro   = (idx == 1)
-        is_fore    = (idx == 2)
-        is_usgs    = (idx == 3)
-        is_csv     = (idx == 4)
+        is_usgs    = (idx == 2)
+        is_csv     = (idx == 3)
         any_picked = (idx >= 1)
         need_dates = any_picked and not is_csv
         need_file  = is_csv
@@ -169,20 +157,13 @@ class BDYConfigPanel(QWidget):
         self._end_date.setVisible(need_dates)
 
         self._retro_note.setVisible(is_retro)
-        self._forecast_note.setVisible(is_fore)
 
         self._interval_spin.setVisible(any_picked)
         self._interval_lbl_widget.setVisible(any_picked)
 
-        # Set sensible default date windows when switching source
-        if is_fore:
-            today_qt = QDateTime(QDate.currentDate(), QTime(0, 0))
-            self._start_date.setDateTime(today_qt)
-            self._end_date.setDateTime(today_qt.addDays(7))
-        elif is_retro and self._start_date.dateTime() > QDateTime.fromString(
+        if is_retro and self._start_date.dateTime() > QDateTime.fromString(
             "2020-12-31 23:00", "yyyy-MM-dd HH:mm"
         ):
-            # Snap back into retrospective range if currently beyond it
             self._start_date.setDateTime(
                 QDateTime.fromString("2020-11-01 00:00", "yyyy-MM-dd HH:mm")
             )
@@ -210,16 +191,16 @@ class BDYConfigPanel(QWidget):
         idx = self._src_combo.currentIndex()
         if idx == 0:
             return False
-        if idx in (1, 2):       # NWM retro / forecast — dates always set
+        if idx == 1:            # NWM retro — dates always set
             return True
-        if idx == 3:            # USGS — needs gage number
+        if idx == 2:            # USGS — needs gage number
             return bool(self._gage_edit.text().strip())
-        if idx == 4:            # CSV — needs a file
+        if idx == 3:            # CSV — needs a file
             return bool(self._file_edit.text().strip())
         return False
 
     def source_label(self) -> str:
-        labels = ["—", "NWM Retro", "NWM Forecast", "USGS", "CSV"]
+        labels = ["—", "NWM Retro", "USGS", "CSV"]
         idx = self._src_combo.currentIndex()
         return labels[idx] if idx < len(labels) else "—"
 
@@ -240,9 +221,8 @@ class BDYConfigPanel(QWidget):
             return
         src_idx = {
             "nwm_retro": 1, "nwm": 1,      # legacy "nwm" → retro
-            "nwm_forecast": 2,
-            "usgs": 3,
-            "csv": 4,
+            "usgs": 2,
+            "csv": 3,
         }.get(cfg.get("bdy_source", ""), 0)
         self._src_combo.setCurrentIndex(src_idx)
         self._gage_edit.setText(cfg.get("gage_id", ""))
