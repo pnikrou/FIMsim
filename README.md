@@ -83,10 +83,8 @@ For users who prefer a local installation, standalone installers are available o
 ```bash
 git clone https://github.com/pnikrou/FIMsim.git
 cd FIMsim
-conda create -n fimsim python=3.11 -y
-conda activate fimsim
-conda install -c conda-forge geopandas pyogrio rasterio pyproj shapely scipy numpy pandas openpyxl h5py requests -y
-pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs pynhd pygeoogc gmsh certifi
+conda env create -f environment.yml
+conda activate FIMsim
 python main.py
 ```
 

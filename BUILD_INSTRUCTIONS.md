@@ -32,7 +32,7 @@ No Python, no conda, no terminal required.
 
 ### Step 1 — Install PyInstaller into your conda env
 ```bash
-conda activate lisflood_workflow
+conda activate FIMsim
 pip install pyinstaller
 ```
 
@@ -111,14 +111,9 @@ If you have access to a Windows machine:
 
 ```bat
 :: In Anaconda Prompt on Windows:
-conda create -n lisflood_workflow python=3.11
-conda activate lisflood_workflow
-
-:: Install geospatial packages (GDAL/PROJ binaries)
-conda install -c conda-forge geopandas pyogrio rasterio pyproj shapely scipy numpy pandas openpyxl h5py requests
-
-:: Install remaining packages
-pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs pynhd pygeoogc gmsh certifi pyinstaller
+conda env create -f environment.yml
+conda activate FIMsim
+pip install pyinstaller
 
 :: Build the app
 cd lisflood_prep_app
@@ -147,7 +142,7 @@ This is normal for geospatial desktop apps.
 ## Running the app from source (development)
 
 ```bash
-conda activate lisflood_workflow
+conda activate FIMsim
 cd lisflood_prep_app
 python main.py
 ```
