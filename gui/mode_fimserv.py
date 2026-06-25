@@ -56,6 +56,116 @@ _TAB_DOWNLOAD   = 2
 _TAB_STREAMFLOW = 3
 _TAB_FIM        = 4
 
+_CONUS_ABBRS = {
+    "AL","AR","AZ","CA","CO","CT","DC","DE","FL","GA","IA","ID",
+    "IL","IN","KS","KY","LA","MA","MD","ME","MI","MN","MO","MS",
+    "MT","NC","ND","NE","NH","NJ","NM","NV","NY","OH","OK","OR",
+    "PA","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY",
+}
+
+
+class _HUC8MapCanvas:
+    """Simple CONUS map that highlights entered HUC8 polygons.
+
+    The selected HUC8 (user clicked in the list) is drawn in orange;
+    all others are drawn in light blue.  Created lazily so it shares
+    the matplotlib/Qt lifecycle without circular imports.
+    """
+    def __new__(cls, parent=None, width=10.0, height=4.0):
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+        from matplotlib.figure import Figure
+
+        class _Canvas(FigureCanvasQTAgg):
+            def __init__(self, parent, width, height):
+                self._fig = Figure(figsize=(width, height), tight_layout=True)
+                super().__init__(self._fig)
+                self.setParent(parent)
+                self._states_gdf = None
+                self._placeholder()
+
+            def _placeholder(self):
+                self._fig.clear()
+                ax = self._fig.add_subplot(1, 1, 1)
+                ax.set_xticks([]); ax.set_yticks([])
+                ax.set_title(
+                    "HUC8 Preview — add IDs above and click one to highlight",
+                    fontsize=9, color="#718096",
+                )
+                try:
+                    self.draw_idle()
+                except Exception:
+                    pass
+
+            def show_huc8s(self, gdf, selected_id=None):
+                from core.state_lookup import get_states_gdf
+                if self._states_gdf is None:
+                    try:
+                        st = get_states_gdf()
+                        self._states_gdf = (
+                            st.set_crs(4326, inplace=True)
+                            if st.crs is None else st.to_crs(4326)
+                        )
+                    except Exception:
+                        self._states_gdf = None
+
+                self._fig.clear()
+                ax = self._fig.add_subplot(1, 1, 1)
+                ax.set_xticks([]); ax.set_yticks([])
+
+                if self._states_gdf is not None:
+                    conus = self._states_gdf[
+                        self._states_gdf["state_abbr"].str.upper().isin(_CONUS_ABBRS)
+                    ]
+                    conus.plot(ax=ax, facecolor="#f0f0f0",
+                               edgecolor="#aaa", linewidth=0.4)
+
+                gdf_4326 = gdf.to_crs("EPSG:4326")
+                huc_col = (
+                    "huc8" if "huc8" in gdf_4326.columns
+                    else next(
+                        (c for c in gdf_4326.columns if c.lower() == "huc8"),
+                        gdf_4326.columns[0],
+                    )
+                )
+
+                for _, row in gdf_4326.iterrows():
+                    hid = str(row[huc_col]).zfill(8)
+                    is_sel = (selected_id and hid == str(selected_id).zfill(8))
+                    face = "#f6ad55" if is_sel else "#bee3f8"
+                    edge = "#c05621" if is_sel else "#2b6cb0"
+                    lw   = 2.0 if is_sel else 1.0
+                    import geopandas as _gpd
+                    _gpd.GeoDataFrame([row], crs=gdf_4326.crs).plot(
+                        ax=ax, facecolor=face, edgecolor=edge,
+                        linewidth=lw, alpha=0.85,
+                    )
+                    c = row.geometry.centroid
+                    ax.annotate(
+                        hid, (c.x, c.y),
+                        fontsize=7, ha="center", va="center",
+                        color="#1a365d", weight="bold",
+                        bbox=dict(boxstyle="round,pad=0.1",
+                                  facecolor="white", alpha=0.6, edgecolor="none"),
+                    )
+
+                minx, miny, maxx, maxy = gdf_4326.total_bounds
+                px = max((maxx - minx) * 0.15, 1.5)
+                py = max((maxy - miny) * 0.15, 1.5)
+                ax.set_xlim(max(-126, minx - px), min(-65, maxx + px))
+                ax.set_ylim(max(23, miny - py), min(51, maxy + py))
+                n = len(gdf_4326)
+                ax.set_title(
+                    f"{n} HUC8 region{'s' if n != 1 else ''}"
+                    + (f" — {selected_id} highlighted" if selected_id else ""),
+                    fontsize=10,
+                )
+                try:
+                    self.draw_idle()
+                except Exception:
+                    pass
+
+        return _Canvas(parent, width, height)
+
 
 class ModeFIMservWidget(QWidget):
     mode_finished = pyqtSignal()
@@ -91,13 +201,8 @@ class ModeFIMservWidget(QWidget):
         self._proj_step = StepTritonProjectWidget(self._log, model="generic")
         self._proj_step.step_completed.connect(self._on_project_done)
 
-        # Step 2 — AOI (identical widget to TRITON / LISFLOOD-FP)
-        from gui.step_triton_aoi import StepTritonAOIWidget
-        self._aoi_step = StepTritonAOIWidget(self._log, model="generic")
-        self._aoi_step.step_completed.connect(self._on_aoi_done)
-
-        self._tabs.addTab(self._wrap(self._proj_step),              "1. Project")
-        self._tabs.addTab(self._wrap(self._aoi_step),               "2. AOI")
+        self._tabs.addTab(self._wrap(self._proj_step),               "1. Project")
+        self._tabs.addTab(self._wrap(self._build_aoi_choice_tab()), "2. AOI")
         self._tabs.addTab(self._wrap(self._build_huc8_tab()),       "3. Download HUC8")
         self._tabs.addTab(self._wrap(self._build_streamflow_tab()), "4. Streamflow Data")
         self._tabs.addTab(self._wrap(self._build_fim_tab()),        "5. Generate FIM")
@@ -110,6 +215,227 @@ class ModeFIMservWidget(QWidget):
         sa.setWidgetResizable(True)
         sa.setWidget(w)
         return sa
+
+    # ── Step 2: AOI choice — AOI file OR HUC8 IDs ────────────────────────────
+
+    def _build_aoi_choice_tab(self) -> QWidget:
+        from PyQt6.QtWidgets import QStackedWidget
+        from gui.step_triton_aoi import StepTritonAOIWidget
+
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setSpacing(0)
+        v.setContentsMargins(0, 0, 0, 0)
+
+        # ── Choice bar ────────────────────────────────────────────────────────
+        choice_bar = QWidget()
+        choice_bar.setStyleSheet(
+            "background:#ebf8ff; border-bottom:1px solid #90cdf4;"
+        )
+        bar_row = QHBoxLayout(choice_bar)
+        bar_row.setContentsMargins(16, 10, 16, 10)
+        bar_row.setSpacing(24)
+
+        lbl = QLabel("Select input type:")
+        lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        lbl.setStyleSheet("color:#2b6cb0; border:none;")
+        bar_row.addWidget(lbl)
+
+        self._rb_aoi_mode  = QRadioButton("Area of Interest (AOI file)")
+        self._rb_huc8_mode = QRadioButton("HUC8 IDs directly")
+        self._rb_aoi_mode.setChecked(True)
+        self._rb_aoi_mode.setStyleSheet("font-size:12px; font-weight:bold; border:none;")
+        self._rb_huc8_mode.setStyleSheet("font-size:12px; font-weight:bold; border:none;")
+        _bg = QButtonGroup(self)
+        _bg.addButton(self._rb_aoi_mode,  0)
+        _bg.addButton(self._rb_huc8_mode, 1)
+        self._rb_aoi_mode.toggled.connect(self._on_aoi_choice_changed)
+        bar_row.addWidget(self._rb_aoi_mode)
+        bar_row.addWidget(self._rb_huc8_mode)
+        bar_row.addStretch()
+        v.addWidget(choice_bar)
+
+        # ── Stacked content area ──────────────────────────────────────────────
+        self._aoi_mode_stack = QStackedWidget()
+
+        # Page 0: full multi-AOI widget (same as TRITON / LISFLOOD-FP)
+        self._aoi_step = StepTritonAOIWidget(self._log, model="generic")
+        self._aoi_step.step_completed.connect(self._on_aoi_done)
+        self._aoi_mode_stack.addWidget(self._aoi_step)           # index 0
+
+        # Page 1: simple HUC8 entry panel
+        self._aoi_mode_stack.addWidget(self._build_huc8_step_panel())  # index 1
+
+        v.addWidget(self._aoi_mode_stack, 1)
+        return page
+
+    def _on_aoi_choice_changed(self, aoi_checked: bool):
+        self._aoi_mode_stack.setCurrentIndex(0 if aoi_checked else 1)
+
+    # ── HUC8 entry panel (AOI tab, page 1) ───────────────────────────────────
+
+    def _build_huc8_step_panel(self) -> QWidget:
+        panel = QWidget()
+        v = QVBoxLayout(panel)
+        v.setSpacing(10)
+        v.setContentsMargins(14, 14, 14, 14)
+
+        title = QLabel("Enter HUC8 IDs")
+        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        title.setStyleSheet("color:#2d3748;")
+        v.addWidget(title)
+
+        gb = QGroupBox(); gb.setStyleSheet(_GB_STYLE)
+        gv = QVBoxLayout(gb); gv.setSpacing(6)
+
+        note = QLabel(
+            "Enter one or more 8-digit HUC8 watershed IDs (USA only).  "
+            "Zero-padding is applied automatically."
+        )
+        note.setWordWrap(True); note.setStyleSheet(_NOTE_STYLE)
+        gv.addWidget(note)
+
+        entry_row = QHBoxLayout()
+        self._aoi_huc8_entry = QLineEdit()
+        self._aoi_huc8_entry.setPlaceholderText("e.g. 03020201")
+        self._aoi_huc8_entry.returnPressed.connect(self._add_aoi_huc8)
+        entry_row.addWidget(self._aoi_huc8_entry, 1)
+        add_btn = QPushButton("Add"); add_btn.setFixedWidth(70)
+        add_btn.setStyleSheet(
+            "font-weight:bold; padding:5px 10px; background:#2b6cb0; "
+            "color:white; border-radius:4px; border:none;"
+        )
+        add_btn.clicked.connect(self._add_aoi_huc8)
+        entry_row.addWidget(add_btn)
+        rem_btn = QPushButton("Remove"); rem_btn.setFixedWidth(80)
+        rem_btn.setStyleSheet(
+            "padding:5px 10px; background:#e53e3e; color:white; "
+            "border-radius:4px; border:none; font-weight:bold;"
+        )
+        rem_btn.clicked.connect(self._remove_aoi_huc8)
+        entry_row.addWidget(rem_btn)
+        gv.addLayout(entry_row)
+        v.addWidget(gb)
+
+        # List + map side by side
+        split = QHBoxLayout()
+        split.setSpacing(10)
+
+        # Left: list
+        list_box = QVBoxLayout()
+        list_lbl = QLabel("HUC8 list — click to highlight on map:")
+        list_lbl.setStyleSheet("color:#4a5568; font-size:11px;")
+        list_box.addWidget(list_lbl)
+        self._aoi_huc8_list = QListWidget()
+        self._aoi_huc8_list.setFixedWidth(170)
+        self._aoi_huc8_list.setStyleSheet(
+            "font-family:monospace; font-size:12px; border:1px solid #e2e8f0;"
+        )
+        self._aoi_huc8_list.itemClicked.connect(self._on_aoi_huc8_clicked)
+        list_box.addWidget(self._aoi_huc8_list, 1)
+        split.addLayout(list_box)
+
+        # Right: USA map
+        self._aoi_huc8_map = _HUC8MapCanvas(self, width=9.0, height=4.0)
+        split.addWidget(self._aoi_huc8_map, 1)
+        v.addLayout(split, 1)
+
+        # Confirm button + status
+        confirm_row = QHBoxLayout()
+        confirm_btn = QPushButton("Confirm HUC8 IDs  ▶")
+        confirm_btn.setStyleSheet(_RUN_STYLE)
+        confirm_btn.clicked.connect(self._confirm_aoi_huc8)
+        confirm_row.addWidget(confirm_btn)
+        confirm_row.addStretch()
+        v.addLayout(confirm_row)
+
+        self._aoi_huc8_status = QLabel("")
+        self._aoi_huc8_status.setWordWrap(True)
+        self._aoi_huc8_status.setStyleSheet(
+            "color:#276749; font-size:12px; font-weight:bold;")
+        self._aoi_huc8_status.setVisible(False)
+        v.addWidget(self._aoi_huc8_status)
+
+        # cache for fetched polygons
+        self._aoi_huc8_gdf = None
+
+        return panel
+
+    def _add_aoi_huc8(self):
+        raw = self._aoi_huc8_entry.text().strip()
+        if not raw:
+            return
+        ids = [t.strip().zfill(8) for t in raw.replace(",", " ").split() if t.strip()]
+        existing = [self._aoi_huc8_list.item(i).text()
+                    for i in range(self._aoi_huc8_list.count())]
+        added = 0
+        for hid in ids:
+            if hid not in existing:
+                self._aoi_huc8_list.addItem(hid)
+                existing.append(hid)
+                added += 1
+        self._aoi_huc8_entry.clear()
+        if added:
+            self._refresh_aoi_huc8_map()
+
+    def _remove_aoi_huc8(self):
+        for it in self._aoi_huc8_list.selectedItems():
+            self._aoi_huc8_list.takeItem(self._aoi_huc8_list.row(it))
+        self._aoi_huc8_gdf = None
+        if self._aoi_huc8_list.count() == 0:
+            self._aoi_huc8_map._placeholder()
+        else:
+            self._refresh_aoi_huc8_map()
+
+    def _on_aoi_huc8_clicked(self, item):
+        """Highlight the clicked HUC8 on the map (orange)."""
+        selected_id = item.text()
+        if self._aoi_huc8_gdf is not None:
+            self._aoi_huc8_map.show_huc8s(self._aoi_huc8_gdf, selected_id)
+        else:
+            self._refresh_aoi_huc8_map(selected_id=selected_id)
+
+    def _refresh_aoi_huc8_map(self, selected_id=None):
+        """Fetch polygon GDF for current list contents and redraw map."""
+        ids = [self._aoi_huc8_list.item(i).text()
+               for i in range(self._aoi_huc8_list.count())]
+        if not ids:
+            return
+        try:
+            from core.aoi_info import _load_huc8_boundaries
+            gdf = _load_huc8_boundaries()
+            if gdf is None or gdf.empty:
+                return
+            col = ("huc8" if "huc8" in gdf.columns
+                   else next((c for c in gdf.columns if c.lower() == "huc8"),
+                              gdf.columns[0]))
+            want = {str(x).zfill(8) for x in ids}
+            hits = gdf[gdf[col].astype(str).str.zfill(8).isin(want)]
+            if hits.empty:
+                return
+            self._aoi_huc8_gdf = hits
+            self._aoi_huc8_map.show_huc8s(hits, selected_id)
+        except Exception as ex:
+            self._log(f"HUC8 preview failed: {ex}")
+
+    def _confirm_aoi_huc8(self):
+        ids = [self._aoi_huc8_list.item(i).text()
+               for i in range(self._aoi_huc8_list.count())]
+        if not ids:
+            QMessageBox.warning(self, "No HUC8 IDs", "Add at least one HUC8 ID first.")
+            return
+        self._state["huc8_ids"] = ids
+        # Pre-fill step 3's direct-entry field so the user can see what's set.
+        self._huc8_edit.setText(", ".join(ids))
+        self._aoi_huc8_status.setText(
+            f"Confirmed {len(ids)} HUC8 ID(s): {', '.join(ids)}.  "
+            "Move to step 3 to download the rasters."
+        )
+        self._aoi_huc8_status.setVisible(True)
+        self._log(
+            f"AOI step (HUC8 mode) — confirmed {len(ids)} HUC8(s): "
+            + ", ".join(ids)
+        )
 
     # ── Step 3: Download HUC8 (resolve + map preview + download) ─────────────
 
@@ -1056,6 +1382,14 @@ class ModeFIMservWidget(QWidget):
             self._proj_step.reset()
         if hasattr(self._aoi_step, "reset"):
             self._aoi_step.reset()
+        # Reset AOI choice radio + HUC8 entry panel
+        self._rb_aoi_mode.setChecked(True)
+        self._aoi_mode_stack.setCurrentIndex(0)
+        self._aoi_huc8_entry.clear()
+        self._aoi_huc8_list.clear()
+        self._aoi_huc8_gdf = None
+        self._aoi_huc8_map._placeholder()
+        self._aoi_huc8_status.setVisible(False)
         self._huc8_edit.clear()
         self._huc8_aoi_info.setText(
             "Select an AOI in step 2 first.  HUC8 IDs will be resolved automatically.\n"
