@@ -222,7 +222,7 @@ class PARConfigPanel(QWidget):
         self._chk_mint_hk = QCheckBox(
             "mint_hk   — record max depth/velocity at each massint interval"
         )
-        self._chk_mint_hk.setChecked(True)
+        self._chk_mint_hk.setChecked(False)
         fo.addRow(self._chk_mint_hk)
         self._chk_qoutput = QCheckBox(
             "qoutput   — write boundary-discharge timeseries to file"
@@ -231,7 +231,7 @@ class PARConfigPanel(QWidget):
         self._chk_sgc_enable = QCheckBox(
             "sgc_enable  — activate sub-grid channel scheme (SGC)"
         )
-        self._chk_sgc_enable.setChecked(True)
+        self._chk_sgc_enable.setChecked(False)
         fo.addRow(self._chk_sgc_enable)
 
         op_row = QHBoxLayout()
@@ -472,9 +472,9 @@ class PARConfigPanel(QWidget):
         self._chk_depthoff.setChecked(bool(cfg.get("use_depthoff", False)))
         self._chk_binary.setChecked(bool(cfg.get("use_binary_out", False)))
         self._chk_hazard.setChecked(bool(cfg.get("use_hazard", False)))
-        self._chk_mint_hk.setChecked(bool(cfg.get("use_mint_hk", True)))
+        self._chk_mint_hk.setChecked(bool(cfg.get("use_mint_hk", False)))
         self._chk_qoutput.setChecked(bool(cfg.get("use_qoutput", False)))
-        self._chk_sgc_enable.setChecked(bool(cfg.get("sgc_enable", True)))
+        self._chk_sgc_enable.setChecked(bool(cfg.get("sgc_enable", False)))
 
         extra = cfg.get("extra_lines") or []
         self._extra_edit.setPlainText("\n".join(str(x) for x in extra))
