@@ -16,8 +16,10 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
+    QSplitter, QTextEdit,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QFont
 
 from core.bci import create_bci
 from core.orchestrate import run_lisflood_bci_for_all_aois
@@ -211,22 +213,41 @@ class StepBCIWidget(QWidget):
         self._results_gb.setVisible(False)
         layout.addWidget(self._results_gb)
 
-        self._gb_preview = QGroupBox("BCI map preview")
-        self._gb_preview.setFixedHeight(330)
+        self._gb_preview = QGroupBox("BCI preview")
+        self._gb_preview.setFixedHeight(340)
         pv = QVBoxLayout(self._gb_preview)
+        pv.setContentsMargins(6, 6, 6, 6)
+
         self._preview_placeholder = QLabel(
-            "<i>Click an AOI above to see its AOI polygon, flowline, "
-            "and upstream/downstream points.</i>"
+            "<i>Click an AOI above to see its .bci file and map.</i>"
         )
         self._preview_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_placeholder.setStyleSheet(
             "color:#888; padding:30px; background:#fafafa; "
             "border:1px dashed #cbd5e0; border-radius:4px;"
         )
-        self._bci_preview = BCIPreviewCanvas(self, width=9, height=3.5)
-        self._bci_preview.setVisible(False)
         pv.addWidget(self._preview_placeholder)
-        pv.addWidget(self._bci_preview)
+
+        # ── Split view: .bci text (left) + map (right) ───────────────────
+        self._preview_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        self._bci_text = QTextEdit()
+        self._bci_text.setReadOnly(True)
+        self._bci_text.setFont(QFont("Courier", 11))
+        self._bci_text.setStyleSheet(
+            "background:#f7fafc; border:1px solid #cbd5e0; "
+            "border-radius:3px; padding:4px;"
+        )
+        self._bci_text.setPlaceholderText("No .bci file loaded.")
+        self._preview_splitter.addWidget(self._bci_text)
+
+        self._bci_preview = BCIPreviewCanvas(self, width=6, height=3.2)
+        self._preview_splitter.addWidget(self._bci_preview)
+
+        self._preview_splitter.setSizes([280, 480])
+        self._preview_splitter.setVisible(False)
+        pv.addWidget(self._preview_splitter)
+
         self._gb_preview.setVisible(False)
         layout.addWidget(self._gb_preview)
 
@@ -502,8 +523,9 @@ class StepBCIWidget(QWidget):
             self._results_gb.setVisible(False)
         if hasattr(self, "_gb_preview"):
             self._gb_preview.setVisible(True)
-            self._bci_preview.setVisible(False)
             self._preview_placeholder.setVisible(True)
+            self._preview_splitter.setVisible(False)
+            self._bci_text.clear()
             self._bci_preview.clear()
 
     def _build_results(self, ctx):
@@ -574,9 +596,20 @@ class StepBCIWidget(QWidget):
         self._results_gb.setVisible(True)
         self._gb_preview.setVisible(True)
         self._preview_placeholder.setVisible(True)
-        self._bci_preview.setVisible(False)
+        self._preview_splitter.setVisible(False)
 
     def _show_bci_for_aoi(self, entry: dict):
+        # ── Left panel: .bci file text ────────────────────────────────────
+        bci_path = entry.get("bci_path")
+        if bci_path and Path(bci_path).exists():
+            try:
+                text = Path(bci_path).read_text(encoding="utf-8")
+                self._bci_text.setPlainText(text)
+            except Exception as ex:
+                self._bci_text.setPlainText(f"Could not read {bci_path}:\n{ex}")
+        else:
+            self._bci_text.setPlainText("(No .bci file found)")
+
         src = entry.get("source_file")
         if not src or not Path(src).exists():
             self._preview_placeholder.setText(
@@ -584,7 +617,7 @@ class StepBCIWidget(QWidget):
                 f"{src}</span>"
             )
             self._preview_placeholder.setVisible(True)
-            self._bci_preview.setVisible(False)
+            self._preview_splitter.setVisible(False)
             return
 
         # Resolve flowline path (only if NHD ran for this AOI).  Fall back
@@ -627,7 +660,7 @@ class StepBCIWidget(QWidget):
             points_crs=points_crs,
         )
         self._preview_placeholder.setVisible(False)
-        self._bci_preview.setVisible(True)
+        self._preview_splitter.setVisible(True)
 
     def _on_done(self, ctx):
         self._error_lbl.setVisible(False)
