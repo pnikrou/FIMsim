@@ -10,8 +10,9 @@ import rasterio
 from rasterio.io import MemoryFile
 from rasterio.mask import mask
 from rasterio.merge import merge
-from rasterio.transform import array_bounds
-from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.features import geometry_mask
+from rasterio.transform import array_bounds, from_bounds as transform_from_bounds
+from rasterio.warp import reproject, Resampling
 from shapely.geometry import Polygon
 
 from core.context import save_context
@@ -293,25 +294,23 @@ def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
             "repair/simplify before re-running."
         )
 
-    # The destination CRS is always a metric UTM projection (picked by
-    # crs_utils.pick_working_crs_epsg), so ``dem_res_m`` passes straight
-    # through to ``calculate_default_transform`` as real metres — no
-    # metres→degrees gymnastics needed any more.  This is what makes
-    # "10 m DEM" actually 10 m on the ground regardless of the input
-    # AOI's CRS.
-    res_arg = dem_res_m
-
-    transform, width, height = calculate_default_transform(
-        dem_src_crs, dst_crs, src_w, src_h, *src_bounds, resolution=res_arg
-    )
-    if not (np.isfinite(width) and np.isfinite(height)):
+    # Build the output grid from the exact AOI bounds in the destination CRS.
+    # calculate_default_transform() would derive the extent from the reprojected
+    # source-raster corners (which are snapped to the source pixel grid), so
+    # the output always ends up slightly larger than the AOI.  Using
+    # transform_from_bounds() with the AOI's own bounding box guarantees:
+    #   output raster extent == shapefile bounding box (exactly).
+    aoi_in_dst = aoi_gdf.to_crs(dst_crs)
+    ax1, ay1, ax2, ay2 = aoi_in_dst.total_bounds   # xmin, ymin, xmax, ymax
+    width  = max(1, int(round((ax2 - ax1) / dem_res_m)))
+    height = max(1, int(round((ay2 - ay1) / dem_res_m)))
+    transform = transform_from_bounds(ax1, ay1, ax2, ay2, width, height)
+    if width < 1 or height < 1:
         raise RuntimeError(
             f"Could not compute a valid output grid for the DEM "
             f"(width={width}, height={height}). Check the AOI geometry and "
             f"CRS, and that the DEM resolution ({dem_res_m} m) is reasonable."
         )
-    width  = int(width)
-    height = int(height)
 
     # Build a clean GeoTIFF profile (don't copy tile meta — it may have bad keys)
     out_meta = {
@@ -342,28 +341,22 @@ def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
         dst.write(dest)
 
     # ── Strict polygon mask AFTER reprojection ──────────────────────────────
-    # The initial mask(crop=True) clips the source extent to the AOI bbox,
-    # but bilinear resampling at the polygon edge can leak real values into
-    # cells just outside the polygon.  Re-apply the mask in the destination
-    # CRS so cells outside the polygon are guaranteed to be nodata.
+    # Bilinear resampling at polygon edges can leak real values into cells
+    # just outside the polygon.  Zero out those cells using geometry_mask —
+    # intentionally NOT using mask(crop=True) here, which would re-snap the
+    # extent to the pixel grid and undo the exact AOI-bounds alignment above.
     try:
-        aoi_in_dst = aoi_gdf.to_crs(dst_crs)
-        shapes_dst = [feat["geometry"]
-                      for feat in aoi_in_dst.__geo_interface__["features"]]
+        shapes_dst = [g for g in aoi_in_dst.geometry
+                      if g is not None and not g.is_empty]
         with rasterio.open(dem_path) as src:
-            masked, masked_t = mask(src, shapes=shapes_dst, crop=True,
-                                    nodata=dst_nodata)
-            masked_meta = src.meta.copy()
-        masked_meta.update({
-            "driver":   "GTiff",
-            "height":   int(masked.shape[1]),
-            "width":    int(masked.shape[2]),
-            "transform": masked_t,
-            "compress": "lzw",
-            "nodata":   dst_nodata,
-        })
-        with rasterio.open(dem_path, "w", **masked_meta) as dst:
-            dst.write(masked)
+            dem_arr  = src.read(1)
+            src_meta = src.meta.copy()
+        valid = geometry_mask(shapes_dst, transform=src_meta["transform"],
+                              invert=True, out_shape=(src_meta["height"],
+                                                      src_meta["width"]))
+        dem_arr[~valid] = dst_nodata
+        with rasterio.open(dem_path, "w", **src_meta) as dst:
+            dst.write(dem_arr[np.newaxis, :, :])
     except Exception as ex:
         log_fn(f"  Final polygon mask step skipped ({ex}).")
 
