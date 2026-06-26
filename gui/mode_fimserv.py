@@ -305,8 +305,8 @@ def _setup_aoi_huc8_folders(project_dir: str, aoi_features: list, log_fn=print) 
 # Tab indices
 _TAB_PROJECT    = 0
 _TAB_AOI        = 1
-_TAB_STREAMFLOW = 2
-_TAB_FIM        = 3
+_TAB_STREAMFLOW = 2     # merged "FIM" step (streamflow + FIM generation)
+_TAB_FIM        = 2     # same tab — kept as an alias
 
 _CONUS_ABBRS = {
     "AL","AR","AZ","CA","CO","CT","DC","DE","FL","GA","IA","ID",
@@ -476,8 +476,7 @@ class ModeFIMservWidget(QWidget):
 
         self._tabs.addTab(self._wrap(self._proj_step),               "1. Project")
         self._tabs.addTab(self._wrap(self._build_aoi_choice_tab()), "2. AOI")
-        self._tabs.addTab(self._wrap(self._build_streamflow_tab()), "3. Streamflow Data")
-        self._tabs.addTab(self._wrap(self._build_fim_tab()),        "4. Generate FIM")
+        self._tabs.addTab(self._wrap(self._build_streamflow_tab()), "3. FIM")
 
         self._tabs.setCurrentIndex(0)
         self._update_nav(0)
@@ -1016,14 +1015,14 @@ class ModeFIMservWidget(QWidget):
         )
         self._rebuild_sf_cards()  # ensure Streamflow cards reflect confirmed HUC8s
 
-    # ── Step 3: Streamflow ────────────────────────────────────────────────────
+    # ── Step 3: FIM (streamflow + FIM generation) ──────────────────────────────
 
     def _build_streamflow_tab(self) -> QWidget:
         page = QWidget()
         v = QVBoxLayout(page)
         v.setSpacing(12); v.setContentsMargins(14, 14, 14, 14)
 
-        title = QLabel("NWM streamflow / discharge")
+        title = QLabel("Flood Inundation Map (FIM)")
         title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
         title.setStyleSheet("color:#2d3748;")
         v.addWidget(title)
@@ -1069,16 +1068,24 @@ class ModeFIMservWidget(QWidget):
         cards_scroll.setWidget(self._sf_cards_container)
         v.addWidget(cards_scroll, 1)
 
-        # ── Run button, progress, status, hydro ──────────────────────────────
+        # ── Options + Run + progress + status + result previews ───────────────
+        self._depth_chk = QCheckBox("Also produce a water-depth map  (optional)")
+        self._depth_chk.setChecked(False)
+        v.addWidget(self._depth_chk)
+
         run_row = QHBoxLayout()
-        self._sf_btn = QPushButton("Get streamflow data for all")
+        self._sf_btn = QPushButton("Generate FIM for all")
         self._sf_btn.setStyleSheet(_RUN_STYLE)
-        self._sf_btn.clicked.connect(self._get_streamflow_all)
+        self._sf_btn.clicked.connect(self._run_fim_all)
         run_row.addWidget(self._sf_btn)
         run_row.addStretch()
         v.addLayout(run_row)
 
-        self._sf_progress = QProgressBar(); self._sf_progress.setRange(0, 0)
+        # Determinate progress bar — shows "done / total" cards (like the DEM step).
+        self._sf_progress = QProgressBar()
+        self._sf_progress.setRange(0, 1)
+        self._sf_progress.setValue(0)
+        self._sf_progress.setFormat("%v / %m AOIs")
         self._sf_progress.setVisible(False)
         v.addWidget(self._sf_progress)
 
@@ -1089,15 +1096,28 @@ class ModeFIMservWidget(QWidget):
         self._sf_status.setVisible(False)
         v.addWidget(self._sf_status)
 
-        self._hydro = HydrographPreviewCanvas(self, width=9, height=3.5)
-        self._hydro.setVisible(False)
-        v.addWidget(self._hydro)
+        # FIM result previews (extent + optional depth) for the last AOI run.
+        self._extent_canvas = RasterPreviewCanvas(self, width=9, height=3.8)
+        self._extent_canvas.setVisible(False)
+        v.addWidget(self._extent_canvas)
+        self._depth_canvas = RasterPreviewCanvas(self, width=9, height=3.8)
+        self._depth_canvas.setVisible(False)
+        v.addWidget(self._depth_canvas)
+        self._fim_files = QLabel("")
+        self._fim_files.setWordWrap(True)
+        self._fim_files.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._fim_files.setStyleSheet("color:#4a5568; font-size:11px;")
+        self._fim_files.setVisible(False)
+        v.addWidget(self._fim_files)
 
-        # Internal card state
+        # Internal card / run state
         self._sf_cards: List[dict] = []
         self._sf_pending: List[dict] = []
         self._sf_current_card: Optional[dict] = None
         self._sf_cards_signature = None
+        self._fim_total = 0
+        self._fim_done = 0
 
         return page
 
@@ -1537,73 +1557,6 @@ class ModeFIMservWidget(QWidget):
         self._log(f"Applied {src['label']} settings to all "
                   f"{len(self._sf_cards)} card(s).")
 
-    # ── Step 4: Generate FIM ──────────────────────────────────────────────────
-
-    def _build_fim_tab(self) -> QWidget:
-        page = QWidget()
-        v = QVBoxLayout(page)
-        v.setSpacing(12); v.setContentsMargins(14, 14, 14, 14)
-
-        title = QLabel("Generate flood inundation map")
-        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        title.setStyleSheet("color:#2d3748;")
-        v.addWidget(title)
-
-        gb = QGroupBox(); gb.setStyleSheet(_GB_STYLE)
-        gv = QVBoxLayout(gb); gv.setSpacing(6)
-
-        self._depth_chk = QCheckBox("Also produce a water-depth map  (optional)")
-        self._depth_chk.setChecked(False)
-        gv.addWidget(self._depth_chk)
-
-        self._fim_note = QLabel(
-            "★ Clicking 'Generate FIM' will automatically:\n"
-            "  1. Resolve HUC8 IDs from your AOI (if AOI mode was used in step 2)\n"
-            "  2. Download the OWP HAND HUC8 rasters\n"
-            "  3. Generate the flood inundation map\n"
-            "Previously-downloaded rasters are reused automatically."
-        )
-        self._fim_note.setWordWrap(True); self._fim_note.setStyleSheet(_NOTE_STYLE)
-        gv.addWidget(self._fim_note)
-        v.addWidget(gb)
-
-        run_row = QHBoxLayout()
-        self._fim_btn = QPushButton("Generate FIM")
-        self._fim_btn.setStyleSheet(_RUN_STYLE)
-        self._fim_btn.clicked.connect(self._generate)
-        run_row.addWidget(self._fim_btn)
-        run_row.addStretch()
-        v.addLayout(run_row)
-
-        self._fim_progress = QProgressBar(); self._fim_progress.setRange(0, 0)
-        self._fim_progress.setVisible(False)
-        v.addWidget(self._fim_progress)
-
-        self._fim_status = QLabel("")
-        self._fim_status.setWordWrap(True)
-        self._fim_status.setStyleSheet("color:#2d3748; font-size:12px;")
-        self._fim_status.setVisible(False)
-        v.addWidget(self._fim_status)
-
-        self._extent_canvas = RasterPreviewCanvas(self, width=9, height=3.8)
-        self._extent_canvas.setVisible(False)
-        v.addWidget(self._extent_canvas)
-
-        self._depth_canvas = RasterPreviewCanvas(self, width=9, height=3.8)
-        self._depth_canvas.setVisible(False)
-        v.addWidget(self._depth_canvas)
-
-        self._fim_files = QLabel("")
-        self._fim_files.setWordWrap(True)
-        self._fim_files.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._fim_files.setStyleSheet("color:#4a5568; font-size:11px;")
-        self._fim_files.setVisible(False)
-        v.addWidget(self._fim_files)
-
-        v.addStretch()
-        return page
-
     # ── Slots: Project & AOI steps ────────────────────────────────────────────
 
     def _on_project_done(self, data: dict):
@@ -1704,13 +1657,16 @@ class ModeFIMservWidget(QWidget):
         )
         if skipped:
             msg += f"  ({len(skipped)} skipped — see log.)"
-        self._log(msg + "  Proceed to step 3 (Streamflow Data) then step 4.")
+        self._log(msg + "  Proceed to step 3 (FIM).")
         self._rebuild_sf_cards()  # refresh cards now that folder setup is complete
 
     # ── Streamflow enable / disable logic ─────────────────────────────────────
 
 
-    def _get_streamflow_all(self):
+    def _run_fim_all(self):
+        """Run the full per-AOI/HUC8 pipeline: for each card, fetch NWM
+        discharge → download OWP HAND rasters → generate the FIM.  The progress
+        bar shows how many of the cards are done (X / Y)."""
         if not self._fimserve_ok:
             QMessageBox.critical(
                 self, "fimserve not installed",
@@ -1725,27 +1681,41 @@ class ModeFIMservWidget(QWidget):
             return
         if not self._sf_cards:
             QMessageBox.warning(self, "No cards",
-                                "Complete step 2 (AOI) first — no cards are configured.")
+                "Complete step 2 (AOI) first — no AOI / HUC8 cards are configured.")
             return
 
-        # Reset card status labels
         for card in self._sf_cards:
             card["status_lbl"].setText("")
             card["status_lbl"].setVisible(False)
 
         self._sf_pending = list(self._sf_cards)
+        self._fim_total  = len(self._sf_pending)
+        self._fim_done   = 0
+        self._sf_progress.setRange(0, self._fim_total)
+        self._sf_progress.setValue(0)
         self._sf_progress.setVisible(True)
-        self._set_busy(self._sf_status,
-                       "Fetching NWM discharge — this can take a few minutes …")
-        self._hydro.setVisible(False)
+        self._extent_canvas.setVisible(False)
+        self._depth_canvas.setVisible(False)
+        self._fim_files.setVisible(False)
         set_running(self._sf_btn)
-        self._start_next_sf()
+        self._fim_start_card()
 
-    def _start_next_sf(self):
+    def _fim_advance(self):
+        self._fim_done += 1
+        self._sf_progress.setValue(self._fim_done)
+        self._fim_start_card()
+
+    def _fim_skip_card(self, card, msg):
+        card["status_lbl"].setText(msg)
+        card["status_lbl"].setVisible(True)
+        self._fim_advance()
+
+    def _fim_start_card(self):
         if not self._sf_pending:
             set_ready(self._sf_btn)
             self._sf_progress.setVisible(False)
-            self._sf_status.setText("NWM discharge complete for all cards.")
+            self._sf_status.setText(
+                f"FIM complete for {self._fim_done} / {self._fim_total} AOI(s).")
             self._sf_status.setStyleSheet(
                 "color:#276749; font-size:12px; font-weight:bold;")
             self._sf_status.setVisible(True)
@@ -1753,246 +1723,138 @@ class ModeFIMservWidget(QWidget):
 
         card = self._sf_pending.pop(0)
         self._sf_current_card = card
+        idx = self._fim_done + 1
 
+        # Discharge kwargs from this card.
         if card["rb_src_fore"].isChecked():
-            # Forecast — read this card's own forecast widgets
-            kwargs = dict(
-                source="forecast",
-                forecast_range=card["fc_range"].currentText(),
-                sort_by=card["fc_sort_by"].currentText(),
-            )
+            kwargs = dict(source="forecast",
+                          forecast_range=card["fc_range"].currentText(),
+                          sort_by=card["fc_sort_by"].currentText())
             if not card["fc_latest_chk"].isChecked():
-                kwargs["forecast_date"] = (
-                    card["fc_date"].dateTime().toString("yyyy-MM-dd"))
+                kwargs["forecast_date"] = card["fc_date"].dateTime().toString("yyyy-MM-dd")
                 kwargs["forecast_hour"] = int(card["fc_hour"].currentText())
+        elif card["rb_range"].isChecked():
+            start = card["start_dt"].dateTime().toPyDateTime()
+            end   = card["end_dt"].dateTime().toPyDateTime()
+            if end <= start:
+                self._fim_skip_card(card, "⚠ End date must be after start — skipped.")
+                return
+            kwargs = dict(source="retrospective",
+                          start_date=start.strftime("%Y-%m-%d"),
+                          end_date=end.strftime("%Y-%m-%d"))
         else:
-            # Retrospective — read from this card's date widgets
-            if card["rb_range"].isChecked():
-                start = card["start_dt"].dateTime().toPyDateTime()
-                end   = card["end_dt"].dateTime().toPyDateTime()
-                if end <= start:
-                    card["status_lbl"].setText("⚠ End date must be after start — skipped.")
-                    card["status_lbl"].setVisible(True)
-                    self._start_next_sf()
-                    return
-                kwargs = dict(
-                    source="retrospective",
-                    start_date=start.strftime("%Y-%m-%d"),
-                    end_date=end.strftime("%Y-%m-%d"),
-                )
-            else:
-                times = [
-                    card["specific_list"].item(i).text()
-                    for i in range(card["specific_list"].count())
-                ]
-                if not times:
-                    card["status_lbl"].setText("⚠ No dates added — skipped.")
-                    card["status_lbl"].setVisible(True)
-                    self._start_next_sf()
-                    return
-                kwargs = dict(source="retrospective", value_times=times)
+            times = [card["specific_list"].item(i).text()
+                     for i in range(card["specific_list"].count())]
+            if not times:
+                self._fim_skip_card(card, "⚠ No dates added — skipped.")
+                return
+            kwargs = dict(source="retrospective", value_times=times)
 
-        # Resolve which HUC8(s) to fetch and WHERE to save them.
-        #   HUC8 mode → that HUC8, saved under the main project folder.
-        #   AOI mode  → the HUC8(s) the AOI covers, saved INSIDE the AOI's
-        #               own folder (so each AOI is self-contained).
+        # Resolve HUC8(s) + output folder for this card.
+        #   HUC8 mode → that HUC8, under the main project folder.
+        #   AOI mode  → the HUC8(s) the AOI covers, INSIDE the AOI's own folder.
         if card["mode"] == "huc8":
             huc8_ids = [card["item_id"]]
             run_project_dir = self._state["project_dir"]
+            aoi_path = None
         else:
             feat = card.get("source_obj") or {}
             huc8_ids = feat.get("huc8_codes") or []
             if not huc8_ids and feat.get("source_file"):
                 from core.aoi_info import lookup_huc8
-                huc8_ids = lookup_huc8(
-                    feat["source_file"], feat.get("feature_index", 0),
-                    log_fn=self._log)
+                huc8_ids = lookup_huc8(feat["source_file"],
+                                       feat.get("feature_index", 0), log_fn=self._log)
             run_project_dir = feat.get("folder_path") or self._state["project_dir"]
+            aoi_path = feat.get("source_file")
             if not huc8_ids:
-                card["status_lbl"].setText("⚠ No HUC8 found for this AOI — skipped.")
-                card["status_lbl"].setVisible(True)
-                self._start_next_sf()
+                self._fim_skip_card(card, "⚠ No HUC8 found for this AOI — skipped.")
                 return
 
-        card["status_lbl"].setText("⏳ Fetching …")
+        self._fim_cur_huc8s   = list(huc8_ids)
+        self._fim_cur_projdir = run_project_dir
+        self._fim_cur_aoipath = aoi_path
+
+        self._set_busy(self._sf_status,
+                       f"AOI {idx}/{self._fim_total} ({card['label']}) — "
+                       "fetching NWM discharge …")
+        card["status_lbl"].setText("⏳ discharge …")
         card["status_lbl"].setVisible(True)
-
         self._start_worker(
-            streamflow_mode,
-            done=self._on_streamflow,
-            project_dir=run_project_dir,
-            huc8_ids=huc8_ids,
-            **kwargs,
+            streamflow_mode, done=self._fim_after_discharge,
+            on_error=self._fim_card_failed,
+            project_dir=run_project_dir, huc8_ids=huc8_ids, **kwargs,
         )
 
-    def _on_streamflow(self, result: dict):
+    def _fim_after_discharge(self, result: dict):
         card = self._sf_current_card
-        mode  = result.get("discharge_mode", "—")
-        hydros = result.get("hydrographs", {})
-
+        idx = self._fim_done + 1
         if card is not None:
-            card["status_lbl"].setText(f"✓ NWM {mode} discharge ready.")
+            card["status_lbl"].setText("⏳ HAND rasters …")
+        self._set_busy(self._sf_status,
+                       f"AOI {idx}/{self._fim_total} — downloading OWP HAND rasters …")
+        self._start_worker(
+            download_huc8_mode, done=self._fim_after_download,
+            on_error=self._fim_card_failed,
+            project_dir=self._fim_cur_projdir, huc8_ids=self._fim_cur_huc8s,
+        )
+
+    def _fim_after_download(self, result: dict):
+        card = self._sf_current_card
+        idx = self._fim_done + 1
+        ok = (result.get("downloaded") if isinstance(result, dict) else None) \
+            or self._fim_cur_huc8s
+        if card is not None:
+            card["status_lbl"].setText("⏳ generating FIM …")
+        self._set_busy(self._sf_status,
+                       f"AOI {idx}/{self._fim_total} — generating flood inundation map …")
+        self._start_worker(
+            generate_fim_mode, done=self._fim_after_generate,
+            on_error=self._fim_card_failed,
+            project_dir=self._fim_cur_projdir, huc8_ids=ok,
+            aoi_path=self._fim_cur_aoipath,
+            depth=self._depth_chk.isChecked(), binary=True, clip=True,
+        )
+
+    def _fim_after_generate(self, result: dict):
+        card = self._sf_current_card
+        outputs = result.get("outputs", {}) if isinstance(result, dict) else {}
+        if card is not None:
+            card["status_lbl"].setText("✓ FIM ready" if outputs
+                                       else "⚠ no FIM produced — see log")
             card["status_lbl"].setVisible(True)
+        self._show_fim_outputs(outputs)
+        self._fim_advance()
 
-        if hydros:
-            huc, csv = next(iter(hydros.items()))
-            if csv and Path(csv).exists():
-                self._hydro.show_hydrograph(
-                    csv,
-                    title=f"NWM {mode} — HUC8 {huc} (feature with max discharge)",
-                )
-                self._hydro.setVisible(True)
+    def _fim_card_failed(self, msg: str):
+        card = self._sf_current_card
+        self._log(f"FIM error: {msg}")
+        if card is not None:
+            card["status_lbl"].setText("⚠ failed — see log")
+            card["status_lbl"].setVisible(True)
+        self._fim_advance()
 
-        self._start_next_sf()
-
-    # ── Generate FIM (auto-chain: resolve → download → generate) ─────────────
-
-    def _generate(self):
-        if not self._fimserve_ok:
-            QMessageBox.critical(
-                self, "fimserve not installed",
-                "The fimserve package is required for this step.\n\n"
-                "Install it with:\n    pip install fimserve\n\n"
-                "Then restart the app."
-            )
-            return
-        if not self._state.get("project_dir"):
-            QMessageBox.warning(self, "No project",
-                                "Complete the project setup in step 1 first.")
-            return
-
-        self._fim_progress.setVisible(True)
-        self._extent_canvas.setVisible(False)
-        self._depth_canvas.setVisible(False)
-        self._fim_files.setVisible(False)
-        set_running(self._fim_btn)
-
-        # Phase 1: if no HUC8 IDs yet, resolve them from the AOI.
-        if not self._state.get("huc8_ids"):
-            aoi_path = self._state.get("aoi_path")
-            if not aoi_path:
-                set_ready(self._fim_btn)
-                self._fim_progress.setVisible(False)
-                QMessageBox.warning(
-                    self, "No input",
-                    "Complete step 2 first — select an AOI file or enter HUC8 IDs directly."
-                )
-                return
-            self._set_busy(self._fim_status,
-                           "Phase 1/3 — Resolving HUC8 IDs from AOI …")
-            self._start_worker(
-                resolve_huc8_mode,
-                done=self._on_fim_resolved,
-                project_dir=self._state["project_dir"],
-                aoi_path=aoi_path,
-                huc8_ids=None,
-            )
-        else:
-            # HUC8 IDs already known (entered in step 2), skip resolve.
-            self._do_download_then_generate()
-
-    def _on_fim_resolved(self, result: dict):
-        ids = result.get("huc8_ids", [])
-        self._state["huc8_ids"] = ids
-        if result.get("aoi_path"):
-            self._state["aoi_path"] = result["aoi_path"]
-        if not ids:
-            set_ready(self._fim_btn)
-            self._fim_progress.setVisible(False)
-            self._fim_status.setText("Could not resolve HUC8 IDs from the AOI — check the AOI file.")
-            self._fim_status.setStyleSheet("color:#c53030; font-size:12px; font-weight:bold;")
-            self._fim_status.setVisible(True)
-            return
-        self._set_busy(self._fim_status,
-                       f"Phase 2/3 — Downloading {len(ids)} HUC8 raster(s) …")
-        self._do_download_then_generate()
-
-    def _do_download_then_generate(self):
-        ids = self._state.get("huc8_ids", [])
-        self._set_busy(self._fim_status,
-                       f"Phase 2/3 — Downloading {len(ids)} HUC8 raster(s) "
-                       "(already-cached rasters are skipped) …")
-        self._start_worker(
-            download_huc8_mode,
-            done=self._on_fim_downloaded,
-            project_dir=self._state["project_dir"],
-            huc8_ids=ids,
-        )
-
-    def _on_fim_downloaded(self, result: dict):
-        ok = result.get("downloaded", [])
-        self._state["downloaded"] = ok
-        ids = ok or self._state.get("huc8_ids", [])
-        self._set_busy(self._fim_status,
-                       "Phase 3/3 — Generating flood inundation map …")
-        self._start_worker(
-            generate_fim_mode,
-            done=self._on_fim,
-            project_dir=self._state["project_dir"],
-            huc8_ids=ids,
-            aoi_path=self._state.get("aoi_path"),
-            depth=self._depth_chk.isChecked(),
-            binary=True,
-            clip=True,
-        )
-
-    def _on_fim(self, result: dict):
-        set_ready(self._fim_btn)
-        self._fim_progress.setVisible(False)
-        outputs = result.get("outputs", {})
+    def _show_fim_outputs(self, outputs: dict):
         if not outputs:
-            self._fim_status.setText(
-                "No FIM produced — see the log for details.")
-            self._fim_status.setStyleSheet(
-                "color:#c53030; font-size:12px; font-weight:bold;")
-            self._fim_status.setVisible(True)
             return
-        self._fim_status.setText("Flood inundation map ready.")
-        self._fim_status.setStyleSheet(
-            "color:#276749; font-weight:bold; font-size:12px;")
-        self._fim_status.setVisible(True)
-
         aoi_gdf = None
-        aoi_path = self._state.get("aoi_path")
-        if aoi_path:
+        if self._fim_cur_aoipath:
             try:
                 import geopandas as gpd
-                aoi_gdf = gpd.read_file(aoi_path)
+                aoi_gdf = gpd.read_file(self._fim_cur_aoipath)
             except Exception:
                 aoi_gdf = None
-
         extent_path = outputs.get("extent_clipped") or outputs.get("extent_mosaic")
         if extent_path and Path(extent_path).exists():
             self._extent_canvas.show_raster(
                 extent_path, title="Flood extent (wet = 1 / dry = 0)",
-                cmap="Blues", colorbar_label="Inundation",
-                overlay_gdf=aoi_gdf,
-            )
+                cmap="Blues", colorbar_label="Inundation", overlay_gdf=aoi_gdf)
             self._extent_canvas.setVisible(True)
-
         depth_path = outputs.get("depth_clipped") or outputs.get("depth_mosaic")
         if depth_path and Path(depth_path).exists():
             self._depth_canvas.show_raster(
-                depth_path, title="Water depth",
-                cmap="viridis", colorbar_label="Depth (m)",
-                overlay_gdf=aoi_gdf,
-            )
+                depth_path, title="Water depth", cmap="viridis",
+                colorbar_label="Depth (m)", overlay_gdf=aoi_gdf)
             self._depth_canvas.setVisible(True)
-
-        lines = []
-        for key in ("extent_clipped", "extent_mosaic", "extent_binary",
-                    "depth_clipped", "depth_mosaic"):
-            val = outputs.get(key)
-            if not val:
-                continue
-            if isinstance(val, list):
-                names = ", ".join(Path(p).name for p in val if p)
-                lines.append(f"{key}: {names}")
-            else:
-                lines.append(f"{key}: {Path(val).name}")
-        if lines:
-            self._fim_files.setText("Files: " + "  |  ".join(lines))
-            self._fim_files.setVisible(True)
 
     # ── Worker plumbing ───────────────────────────────────────────────────────
 
@@ -2001,7 +1863,7 @@ class ModeFIMservWidget(QWidget):
         label.setStyleSheet("color:#744210; font-size:12px; font-weight:bold;")
         label.setVisible(True)
 
-    def _start_worker(self, fn, done, **kwargs):
+    def _start_worker(self, fn, done, on_error=None, **kwargs):
         if self._worker is not None:
             try:
                 self._worker.message.disconnect(self._log)
@@ -2011,17 +1873,15 @@ class ModeFIMservWidget(QWidget):
         self._worker = Worker(fn, **kwargs)
         self._worker.message.connect(self._log)
         self._worker.finished.connect(done)
-        self._worker.error.connect(self._on_error)
+        self._worker.error.connect(on_error or self._on_error)
         self._worker.start()
 
     def _on_error(self, msg: str):
-        for btn in (self._sf_btn, self._fim_btn):
-            try:
-                set_ready(btn)
-            except Exception:
-                pass
-        for pb in (self._sf_progress, self._fim_progress):
-            pb.setVisible(False)
+        try:
+            set_ready(self._sf_btn)
+        except Exception:
+            pass
+        self._sf_progress.setVisible(False)
         self._log(f"ERROR: {msg}")
         QMessageBox.critical(self, "FIMserv error", msg.splitlines()[0])
 
@@ -2099,17 +1959,13 @@ class ModeFIMservWidget(QWidget):
         # to reset here anymore.
         self._sf_cards.clear()
         self._rebuild_sf_cards()
-        self._hydro.setVisible(False)
         self._extent_canvas.setVisible(False)
         self._depth_canvas.setVisible(False)
         self._fim_files.setVisible(False)
-        for lbl in (self._sf_status, self._fim_status):
-            lbl.setVisible(False)
-        for pb in (self._sf_progress, self._fim_progress):
-            pb.setVisible(False)
-        for btn in (self._sf_btn, self._fim_btn):
-            try:
-                set_ready(btn)
-            except Exception:
-                pass
+        self._sf_status.setVisible(False)
+        self._sf_progress.setVisible(False)
+        try:
+            set_ready(self._sf_btn)
+        except Exception:
+            pass
         self._tabs.setCurrentIndex(0)

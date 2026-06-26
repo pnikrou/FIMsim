@@ -35,7 +35,7 @@
           <a href="#installation">Installation</a>
         </details>
 
-        <details open>
+        <details>
           <summary>Part 1: Preparing Input Parameters</summary>
           <a href="#input-parameters">Part Overview</a>
           <a href="#dem-mode">DEM Mode</a>
@@ -45,60 +45,12 @@
         </details>
 
         <details>
-          <summary>DEM Details</summary>
-          <a href="#dem-project">Create or Open a Project</a>
-          <a href="#dem-aoi">Define AOI</a>
-          <a href="#dem-settings">Configure DEM Settings</a>
-          <a href="#dem-run">Run DEM Mode</a>
-        </details>
-
-        <details>
-          <summary>LULC Details</summary>
-          <a href="#lulc-settings">Configure Manning's n</a>
-          <a href="#lulc-sources">LULC Data Sources</a>
-          <a href="#lulc-table">Edit Manning's n Table</a>
-          <a href="#lulc-run">Run LULC Mode</a>
-        </details>
-
-        <details>
-          <summary>Flowline Details</summary>
-          <a href="#flowline-project">Project and AOI</a>
-          <a href="#flowline-settings">Configure Flowline Settings</a>
-          <a href="#flowline-run">Run Flowline Mode</a>
-          <a href="#flowline-output">Flowline Output Files</a>
-        </details>
-
-        <details>
-          <summary>Streamflow Details</summary>
-          <a href="#streamflow-project">Create or Open a Project</a>
-          <a href="#streamflow-sources">Choose Streamflow Sources</a>
-          <a href="#streamflow-ids">Entering IDs</a>
-          <a href="#streamflow-run">Run Streamflow Data</a>
-          <a href="#streamflow-output">Streamflow Output Files</a>
-          <a href="#combined-workflow">Using Flowline and Streamflow Together</a>
-        </details>
-
-        <details open>
           <summary>Part 2: Flood Mapping Models</summary>
           <a href="#flood-models">Part Overview</a>
           <a href="#lisflood-model">LISFLOOD-FP</a>
           <a href="#triton-model">TRITON</a>
           <a href="#fimserv-model">OWP HAND-FIM</a>
           <a href="#arc-model">ARC-Curve2Flood</a>
-        </details>
-
-        <details>
-          <summary>LISFLOOD-FP Details</summary>
-          <a href="#lisflood-layout">Application Layout</a>
-          <a href="#lisflood-workflow">Step-by-Step Guide</a>
-          <a href="#lisflood-outputs">Output Files</a>
-        </details>
-
-        <details>
-          <summary>TRITON Details</summary>
-          <a href="#triton-layout">Application Layout</a>
-          <a href="#triton-workflow">Step-by-Step Guide</a>
-          <a href="#triton-outputs">Output Files</a>
         </details>
       </nav>
     </aside>
@@ -120,55 +72,64 @@
 
       <section class="topic-section" id="manual-structure">
         <h2>Manual Structure</h2>
-        <div class="part-grid">
-          <article>
-            <p class="part-label">Part 1</p>
-            <h3>Preparing Input Parameters</h3>
-            <p>Use these modules to create reusable spatial and hydrologic inputs before selecting a flood mapping model.</p>
-            <ul>
-              <li>DEM</li>
-              <li>LULC &amp; Manning's n</li>
-              <li>Flowline</li>
-              <li>Streamflow Data</li>
-            </ul>
-          </article>
-          <article>
-            <p class="part-label">Part 2</p>
-            <h3>Flood Mapping Models</h3>
-            <p>Use these model modules to assemble model-specific files from the prepared inputs.</p>
-            <ul>
-              <li>LISFLOOD-FP</li>
-              <li>TRITON</li>
-              <li>OWP HAND-FIM</li>
-              <li>ARC-Curve2Flood</li>
-            </ul>
-          </article>
-        </div>
-      </section>
+        <div class="part-accordion">
+          <details id="input-parameters">
+            <summary>
+              <span>Part 1</span>
+              <strong>Preparing Input Parameters</strong>
+            </summary>
+            <div class="mode-grid">
+              <article>
+                <h3>DEM Mode</h3>
+                <p>Download and process Digital Elevation Models for any Area of Interest.</p>
+                <p class="muted">Output: DEM raster (.tif / .asc / .gpkg).</p>
+              </article>
+              <article>
+                <h3>LULC &amp; Manning Mode</h3>
+                <p>Download land use/land cover data and assign Manning's n roughness coefficients.</p>
+                <p class="muted">Output: LULC raster and Manning's n raster / table.</p>
+              </article>
+              <article>
+                <h3>Flowline Mode</h3>
+                <p>Download NHD river flowlines, identify the main river, save USGS gages, and export NWM feature IDs.</p>
+                <p class="muted">Output: flowlines, gages CSV, feature IDs CSV.</p>
+              </article>
+              <article>
+                <h3>Streamflow Data Mode</h3>
+                <p>Download discharge time series from NOAA NWM retrospective, NOAA NWM forecast, or USGS stream gages.</p>
+                <p class="muted">Output: CSV files with time_hours and discharge_cms.</p>
+              </article>
+            </div>
+          </details>
 
-      <section class="topic-section" id="input-parameters">
-        <h2>Part 1: Preparing Input Parameters</h2>
-        <div class="mode-grid">
-          <article>
-            <h3>DEM Mode</h3>
-            <p>Download and process Digital Elevation Models for any Area of Interest.</p>
-            <p class="muted">Output: DEM raster (.tif / .asc / .gpkg).</p>
-          </article>
-          <article>
-            <h3>LULC &amp; Manning Mode</h3>
-            <p>Download land use/land cover data and assign Manning's n roughness coefficients.</p>
-            <p class="muted">Output: LULC raster and Manning's n raster / table.</p>
-          </article>
-          <article>
-            <h3>Flowline Mode</h3>
-            <p>Download NHD river flowlines, identify the main river, save USGS gages, and export NWM feature IDs.</p>
-            <p class="muted">Output: flowlines, gages CSV, feature IDs CSV.</p>
-          </article>
-          <article>
-            <h3>Streamflow Data Mode</h3>
-            <p>Download discharge time series from NOAA NWM retrospective, NOAA NWM forecast, or USGS stream gages.</p>
-            <p class="muted">Output: CSV files with time_hours and discharge_cms.</p>
-          </article>
+          <details>
+            <summary>
+              <span>Part 2</span>
+              <strong>Flood Mapping Models</strong>
+            </summary>
+            <div class="model-grid">
+              <article>
+                <span class="status-badge ready">Ready</span>
+                <h3>LISFLOOD-FP</h3>
+                <p>Prepares raster terrain, Manning's n, boundary condition, discharge, and simulation control files.</p>
+              </article>
+              <article>
+                <span class="status-badge ready">Ready</span>
+                <h3>TRITON</h3>
+                <p>Prepares raster terrain, friction, boundary, hydrograph, and configuration files for TRITON runs.</p>
+              </article>
+              <article>
+                <span class="status-badge pending">Reserved</span>
+                <h3>OWP HAND-FIM</h3>
+                <p>Manual section reserved for the OWP HAND-FIM flood mapping workflow.</p>
+              </article>
+              <article>
+                <span class="status-badge pending">Reserved</span>
+                <h3>ARC-Curve2Flood</h3>
+                <p>Manual section reserved for the ARC-Curve2Flood flood mapping workflow.</p>
+              </article>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -497,14 +458,16 @@ python main.py</code></pre>
         </ul>
       </section>
 
+      <section class="blank-page" aria-hidden="true"></section>
+
       <section class="topic-section" id="flood-models">
         <h2>Part 2: Flood Mapping Models</h2>
         <p>
           Flood Mapping Models convert prepared terrain, roughness, boundary,
           and discharge inputs into complete model-ready folders. Four model
-          options are shown in the app structure. LISFLOOD-FP and TRITON are
-          documented below; the remaining two slots are reserved for model
-          documentation as those workflows are finalized.
+          options are included in this part. LISFLOOD-FP and TRITON are
+          documented first, while OWP HAND-FIM and ARC-Curve2Flood are reserved
+          for their full workflow documentation.
         </p>
         <div class="model-grid">
           <article>

@@ -197,6 +197,14 @@ body {
   margin: 0 0 42px;
 }
 
+.blank-page {
+  min-height: calc(100vh - 86px);
+  break-before: page;
+  break-after: page;
+  page-break-before: always;
+  page-break-after: always;
+}
+
 .topic-section h2 {
   margin: 0 0 14px;
   padding-top: 10px;
@@ -302,6 +310,42 @@ th {
 
 .mode-grid article:nth-child(even) h3 {
   color: var(--green);
+}
+
+.part-accordion {
+  display: grid;
+  gap: 14px;
+}
+
+.part-accordion details {
+  border: 1px solid #1c1c1c;
+  background: #ffffff;
+}
+
+.part-accordion summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  color: #101820;
+  background: #f5f7fa;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.part-accordion summary span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.part-accordion .mode-grid,
+.part-accordion .model-grid {
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
 }
 
 .part-grid,
