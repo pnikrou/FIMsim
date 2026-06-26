@@ -248,12 +248,14 @@ class ModelSelectorWidget(QWidget):
         card = QFrame()
         card.setMinimumWidth(200)
         card.setMaximumWidth(280)
+        card.setMinimumHeight(210)
         card.setStyleSheet(
             f"QFrame {{ background:{bg}; border:2px solid {border}; "
-            f"border-radius:10px; padding:12px; }}"
+            f"border-radius:10px; }}"
         )
         layout = QVBoxLayout(card)
         layout.setSpacing(6)
+        layout.setContentsMargins(14, 14, 14, 14)
 
         lbl_title = QLabel(mode_data["title"])
         lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
