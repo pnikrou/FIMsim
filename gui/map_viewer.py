@@ -209,19 +209,48 @@ class USMapCanvas(FigureCanvasQTAgg):
         if ax_close is not None and want_close:
             ax_close.set_xticks([]); ax_close.set_yticks([])
             try:
-                # HUC8 run-area polygon(s) drawn first as a tan underlay so the
-                # user sees the region the model runs over.
+                aoi_4326 = aoi_gdf.to_crs("EPSG:4326") if aoi_gdf is not None else None
+
+                # HUC8 polygon(s): blue when shown alone (HUC8-only mode);
+                # tan underlay only when an AOI polygon is also present so the
+                # two layers remain visually distinct.
                 huc8_4326 = None
                 if huc8_gdf is not None:
                     huc8_4326 = huc8_gdf.to_crs("EPSG:4326")
-                    huc8_4326.plot(ax=ax_close, facecolor="#fefcbf",
-                                   edgecolor="#b7791f", linewidth=1.2, alpha=0.5)
-                # Reproject AOI / river / gages to EPSG:4326 so overlays match.
-                aoi_4326 = aoi_gdf.to_crs("EPSG:4326") if aoi_gdf is not None else None
+                    huc8_only = aoi_4326 is None
+                    huc8_fill  = "#ebf8ff" if huc8_only else "#fefcbf"
+                    huc8_edge  = "#2c5282" if huc8_only else "#b7791f"
+                    huc8_alpha = 0.7       if huc8_only else 0.5
+                    huc8_4326.plot(ax=ax_close, facecolor=huc8_fill,
+                                   edgecolor=huc8_edge, linewidth=1.2, alpha=huc8_alpha)
+                    # In HUC8-only mode: label each polygon with its HUC8 ID,
+                    # placed at the centroid with a white halo so it doesn't
+                    # clash with the boundary line.
+                    if huc8_only:
+                        huc_col = next(
+                            (c for c in huc8_4326.columns if c.lower() == "huc8"),
+                            None,
+                        )
+                        for _, row in huc8_4326.iterrows():
+                            c = row.geometry.centroid
+                            hid = (str(row[huc_col]).zfill(8)
+                                   if huc_col else "")
+                            if hid:
+                                ax_close.text(
+                                    c.x, c.y, hid,
+                                    ha="center", va="center",
+                                    fontsize=9, color="#1a365d", weight="bold",
+                                    bbox=dict(boxstyle="round,pad=0.2",
+                                              facecolor="white", alpha=0.55,
+                                              edgecolor="none"),
+                                    zorder=5,
+                                )
+
+                # AOI polygon on top of HUC8 underlay
                 if aoi_4326 is not None:
                     aoi_4326.plot(ax=ax_close, facecolor="#ebf8ff",
                                   edgecolor="#2c5282", linewidth=1.4, alpha=0.7)
-                # All flowlines thin underlay (light blue/gray, drawn first)
+                # All flowlines thin underlay
                 if all_flowlines_gdf is not None and not all_flowlines_gdf.empty:
                     all_flowlines_gdf.to_crs("EPSG:4326").plot(
                         ax=ax_close, color="#a0c4e8", linewidth=0.8, alpha=0.7,
@@ -245,7 +274,7 @@ class USMapCanvas(FigureCanvasQTAgg):
                             xytext=(4, 4), textcoords="offset points",
                             fontsize=7, color="#22543d", weight="bold",
                         )
-                # Title: river name when known, else label the run area.
+                # Title: river name when known, else a short label.
                 river_title = ""
                 if main_river_gdf is not None and not main_river_gdf.empty:
                     try:
@@ -260,17 +289,18 @@ class USMapCanvas(FigureCanvasQTAgg):
                     if aoi_4326 is not None and huc8_4326 is not None:
                         river_title = "HUC8 run area  &  AOI"
                     elif huc8_4326 is not None:
-                        river_title = "HUC8 run area"
-                # Legend so tan (run area) vs blue (AOI) is unambiguous.
-                if huc8_4326 is not None or aoi_4326 is not None:
+                        # HUC8-only: short title, no "run area" label
+                        river_title = "HUC8"
+                # Legend only when BOTH HUC8 and AOI are present (tan vs blue
+                # colours need explaining); omit when only one layer is shown.
+                if huc8_4326 is not None and aoi_4326 is not None:
                     from matplotlib.patches import Patch
-                    handles = []
-                    if huc8_4326 is not None:
-                        handles.append(Patch(facecolor="#fefcbf", edgecolor="#b7791f",
-                                             alpha=0.5, label="HUC8 run area"))
-                    if aoi_4326 is not None:
-                        handles.append(Patch(facecolor="#ebf8ff", edgecolor="#2c5282",
-                                             alpha=0.7, label="Area of interest"))
+                    handles = [
+                        Patch(facecolor="#fefcbf", edgecolor="#b7791f",
+                              alpha=0.5, label="HUC8 run area"),
+                        Patch(facecolor="#ebf8ff", edgecolor="#2c5282",
+                              alpha=0.7, label="Area of interest"),
+                    ]
                     ax_close.legend(handles=handles, fontsize=7, loc="lower left")
                 # Tight bounds with a small margin — frame the AOI when present,
                 # otherwise the HUC8 run area.

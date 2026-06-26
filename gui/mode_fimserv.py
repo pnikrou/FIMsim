@@ -564,6 +564,21 @@ class ModeFIMservWidget(QWidget):
         csv_note.setStyleSheet(_NOTE_STYLE)
         gv.addWidget(csv_note)
 
+        # ── Confirm button + status — inside the entry groupbox ──────────────
+        confirm_inner_row = QHBoxLayout()
+        self._aoi_huc8_status = QLabel("")
+        self._aoi_huc8_status.setWordWrap(True)
+        self._aoi_huc8_status.setStyleSheet("color:#555;")
+        confirm_inner_row.addWidget(self._aoi_huc8_status, 1)
+        confirm_btn = QPushButton("Add to confirmed HUC8")
+        confirm_btn.setStyleSheet(
+            "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
+            "color:white; border-radius:4px;"
+        )
+        confirm_btn.clicked.connect(self._confirm_aoi_huc8)
+        confirm_inner_row.addWidget(confirm_btn)
+        gv.addLayout(confirm_inner_row)
+
         v.addWidget(gb)
 
         # ── HUC8 list — link-button rows, same style as AOI confirmed list ───
@@ -634,22 +649,6 @@ class ModeFIMservWidget(QWidget):
         map_gb_layout.addWidget(self._aoi_huc8_map)
 
         v.addWidget(self._aoi_huc8_map_gb)
-
-        # ── Confirm button + status — same style/position as AOI option ─────
-        confirm_row = QHBoxLayout()
-        self._aoi_huc8_status = QLabel("")
-        self._aoi_huc8_status.setWordWrap(True)
-        self._aoi_huc8_status.setStyleSheet("color:#555;")
-        confirm_row.addWidget(self._aoi_huc8_status)
-        confirm_row.addStretch()
-        confirm_btn = QPushButton("Add to confirmed HUC8")
-        confirm_btn.setStyleSheet(
-            "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
-            "color:white; border-radius:4px;"
-        )
-        confirm_btn.clicked.connect(self._confirm_aoi_huc8)
-        confirm_row.addWidget(confirm_btn)
-        v.addLayout(confirm_row)
 
         # internal state
         self._aoi_huc8_ids: List[str] = []
@@ -919,6 +918,7 @@ class ModeFIMservWidget(QWidget):
             QMessageBox.warning(self, "No HUC8 IDs", "Add at least one HUC8 ID first.")
             return
         self._state["huc8_ids"] = list(ids)
+        self._rebuild_sf_cards()  # update Streamflow tab immediately
 
         # Persist to context file so the IDs survive an app restart
         ctx = self._state.get("ctx") or {}
@@ -975,6 +975,7 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_status.setText(msg + "  Proceed to step 3 (Streamflow Data).")
         self._aoi_huc8_status.setStyleSheet("color:#276749; font-size:12px; font-weight:bold;")
         self._log(msg)
+        self._rebuild_sf_cards()  # ensure Streamflow cards reflect confirmed HUC8s
 
     # ── Step 3: Streamflow ────────────────────────────────────────────────────
 
@@ -1128,7 +1129,7 @@ class ModeFIMservWidget(QWidget):
     def _rebuild_sf_cards(self):
         """Clear and recreate per-AOI/HUC8 date cards in the Streamflow tab."""
         self._sf_cards = []
-        # Remove all widgets from layout (keep the stretch at the end)
+        # Remove ALL items from layout — takeAt handles both widgets and spacers.
         while self._sf_cards_layout.count() > 0:
             item = self._sf_cards_layout.takeAt(0)
             if item.widget():
@@ -1155,13 +1156,13 @@ class ModeFIMservWidget(QWidget):
                 self._sf_cards_layout.addWidget(card_widget)
                 self._sf_cards.append(card_refs)
         else:
-            self._sf_no_items_lbl = QLabel(
-                "(Complete step 2 (AOI) first — cards will appear here.)")
-            self._sf_no_items_lbl.setStyleSheet(
-                "color:#888; font-style:italic; padding:8px;")
-            self._sf_cards_layout.addWidget(self._sf_no_items_lbl)
+            placeholder = QLabel("(Complete step 2 (AOI) first — cards will appear here.)")
+            placeholder.setStyleSheet("color:#888; font-style:italic; padding:8px;")
+            self._sf_cards_layout.addWidget(placeholder)
 
         self._sf_cards_layout.addStretch()
+        # Force the scroll-area container to recalculate its size hint
+        self._sf_cards_container.updateGeometry()
 
     def _build_one_sf_card(self, label: str, item_id: str, mode: str):
         """Build a single date-config card for one HUC8/AOI.
@@ -1393,6 +1394,8 @@ class ModeFIMservWidget(QWidget):
         if aoi_path:
             self._state["aoi_path"] = aoi_path
 
+        self._rebuild_sf_cards()  # populate Streamflow cards as soon as AOI is confirmed
+
         # Launch background worker: create AOI sub-folders + save HUC8 boundaries
         project_dir   = self._state.get("project_dir")
         aoi_features  = ctx.get("aoi_features") or []
@@ -1426,6 +1429,7 @@ class ModeFIMservWidget(QWidget):
         if skipped:
             msg += f"  ({len(skipped)} skipped — see log.)"
         self._log(msg + "  Proceed to step 3 (Streamflow Data) then step 4.")
+        self._rebuild_sf_cards()  # refresh cards now that folder setup is complete
 
     # ── Streamflow enable / disable logic ─────────────────────────────────────
 
@@ -1769,6 +1773,16 @@ class ModeFIMservWidget(QWidget):
 
     def _on_tab_changed(self, idx: int):
         self._update_nav(idx)
+        # When navigating past the AOI tab via tab-click (not "Next step ▶"),
+        # commit any confirmed shapefile AOIs to ctx so aoi_features is populated.
+        if idx > _TAB_AOI and self._aoi_type_combo.currentIndex() == 1:
+            try:
+                data = self._aoi_step.commit_confirmed_to_ctx()
+                if data:
+                    self._state["ctx"]      = data.get("ctx",      self._state.get("ctx", {}))
+                    self._state["ctx_path"] = data.get("ctx_path", self._state.get("ctx_path"))
+            except Exception:
+                pass
         if idx == _TAB_STREAMFLOW:
             self._rebuild_sf_cards()
 
@@ -1782,6 +1796,15 @@ class ModeFIMservWidget(QWidget):
 
     def go_next(self):
         i = self._tabs.currentIndex()
+        # Commit shapefile AOIs when advancing past the AOI tab via the nav button.
+        if i == _TAB_AOI and self._aoi_type_combo.currentIndex() == 1:
+            try:
+                data = self._aoi_step.commit_confirmed_to_ctx()
+                if data:
+                    self._state["ctx"]      = data.get("ctx",      self._state.get("ctx", {}))
+                    self._state["ctx_path"] = data.get("ctx_path", self._state.get("ctx_path"))
+            except Exception:
+                pass
         if i < self._tabs.count() - 1:
             self._tabs.setCurrentIndex(i + 1)
 
