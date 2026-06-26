@@ -39,6 +39,95 @@ from core.FIMserv_api import (
 )
 
 
+# ── Module-level worker functions for HUC8 detail lookups ────────────────────
+
+def _huc8_river_lookup(gdf):
+    """Return main river name for a HUC8 boundary GeoDataFrame (EPSG:4326).
+    Reuses the NHD flowline query from river_lookup without needing a file path.
+    """
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context
+    try:
+        from pynhd import NHD
+        import geopandas as gpd
+        nhd = NHD("flowline_mr")
+        geom = (
+            gdf.geometry.union_all()
+            if hasattr(gdf.geometry, "union_all")
+            else gdf.unary_union
+        )
+        try:
+            flowlines = nhd.bygeom(geom)
+        except Exception as ex:
+            msg = str(ex)
+            if "should be of type" in msg or "MultiPolygon" in msg:
+                flowlines = nhd.bygeom(tuple(geom.bounds))
+            else:
+                raise
+        if flowlines is None or flowlines.empty:
+            return None
+        flowlines = flowlines.to_crs(gdf.crs)
+        clipped = gpd.overlay(flowlines, gdf[["geometry"]], how="intersection")
+        clipped = clipped[
+            clipped.geometry.type.isin(["LineString", "MultiLineString"])
+        ].copy()
+        if clipped.empty or "StreamOrde" not in clipped.columns:
+            return None
+        clipped["geom_len"] = clipped.geometry.length
+        max_order = clipped["StreamOrde"].max()
+        top = clipped[clipped["StreamOrde"] == max_order]
+        names = (
+            top["GNIS_NAME"].dropna().str.strip()
+            if "GNIS_NAME" in top.columns else None
+        )
+        if names is not None and not names.empty:
+            return names.mode().iloc[0] or None
+        return None
+    except Exception:
+        return None
+
+
+def _huc8_gages_lookup(gdf):
+    """Return USGS gages list for a HUC8 boundary GeoDataFrame (EPSG:4326)."""
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context
+    try:
+        from pynhd import WaterData
+        geom = (
+            gdf.geometry.union_all()
+            if hasattr(gdf.geometry, "union_all")
+            else gdf.unary_union
+        )
+        try:
+            result = WaterData("gagesii").bygeom(geom)
+        except Exception as ex:
+            msg = str(ex)
+            if "should be of type" in msg or "MultiPolygon" in msg:
+                result = WaterData("gagesii").bygeom(tuple(geom.bounds))
+            else:
+                raise
+        if result is None or result.empty:
+            return []
+        gages = []
+        for _, row in result.iterrows():
+            site = (
+                str(row.get("STAID") or row.get("site_no") or "").strip() or None
+            )
+            if site:
+                site = site.zfill(8)
+            name = str(row.get("STANAME") or row.get("station_nm") or "").strip() or None
+            pt = row.geometry.centroid if row.geometry else None
+            gages.append({
+                "site_no":    site,
+                "station_nm": name,
+                "lat": float(pt.y) if pt else None,
+                "lon": float(pt.x) if pt else None,
+            })
+        return gages
+    except Exception:
+        return []
+
+
 _GB_STYLE = (
     "QGroupBox { background:#f9fafb; border:1px solid #e2e8f0; "
     "border-radius:6px; padding-top:8px; }"
@@ -306,6 +395,10 @@ class ModeFIMservWidget(QWidget):
         self._rb_huc8_range.setChecked(True)
         self._huc8_range_box.setVisible(True)
         self._huc8_specific_box.setVisible(False)
+        self._huc8_detail_gb.setVisible(False)
+        self._huc8_detail_lbl.setText("(click any HUC8 ID above to see details here)")
+        self._huc8_detail_cache.clear()
+        self._huc8_selected_id = None
         self._state["huc8_ids"] = []
         self._state.get("ctx", {}).pop("huc8_ids", None)
         self._state.get("ctx", {}).pop("huc8_date", None)
@@ -454,13 +547,25 @@ class ModeFIMservWidget(QWidget):
         list_gb_layout.addWidget(add_more_btn)
         v.addWidget(self._aoi_huc8_list_gb)
 
-        # ── Map preview — QGroupBox matching AOI style ────────────────────────
+        # ── Selected HUC8 details — same style as AOI's "Selected AOI details" ─
+        self._huc8_detail_gb = QGroupBox("Selected HUC8 details")
+        self._huc8_detail_gb.setStyleSheet("QGroupBox { font-weight:bold; }")
+        dgl = QVBoxLayout(self._huc8_detail_gb)
+        self._huc8_detail_lbl = QLabel("(click any HUC8 ID above to see details here)")
+        self._huc8_detail_lbl.setWordWrap(True)
+        self._huc8_detail_lbl.setStyleSheet("color:#2d3748; padding:4px 2px;")
+        dgl.addWidget(self._huc8_detail_lbl)
+        self._huc8_detail_gb.setVisible(False)
+        v.addWidget(self._huc8_detail_gb)
+
+        # ── Map preview — identical style to AOI map preview ─────────────────
         self._aoi_huc8_map_gb = QGroupBox("Map preview")
         self._aoi_huc8_map_gb.setStyleSheet("QGroupBox { font-weight:bold; }")
+        self._aoi_huc8_map_gb.setFixedHeight(320)
         map_gb_layout = QVBoxLayout(self._aoi_huc8_map_gb)
 
         self._aoi_huc8_map_placeholder = QLabel(
-            "<i>Click a HUC8 ID in the list above to see its location on the map.</i>"
+            "<i>Load a HUC8 ID or click a confirmed HUC8 to see it on the map.</i>"
         )
         self._aoi_huc8_map_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._aoi_huc8_map_placeholder.setStyleSheet(
@@ -476,7 +581,7 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_map.setVisible(False)
         map_gb_layout.addWidget(self._aoi_huc8_map)
 
-        v.addWidget(self._aoi_huc8_map_gb, 1)
+        v.addWidget(self._aoi_huc8_map_gb)
 
         # ── Confirm button + status — same style/position as AOI option ─────
         confirm_row = QHBoxLayout()
@@ -497,6 +602,10 @@ class ModeFIMservWidget(QWidget):
         # internal state
         self._aoi_huc8_ids: List[str] = []
         self._aoi_huc8_gdf = None
+        self._huc8_detail_cache: Dict[str, dict] = {}
+        self._huc8_selected_id: Optional[str] = None
+        self._huc8_river_worker: Optional[Worker] = None
+        self._huc8_gages_worker: Optional[Worker] = None
 
         return panel
 
@@ -594,7 +703,7 @@ class ModeFIMservWidget(QWidget):
             self._refresh_aoi_huc8_gdf()
 
     def _on_aoi_huc8_clicked(self, huc_id: str):
-        """Show the 3-panel map for the clicked HUC8 (CONUS / state / close-up)."""
+        """Show map + details panel for the clicked HUC8."""
         if self._aoi_huc8_gdf is None:
             self._refresh_aoi_huc8_gdf()
         if self._aoi_huc8_gdf is None:
@@ -614,6 +723,8 @@ class ModeFIMservWidget(QWidget):
             lon, lat = centroid.x, centroid.y
             st = detect_us_state(single_4326)
             state_abbrs = [st["state_abbr"]] if st.get("state_abbr") else []
+
+            # ── Map ───────────────────────────────────────────────────────────
             self._aoi_huc8_map_placeholder.setVisible(False)
             self._aoi_huc8_map.setVisible(True)
             self._aoi_huc8_map.update_plots(
@@ -622,8 +733,109 @@ class ModeFIMservWidget(QWidget):
                 aoi_labels=[huc_id],
                 huc8_gdf=single_4326,
             )
+
+            # ── Details panel ─────────────────────────────────────────────────
+            self._huc8_selected_id = huc_id
+
+            # Seed the cache with sync data if not already present
+            if huc_id not in self._huc8_detail_cache:
+                try:
+                    area_km2 = (
+                        single.to_crs("EPSG:5070").geometry.area.sum() / 1e6
+                    )
+                except Exception:
+                    area_km2 = None
+                self._huc8_detail_cache[huc_id] = {
+                    "area_km2":   area_km2,
+                    "state_name": st.get("state_name"),
+                    "state_abbr": st.get("state_abbr"),
+                    "river_name": None,   # filled by async worker
+                    "usgs_gages": None,   # filled by async worker
+                }
+
+            self._huc8_detail_gb.setVisible(True)
+            self._render_huc8_detail(huc_id)
+
+            cache = self._huc8_detail_cache[huc_id]
+
+            # Async river lookup (only if not yet resolved)
+            if cache["river_name"] is None:
+                self._huc8_river_worker = Worker(
+                    _huc8_river_lookup, single_4326.copy()
+                )
+                self._huc8_river_worker.message.connect(self._log)
+                self._huc8_river_worker.finished.connect(
+                    lambda r, h=huc_id: self._on_huc8_river_resolved(h, r)
+                )
+                self._huc8_river_worker.error.connect(
+                    lambda _msg, h=huc_id: self._on_huc8_river_resolved(h, None)
+                )
+                self._huc8_river_worker.start()
+
+            # Async USGS gages lookup (only if not yet resolved)
+            if cache["usgs_gages"] is None:
+                self._huc8_gages_worker = Worker(
+                    _huc8_gages_lookup, single_4326.copy()
+                )
+                self._huc8_gages_worker.message.connect(self._log)
+                self._huc8_gages_worker.finished.connect(
+                    lambda r, h=huc_id: self._on_huc8_gages_resolved(h, r)
+                )
+                self._huc8_gages_worker.error.connect(
+                    lambda _msg, h=huc_id: self._on_huc8_gages_resolved(h, [])
+                )
+                self._huc8_gages_worker.start()
+
         except Exception as ex:
             self._log(f"HUC8 map preview failed: {ex}")
+
+    def _render_huc8_detail(self, huc_id: str):
+        """Populate the 'Selected HUC8 details' label from the cache."""
+        c = self._huc8_detail_cache.get(huc_id, {})
+        area_str = (
+            f"{c['area_km2']:.2f} km²" if c.get("area_km2") is not None else "—"
+        )
+        state_str = (
+            f"{c['state_name']} ({c['state_abbr']})"
+            if c.get("state_name") and c.get("state_abbr")
+            else (c.get("state_abbr") or c.get("state_name") or "—")
+        )
+        river = c.get("river_name")
+        river_str = river if river else "<i>(looking up…)</i>"
+
+        gages = c.get("usgs_gages")
+        if gages is None:
+            gages_str = "<i>(looking up…)</i>"
+        elif not gages:
+            gages_str = "<i>None found inside this HUC8</i>"
+        else:
+            rows = []
+            for g in gages[:8]:
+                site = g.get("site_no") or "?"
+                name = g.get("station_nm") or ""
+                rows.append(f"&nbsp;&nbsp;<b>{site}</b> &nbsp; {name}")
+            gages_str = f"{len(gages)} found:<br>" + "<br>".join(rows)
+            if len(gages) > 8:
+                gages_str += f"<br>&nbsp;&nbsp;… and {len(gages) - 8} more"
+
+        html = (
+            f"<b>HUC8 ID:</b> {huc_id}<br>"
+            f"<b>Area:</b> {area_str}<br>"
+            f"<b>State:</b> {state_str}<br>"
+            f"<b>Main river:</b> {river_str}<br>"
+            f"<b>USGS gages in HUC8:</b> {gages_str}"
+        )
+        self._huc8_detail_lbl.setText(html)
+
+    def _on_huc8_river_resolved(self, huc_id: str, river_name):
+        self._huc8_detail_cache.setdefault(huc_id, {})["river_name"] = river_name or "—"
+        if self._huc8_selected_id == huc_id:
+            self._render_huc8_detail(huc_id)
+
+    def _on_huc8_gages_resolved(self, huc_id: str, gages):
+        self._huc8_detail_cache.setdefault(huc_id, {})["usgs_gages"] = gages or []
+        if self._huc8_selected_id == huc_id:
+            self._render_huc8_detail(huc_id)
 
     def _refresh_aoi_huc8_gdf(self):
         """Load HUC8 boundary polygons for all current IDs into self._aoi_huc8_gdf."""
@@ -1493,6 +1705,10 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_map.setVisible(False)
         self._aoi_huc8_map_placeholder.setVisible(True)
         self._aoi_huc8_status.setVisible(False)
+        self._huc8_detail_gb.setVisible(False)
+        self._huc8_detail_lbl.setText("(click any HUC8 ID above to see details here)")
+        self._huc8_detail_cache.clear()
+        self._huc8_selected_id = None
         # Reset date selection to defaults
         self._rb_huc8_range.setChecked(True)
         self._huc8_start.setDateTime(
