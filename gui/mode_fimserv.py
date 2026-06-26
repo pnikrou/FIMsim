@@ -1022,36 +1022,13 @@ class ModeFIMservWidget(QWidget):
         title.setStyleSheet("color:#2d3748;")
         v.addWidget(title)
 
-        # ── Global source groupbox ────────────────────────────────────────────
-        src_gb = QGroupBox("Source"); src_gb.setStyleSheet(_GB_STYLE)
-        gv = QVBoxLayout(src_gb); gv.setSpacing(8)
-
-        src_row = QHBoxLayout()
-        src_row.addWidget(QLabel("Source:"))
-        self._src_grp = QButtonGroup(self)
-        self._rb_retro = QRadioButton("Retrospective  (before 2023)")
-        self._rb_fore  = QRadioButton("Forecast  (2023 onward)")
-        self._rb_retro.setChecked(True)
-        self._src_grp.addButton(self._rb_retro)
-        self._src_grp.addButton(self._rb_fore)
-        self._rb_retro.toggled.connect(self._on_source_toggled)
-        src_row.addWidget(self._rb_retro)
-        src_row.addWidget(self._rb_fore)
-        src_row.addStretch()
-        gv.addLayout(src_row)
-
-        self._retro_note = QLabel(
-            "★ Set date range or specific dates in each card below.")
-        self._retro_note.setWordWrap(True)
-        self._retro_note.setStyleSheet(_NOTE_STYLE)
-        gv.addWidget(self._retro_note)
-
-        gv.addWidget(self._build_forecast_group())
-
-        self._sf_note = QLabel("")
-        self._sf_note.setWordWrap(True); self._sf_note.setStyleSheet(_NOTE_STYLE)
-        gv.addWidget(self._sf_note)
-        v.addWidget(src_gb)
+        # Source + dates are configured per AOI / HUC8 — one card each below.
+        intro = QLabel(
+            "★ Each AOI / HUC8 has its own card below — set the Source "
+            "(Retrospective or Forecast) and the dates independently for each.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(_NOTE_STYLE)
+        v.addWidget(intro)
 
         # ── Per-AOI/HUC8 date cards ───────────────────────────────────────────
         cards_lbl = QLabel("Date configuration — one card per AOI / HUC8:")
@@ -1107,57 +1084,7 @@ class ModeFIMservWidget(QWidget):
         self._sf_pending: List[dict] = []
         self._sf_current_card: Optional[dict] = None
 
-        self._on_source_toggled()
         return page
-
-    def _build_forecast_group(self) -> QWidget:
-        box = QWidget()
-        lv = QVBoxLayout(box); lv.setContentsMargins(0, 0, 0, 0); lv.setSpacing(6)
-
-        r1 = QHBoxLayout()
-        r1.addWidget(QLabel("Forecast range:"))
-        self._fc_range = QComboBox()
-        self._fc_range.addItems(["shortrange", "mediumrange", "longrange"])
-        self._fc_range.setCurrentText("mediumrange")
-        self._fc_range.currentTextChanged.connect(self._on_fc_range_changed)
-        r1.addWidget(self._fc_range)
-        r1.addStretch()
-        lv.addLayout(r1)
-
-        self._fc_latest_chk = QCheckBox("Use latest available run")
-        self._fc_latest_chk.setChecked(True)
-        self._fc_latest_chk.toggled.connect(self._on_fc_latest_toggled)
-        lv.addWidget(self._fc_latest_chk)
-
-        r2 = QHBoxLayout()
-        r2.addSpacing(20)
-        self._fc_date_lbl = QLabel("Forecast date:")
-        r2.addWidget(self._fc_date_lbl)
-        self._fc_date = QDateTimeEdit()
-        self._fc_date.setDisplayFormat("yyyy-MM-dd")
-        self._fc_date.setCalendarPopup(True)
-        self._fc_date.setDateTime(QDateTime.fromString("2024-06-01", "yyyy-MM-dd"))
-        r2.addWidget(self._fc_date)
-        r2.addSpacing(12)
-        self._fc_hour_lbl = QLabel("Hour (UTC):")
-        r2.addWidget(self._fc_hour_lbl)
-        self._fc_hour = QComboBox()
-        self._fc_hour.addItems([f"{h:02d}" for h in range(0, 24)])
-        r2.addWidget(self._fc_hour)
-        r2.addStretch()
-        lv.addLayout(r2)
-
-        far = QHBoxLayout()
-        self._fc_agg_lbl = QLabel("Aggregation (medium / long range only):")
-        far.addWidget(self._fc_agg_lbl)
-        self._fc_sort_by = QComboBox()
-        self._fc_sort_by.addItems(["maximum", "median", "minimum"])
-        far.addWidget(self._fc_sort_by)
-        far.addStretch()
-        lv.addLayout(far)
-
-        self._forecast_box = box
-        return box
 
     def _rebuild_sf_cards(self):
         """Clear and recreate per-AOI/HUC8 date cards in the Streamflow tab."""
@@ -1198,7 +1125,11 @@ class ModeFIMservWidget(QWidget):
         self._sf_cards_container.updateGeometry()
 
     def _build_one_sf_card(self, label: str, item_id: str, mode: str):
-        """Build a single date-config card for one HUC8/AOI.
+        """Build a single self-contained card for one HUC8/AOI.
+
+        Each card carries its OWN Source (Retrospective / Forecast) and the
+        matching inputs — Retrospective shows date range / specific date(s);
+        Forecast shows range, latest-run, forecast date + hour, aggregation.
 
         Returns (QGroupBox widget, dict of widget refs).
         """
@@ -1210,21 +1141,37 @@ class ModeFIMservWidget(QWidget):
         cv = QVBoxLayout(card)
         cv.setSpacing(6)
 
-        # Radio buttons: Date range / Specific date(s)
+        # ── Source: Retrospective / Forecast (per card) ───────────────────────
+        src_row = QHBoxLayout()
+        src_row.addWidget(QLabel("Source:"))
+        src_grp = QButtonGroup(card)
+        rb_src_retro = QRadioButton("Retrospective  (before 2023)")
+        rb_src_fore  = QRadioButton("Forecast  (2023 onward)")
+        rb_src_retro.setChecked(True)
+        src_grp.addButton(rb_src_retro)
+        src_grp.addButton(rb_src_fore)
+        src_row.addWidget(rb_src_retro)
+        src_row.addWidget(rb_src_fore)
+        src_row.addStretch()
+        cv.addLayout(src_row)
+
+        # ── Retrospective box: date range / specific date(s) ──────────────────
+        retro_box = QWidget()
+        rbv = QVBoxLayout(retro_box)
+        rbv.setContentsMargins(0, 0, 0, 0); rbv.setSpacing(6)
+
         date_grp = QButtonGroup(card)
         rb_range    = QRadioButton("Date range")
         rb_specific = QRadioButton("Specific date(s)")
         rb_range.setChecked(True)
         date_grp.addButton(rb_range,    0)
         date_grp.addButton(rb_specific, 1)
-
         mode_row = QHBoxLayout()
         mode_row.addWidget(rb_range)
         mode_row.addWidget(rb_specific)
         mode_row.addStretch()
-        cv.addLayout(mode_row)
+        rbv.addLayout(mode_row)
 
-        # Range box
         range_box = QWidget()
         rr = QHBoxLayout(range_box)
         rr.setContentsMargins(0, 0, 0, 0); rr.setSpacing(10)
@@ -1242,9 +1189,8 @@ class ModeFIMservWidget(QWidget):
         end_dt.setDateTime(QDateTime.fromString("2020-05-22 00:00", "yyyy-MM-dd HH:mm"))
         rr.addWidget(end_dt)
         rr.addStretch()
-        cv.addWidget(range_box)
+        rbv.addWidget(range_box)
 
-        # Specific box
         specific_box = QWidget()
         sv = QVBoxLayout(specific_box)
         sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(4)
@@ -1266,7 +1212,56 @@ class ModeFIMservWidget(QWidget):
         specific_list.setMaximumHeight(80)
         sv.addWidget(specific_list)
         specific_box.setVisible(False)
-        cv.addWidget(specific_box)
+        rbv.addWidget(specific_box)
+        cv.addWidget(retro_box)
+
+        # ── Forecast box (per card): range, latest run, date+hour, aggregation ─
+        forecast_box = QWidget()
+        fbv = QVBoxLayout(forecast_box)
+        fbv.setContentsMargins(0, 0, 0, 0); fbv.setSpacing(6)
+
+        f1 = QHBoxLayout()
+        f1.addWidget(QLabel("Forecast range:"))
+        fc_range = QComboBox()
+        fc_range.addItems(["shortrange", "mediumrange", "longrange"])
+        fc_range.setCurrentText("mediumrange")
+        f1.addWidget(fc_range)
+        f1.addStretch()
+        fbv.addLayout(f1)
+
+        fc_latest_chk = QCheckBox("Use latest available run")
+        fc_latest_chk.setChecked(True)
+        fbv.addWidget(fc_latest_chk)
+
+        f2 = QHBoxLayout()
+        f2.addSpacing(20)
+        fc_date_lbl = QLabel("Forecast date:")
+        f2.addWidget(fc_date_lbl)
+        fc_date = QDateTimeEdit()
+        fc_date.setDisplayFormat("yyyy-MM-dd")
+        fc_date.setCalendarPopup(True)
+        fc_date.setDateTime(QDateTime.fromString("2024-06-01", "yyyy-MM-dd"))
+        f2.addWidget(fc_date)
+        f2.addSpacing(12)
+        fc_hour_lbl = QLabel("Hour (UTC):")
+        f2.addWidget(fc_hour_lbl)
+        fc_hour = QComboBox()
+        fc_hour.addItems([f"{h:02d}" for h in range(0, 24)])
+        f2.addWidget(fc_hour)
+        f2.addStretch()
+        fbv.addLayout(f2)
+
+        f3 = QHBoxLayout()
+        fc_agg_lbl = QLabel("Aggregation (medium / long range only):")
+        f3.addWidget(fc_agg_lbl)
+        fc_sort_by = QComboBox()
+        fc_sort_by.addItems(["maximum", "median", "minimum"])
+        f3.addWidget(fc_sort_by)
+        f3.addStretch()
+        fbv.addLayout(f3)
+
+        forecast_box.setVisible(False)
+        cv.addWidget(forecast_box)
 
         # Card status label
         status_lbl = QLabel("")
@@ -1274,13 +1269,33 @@ class ModeFIMservWidget(QWidget):
         status_lbl.setVisible(False)
         cv.addWidget(status_lbl)
 
-        # Wire up radio buttons
+        # ── Wiring ────────────────────────────────────────────────────────────
+        # Source toggle: Retrospective shows retro_box, Forecast shows forecast_box.
+        rb_src_retro.toggled.connect(
+            lambda checked, rbx=retro_box, fbx=forecast_box:
+                (rbx.setVisible(checked), fbx.setVisible(not checked))
+        )
+        # Date-mode toggle within Retrospective.
         rb_range.toggled.connect(
             lambda checked, rb=range_box, sb=specific_box:
                 (rb.setVisible(checked), sb.setVisible(not checked))
         )
+        # Forecast: "latest run" disables the manual date/hour pickers.
+        def _sync_latest(checked, lbl=fc_date_lbl, dt=fc_date,
+                         hl=fc_hour_lbl, hr=fc_hour):
+            manual = not checked
+            for w in (lbl, dt, hl, hr):
+                w.setEnabled(manual)
+        fc_latest_chk.toggled.connect(_sync_latest)
+        _sync_latest(fc_latest_chk.isChecked())
+        # Forecast: aggregation only applies to medium / long range.
+        def _sync_agg(text, agg=fc_sort_by, aggl=fc_agg_lbl):
+            ok = text in ("mediumrange", "longrange")
+            agg.setEnabled(ok); aggl.setEnabled(ok)
+        fc_range.currentTextChanged.connect(_sync_agg)
+        _sync_agg(fc_range.currentText())
 
-        # Wire up Add/Remove buttons
+        # Add/Remove specific dates.
         sp_add.clicked.connect(
             lambda _checked, sdt=specific_dt, sl=specific_list: (
                 sl.addItem(sdt.dateTime().toString("yyyy-MM-dd HH:mm"))
@@ -1299,6 +1314,10 @@ class ModeFIMservWidget(QWidget):
             "label":         label,
             "item_id":       item_id,
             "mode":          mode,
+            # source
+            "rb_src_retro":  rb_src_retro,
+            "rb_src_fore":   rb_src_fore,
+            # retrospective dates
             "rb_range":      rb_range,
             "rb_specific":   rb_specific,
             "date_grp":      date_grp,
@@ -1308,6 +1327,15 @@ class ModeFIMservWidget(QWidget):
             "specific_list": specific_list,
             "range_box":     range_box,
             "specific_box":  specific_box,
+            "retro_box":     retro_box,
+            # forecast
+            "fc_range":      fc_range,
+            "fc_latest_chk": fc_latest_chk,
+            "fc_date":       fc_date,
+            "fc_hour":       fc_hour,
+            "fc_sort_by":    fc_sort_by,
+            "forecast_box":  forecast_box,
+            # status
             "status_lbl":    status_lbl,
         }
         return card, refs
@@ -1466,39 +1494,6 @@ class ModeFIMservWidget(QWidget):
 
     # ── Streamflow enable / disable logic ─────────────────────────────────────
 
-    def _on_source_toggled(self, *_):
-        retro = self._rb_retro.isChecked()
-        self._forecast_box.setVisible(not retro)
-        self._retro_note.setVisible(retro)
-        self._hydro.setVisible(False)
-        if not retro:
-            self._on_fc_latest_toggled()
-            self._on_fc_range_changed()
-        self._refresh_sf_note()
-
-    def _on_fc_latest_toggled(self, *_):
-        manual = not self._fc_latest_chk.isChecked()
-        for w in (self._fc_date_lbl, self._fc_date,
-                  self._fc_hour_lbl, self._fc_hour):
-            w.setEnabled(manual)
-
-    def _on_fc_range_changed(self, *_):
-        agg_ok = self._fc_range.currentText() in ("mediumrange", "longrange")
-        self._fc_sort_by.setEnabled(agg_ok)
-        self._fc_agg_lbl.setEnabled(agg_ok)
-
-    def _refresh_sf_note(self, *_):
-        if self._rb_fore.isChecked():
-            rng = self._fc_range.currentText()
-            when = ("latest available run" if self._fc_latest_chk.isChecked()
-                    else f"{self._fc_date.dateTime().toString('yyyy-MM-dd')} "
-                         f"{self._fc_hour.currentText()}:00 UTC")
-            self._sf_note.setText(f"★ NWM {rng} forecast — {when}.")
-        else:
-            self._sf_note.setText(
-                "★ NWM retrospective — set date range or specific dates per card below."
-            )
-        self._sf_note.setStyleSheet(_NOTE_STYLE)
 
     def _get_streamflow_all(self):
         if not self._fimserve_ok:
@@ -1517,20 +1512,6 @@ class ModeFIMservWidget(QWidget):
             QMessageBox.warning(self, "No cards",
                                 "Complete step 2 (AOI) first — no cards are configured.")
             return
-
-        # Build common forecast kwargs if applicable
-        self._sf_forecast_kwargs: Optional[dict] = None
-        if self._rb_fore.isChecked():
-            self._sf_forecast_kwargs = dict(
-                source="forecast",
-                forecast_range=self._fc_range.currentText(),
-                sort_by=self._fc_sort_by.currentText(),
-            )
-            if not self._fc_latest_chk.isChecked():
-                self._sf_forecast_kwargs["forecast_date"] = (
-                    self._fc_date.dateTime().toString("yyyy-MM-dd"))
-                self._sf_forecast_kwargs["forecast_hour"] = (
-                    int(self._fc_hour.currentText()))
 
         # Reset card status labels
         for card in self._sf_cards:
@@ -1558,8 +1539,17 @@ class ModeFIMservWidget(QWidget):
         card = self._sf_pending.pop(0)
         self._sf_current_card = card
 
-        if self._sf_forecast_kwargs is not None:
-            kwargs = dict(self._sf_forecast_kwargs)
+        if card["rb_src_fore"].isChecked():
+            # Forecast — read this card's own forecast widgets
+            kwargs = dict(
+                source="forecast",
+                forecast_range=card["fc_range"].currentText(),
+                sort_by=card["fc_sort_by"].currentText(),
+            )
+            if not card["fc_latest_chk"].isChecked():
+                kwargs["forecast_date"] = (
+                    card["fc_date"].dateTime().toString("yyyy-MM-dd"))
+                kwargs["forecast_hour"] = int(card["fc_hour"].currentText())
         else:
             # Retrospective — read from this card's date widgets
             if card["rb_range"].isChecked():
@@ -1867,12 +1857,11 @@ class ModeFIMservWidget(QWidget):
         self._huc8_detail_lbl.setText("(click any HUC8 ID above to see details here)")
         self._huc8_detail_cache.clear()
         self._huc8_selected_id = None
-        # Reset streamflow tab
-        self._rb_retro.setChecked(True)
-        self._fc_latest_chk.setChecked(True)
+        # Reset streamflow tab — cards rebuild fresh (each defaults to
+        # Retrospective + latest-run), so there are no global source widgets
+        # to reset here anymore.
         self._sf_cards.clear()
         self._rebuild_sf_cards()
-        self._on_source_toggled()
         self._hydro.setVisible(False)
         self._extent_canvas.setVisible(False)
         self._depth_canvas.setVisible(False)
@@ -1886,5 +1875,4 @@ class ModeFIMservWidget(QWidget):
                 set_ready(btn)
             except Exception:
                 pass
-        self._refresh_sf_note()
         self._tabs.setCurrentIndex(0)
