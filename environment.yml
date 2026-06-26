@@ -49,3 +49,4 @@ dependencies:
   - pip:
       - pyqt6==6.7.1   # pip-only — conda's Qt6 would conflict with this
       - fimserve        # OWP HAND-FIM backend (HAND-FIM mode)
+      - "zarr>=3.0.1"  # fimserve's kerchunk dep requires zarr 3.x; pin to prevent legacy-resolver downgrade
