@@ -371,21 +371,21 @@ class ModeFIMservWidget(QWidget):
 
         v.addWidget(self._aoi_huc8_map_gb, 1)
 
-        # ── Confirm button + status ───────────────────────────────────────────
+        # ── Confirm button + status — same style/position as AOI option ─────
         confirm_row = QHBoxLayout()
-        confirm_btn = QPushButton("Confirm HUC8 IDs  ▶")
-        confirm_btn.setStyleSheet(_RUN_STYLE)
-        confirm_btn.clicked.connect(self._confirm_aoi_huc8)
-        confirm_row.addWidget(confirm_btn)
-        confirm_row.addStretch()
-        v.addLayout(confirm_row)
-
         self._aoi_huc8_status = QLabel("")
         self._aoi_huc8_status.setWordWrap(True)
-        self._aoi_huc8_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;")
-        self._aoi_huc8_status.setVisible(False)
-        v.addWidget(self._aoi_huc8_status)
+        self._aoi_huc8_status.setStyleSheet("color:#555;")
+        confirm_row.addWidget(self._aoi_huc8_status)
+        confirm_row.addStretch()
+        confirm_btn = QPushButton("Add to confirmed HUC8")
+        confirm_btn.setStyleSheet(
+            "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
+            "color:white; border-radius:4px;"
+        )
+        confirm_btn.clicked.connect(self._confirm_aoi_huc8)
+        confirm_row.addWidget(confirm_btn)
+        v.addLayout(confirm_row)
 
         # internal state
         self._aoi_huc8_ids: List[str] = []
@@ -549,8 +549,11 @@ class ModeFIMservWidget(QWidget):
             return
         self._state["huc8_ids"] = ids
         self._aoi_huc8_status.setText(
-            f"Confirmed {len(ids)} HUC8 ID(s): {', '.join(ids)}.  "
-            "Move to step 3 (Streamflow Data) then step 4 (Generate FIM)."
+            f"✓  {len(ids)} HUC8 ID(s) confirmed.  "
+            "Proceed to step 3 (Streamflow Data)."
+        )
+        self._aoi_huc8_status.setStyleSheet(
+            "color:#276749; font-size:12px; font-weight:bold;"
         )
         self._aoi_huc8_status.setVisible(True)
         self._log(
