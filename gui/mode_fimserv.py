@@ -317,6 +317,19 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_rows_layout.addStretch()
         scroll.setWidget(self._aoi_huc8_rows_widget)
         list_gb_layout.addWidget(scroll)
+
+        add_more_btn = QPushButton("+ Add more HUC8 IDs")
+        add_more_btn.setStyleSheet(
+            "QPushButton { background:transparent; border:none; color:#2b6cb0; "
+            "padding:4px 2px; font-size:12px; text-align:left; }"
+            "QPushButton:hover { text-decoration:underline; }"
+        )
+        add_more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_more_btn.clicked.connect(lambda: (
+            self._aoi_huc8_entry.setFocus(),
+            self._aoi_huc8_entry.selectAll(),
+        ))
+        list_gb_layout.addWidget(add_more_btn)
         v.addWidget(self._aoi_huc8_list_gb)
 
         # ── Full CONUS map ────────────────────────────────────────────────────
