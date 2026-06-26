@@ -1208,7 +1208,6 @@ class ModeFIMservWidget(QWidget):
         self._timestep_list.addItem("(fetch the range first)")
         self._timestep_list.setEnabled(False)
         self._on_source_toggled()
-        self._map.setVisible(False)
         self._hydro.setVisible(False)
         self._extent_canvas.setVisible(False)
         self._depth_canvas.setVisible(False)
