@@ -2,14 +2,15 @@
 Author: Supath Dhital (sdhital@crimson.ua.edu)
 Date updated: June 2026
 
-FIMserv (OWP HAND FIM) standalone mode — 5-step wizard.
+FIMserv (OWP HAND FIM) standalone mode — 3-step wizard.
 
 Tabs:
-  1. Project    — same StepTritonProjectWidget as TRITON / LISFLOOD-FP
-  2. AOI        — same StepTritonAOIWidget (multi-AOI) as TRITON / LISFLOOD-FP
-  3. Download HUC8 — resolve HUC8 IDs from AOI (or enter directly) + download rasters
-  4. Streamflow — NWM discharge (retrospective / forecast)
-  5. Generate FIM — produce the flood inundation map
+  1. Project — same StepTritonProjectWidget as TRITON / LISFLOOD-FP
+  2. AOI     — AOI file (multi-shapefile) OR HUC8 IDs; on confirm, each item's
+              HUC8 boundary is downloaded into its folder
+  3. FIM     — one card per AOI / HUC8 (own Source + dates).  "Generate FIM
+              for all" runs, per card: NWM discharge → download OWP HAND
+              rasters → generate the flood inundation map, with X / Y progress.
 """
 
 from pathlib import Path
