@@ -191,6 +191,26 @@ class ModeFIMservWidget(QWidget):
         outer.setSpacing(0)
         outer.setContentsMargins(0, 0, 0, 0)
 
+        # ── fimserve availability banner ──────────────────────────────────────
+        try:
+            import fimserve  # noqa: F401
+            self._fimserve_ok = True
+        except ImportError:
+            self._fimserve_ok = False
+
+        if not self._fimserve_ok:
+            banner = QLabel(
+                "⚠  The <b>fimserve</b> package is not installed — "
+                "Streamflow and Generate FIM steps will not work.  "
+                "Install it first:  <code>pip install fimserve</code>"
+            )
+            banner.setWordWrap(True)
+            banner.setStyleSheet(
+                "background:#fffbeb; color:#744210; border:1px solid #f6ad55; "
+                "border-radius:4px; padding:8px 12px; font-size:12px;"
+            )
+            outer.addWidget(banner)
+
         self._tabs = QTabWidget()
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
         self._tabs.currentChanged.connect(self._update_nav)
@@ -547,9 +567,22 @@ class ModeFIMservWidget(QWidget):
         if not ids:
             QMessageBox.warning(self, "No HUC8 IDs", "Add at least one HUC8 ID first.")
             return
-        self._state["huc8_ids"] = ids
+        self._state["huc8_ids"] = list(ids)
+
+        # Persist to context file so the IDs survive an app restart
+        ctx = self._state.get("ctx") or {}
+        ctx["huc8_ids"] = list(ids)
+        self._state["ctx"] = ctx
+        ctx_path = self._state.get("ctx_path")
+        if ctx_path:
+            try:
+                from core.context import save_context
+                save_context(ctx_path, ctx)
+            except Exception:
+                pass
+
         self._aoi_huc8_status.setText(
-            f"✓  {len(ids)} HUC8 ID(s) confirmed.  "
+            f"✓  {len(ids)} HUC8 ID(s) confirmed and saved.  "
             "Proceed to step 3 (Streamflow Data)."
         )
         self._aoi_huc8_status.setStyleSheet(
@@ -1015,6 +1048,14 @@ class ModeFIMservWidget(QWidget):
         self._sf_note.setStyleSheet(_NOTE_STYLE)
 
     def _get_streamflow(self):
+        if not self._fimserve_ok:
+            QMessageBox.critical(
+                self, "fimserve not installed",
+                "The fimserve package is required for this step.\n\n"
+                "Install it with:\n    pip install fimserve\n\n"
+                "Then restart the app."
+            )
+            return
         ids = self._state.get("huc8_ids") or []
         if not ids:
             QMessageBox.warning(self, "No HUC8",
@@ -1118,6 +1159,14 @@ class ModeFIMservWidget(QWidget):
     # ── Generate FIM (auto-chain: resolve → download → generate) ─────────────
 
     def _generate(self):
+        if not self._fimserve_ok:
+            QMessageBox.critical(
+                self, "fimserve not installed",
+                "The fimserve package is required for this step.\n\n"
+                "Install it with:\n    pip install fimserve\n\n"
+                "Then restart the app."
+            )
+            return
         if not self._state.get("project_dir"):
             QMessageBox.warning(self, "No project",
                                 "Complete the project setup in step 1 first.")
