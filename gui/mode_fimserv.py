@@ -140,17 +140,37 @@ _RUN_STYLE = (
 
 # ── Folder-setup worker functions (run in background thread) ─────────────────
 
+def _download_huc8_boundary(huc8_ids: list, log_fn=print):
+    """Download HUC8 boundary polygons from the USGS WBD service via pynhd.
+
+    Returns a GeoDataFrame or None on failure.
+    """
+    try:
+        import ssl
+        ssl._create_default_https_context = ssl._create_unverified_context
+        from pynhd import WaterData
+        ids = [str(h).zfill(8) for h in huc8_ids]
+        log_fn(f"  Downloading HUC8 boundary(s) from WBD: {', '.join(ids)} …")
+        gdf = WaterData("wbd08").byid("huc8", ids)
+        if gdf is not None and not gdf.empty:
+            return gdf
+    except Exception as ex:
+        log_fn(f"  WBD download failed: {ex}")
+    return None
+
+
 def _setup_huc8_folders(project_dir: str, huc8_ids: list, log_fn=print) -> dict:
     """HUC8 mode: create one sub-folder per HUC8 ID and save its boundary polygon.
 
-    Returns {"created": [huc8_id, ...], "skipped": [...]} so the GUI can
-    report what happened.
+    Tries the bundled data/us_huc8.geojson first; falls back to the USGS WBD
+    web service (pynhd) when the file is missing.
+    Returns {"created": [huc8_id, ...], "skipped": [...]}
     """
     from pathlib import Path
     from core.aoi_info import _load_huc8_boundaries
 
-    base = Path(project_dir)
-    gdf  = _load_huc8_boundaries()
+    base    = Path(project_dir)
+    bundled = _load_huc8_boundaries()          # None when file absent
     created, skipped = [], []
 
     for hid in huc8_ids:
@@ -162,30 +182,30 @@ def _setup_huc8_folders(project_dir: str, huc8_ids: list, log_fn=print) -> dict:
             skipped.append(hid)
             continue
 
-        if gdf is None or gdf.empty:
-            log_fn(f"  HUC8 boundary data not available — folder created but no .gpkg saved for {hid}.")
-            created.append(hid)
-            continue
+        # Prefer bundled data (instant, offline); fall back to WBD download.
+        row = None
+        if bundled is not None and not bundled.empty:
+            col = (
+                "huc8" if "huc8" in bundled.columns
+                else next((c for c in bundled.columns if c.lower() == "huc8"), None)
+            )
+            if col:
+                row = bundled[bundled[col].astype(str).str.zfill(8) == hid]
+                if row.empty:
+                    row = None
 
-        col = (
-            "huc8" if "huc8" in gdf.columns
-            else next((c for c in gdf.columns if c.lower() == "huc8"), None)
-        )
-        if col is None:
-            log_fn(f"  Could not identify HUC8 column — skipping polygon save for {hid}.")
-            created.append(hid)
-            continue
+        if row is None:
+            row = _download_huc8_boundary([hid], log_fn=log_fn)
 
-        row = gdf[gdf[col].astype(str).str.zfill(8) == hid]
         out = folder / "huc8_bound.gpkg"
-        if not row.empty:
+        if row is not None and not row.empty:
             try:
                 row.to_file(str(out), driver="GPKG", layer="huc8_bound")
                 log_fn(f"  Saved HUC8 boundary → {out.relative_to(base)}")
             except Exception as ex:
                 log_fn(f"  Could not save boundary for {hid}: {ex}")
         else:
-            log_fn(f"  HUC8 {hid} not found in bundled boundaries — folder created, no .gpkg.")
+            log_fn(f"  Could not obtain boundary for {hid} — folder created, no .gpkg.")
 
         created.append(hid)
 
@@ -196,14 +216,16 @@ def _setup_aoi_huc8_folders(project_dir: str, aoi_features: list, log_fn=print) 
     """AOI mode: for each confirmed AOI, resolve its HUC8 IDs and save the
     HUC8 boundary polygon(s) in that AOI's project sub-folder.
 
+    Tries the bundled data/us_huc8.geojson first; falls back to the USGS WBD
+    web service (pynhd) when the file is missing.
     Returns {"processed": [aoi_name, ...], "skipped": [...]}
     """
     import re
     from pathlib import Path
     from core.aoi_info import _load_huc8_boundaries, lookup_huc8
 
-    base = Path(project_dir)
-    huc_gdf = _load_huc8_boundaries()
+    base    = Path(project_dir)
+    bundled = _load_huc8_boundaries()          # None when file absent
     processed, skipped = [], []
 
     for feat in aoi_features:
@@ -212,7 +234,7 @@ def _setup_aoi_huc8_folders(project_dir: str, aoi_features: list, log_fn=print) 
         src_file    = feat.get("source_file")
         feat_idx    = feat.get("feature_index", 0)
 
-        # Resolve or create the folder
+        # Resolve or create the AOI folder
         if folder_path:
             folder = Path(folder_path)
         else:
@@ -225,7 +247,7 @@ def _setup_aoi_huc8_folders(project_dir: str, aoi_features: list, log_fn=print) 
             skipped.append(name)
             continue
 
-        # Resolve HUC8 codes (use cached value from AOI confirm if present)
+        # Resolve HUC8 codes (use pre-cached value from AOI confirm if present)
         huc8_codes = feat.get("huc8_codes") or []
         if not huc8_codes and src_file:
             log_fn(f"  Looking up HUC8 IDs for {name} …")
@@ -236,25 +258,35 @@ def _setup_aoi_huc8_folders(project_dir: str, aoi_features: list, log_fn=print) 
             processed.append(name)
             continue
 
-        # Save HUC8 boundary polygons for this AOI
-        if huc_gdf is not None and not huc_gdf.empty:
+        # Fetch boundary polygons: bundled first, WBD download as fallback.
+        rows = None
+        want = {str(h).zfill(8) for h in huc8_codes}
+
+        if bundled is not None and not bundled.empty:
             col = (
-                "huc8" if "huc8" in huc_gdf.columns
-                else next((c for c in huc_gdf.columns if c.lower() == "huc8"), None)
+                "huc8" if "huc8" in bundled.columns
+                else next((c for c in bundled.columns if c.lower() == "huc8"), None)
             )
             if col:
-                want = {str(h).zfill(8) for h in huc8_codes}
-                rows = huc_gdf[huc_gdf[col].astype(str).str.zfill(8).isin(want)]
-                if not rows.empty:
-                    out = folder / "huc8_bounds.gpkg"
-                    try:
-                        rows.to_file(str(out), driver="GPKG", layer="huc8_bounds")
-                        log_fn(
-                            f"  Saved {len(rows)} HUC8 boundary(s) for {name} "
-                            f"→ {out.relative_to(base)}"
-                        )
-                    except Exception as ex:
-                        log_fn(f"  Could not save HUC8 boundaries for {name}: {ex}")
+                rows = bundled[bundled[col].astype(str).str.zfill(8).isin(want)]
+                if rows.empty:
+                    rows = None
+
+        if rows is None:
+            rows = _download_huc8_boundary(list(want), log_fn=log_fn)
+
+        if rows is not None and not rows.empty:
+            out = folder / "huc8_bounds.gpkg"
+            try:
+                rows.to_file(str(out), driver="GPKG", layer="huc8_bounds")
+                log_fn(
+                    f"  Saved {len(rows)} HUC8 boundary(s) for {name} "
+                    f"→ {out.relative_to(base)}"
+                )
+            except Exception as ex:
+                log_fn(f"  Could not save HUC8 boundaries for {name}: {ex}")
+        else:
+            log_fn(f"  Could not obtain HUC8 boundaries for {name} — folder created, no .gpkg.")
 
         processed.append(name)
 
@@ -569,7 +601,8 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_status = QLabel("")
         self._aoi_huc8_status.setWordWrap(True)
         self._aoi_huc8_status.setStyleSheet("color:#555;")
-        confirm_inner_row.addWidget(self._aoi_huc8_status, 1)
+        confirm_inner_row.addWidget(self._aoi_huc8_status)
+        confirm_inner_row.addStretch()
         confirm_btn = QPushButton("Add to confirmed HUC8")
         confirm_btn.setStyleSheet(
             "font-weight:bold; padding:7px 20px; background:#2b6cb0; "
