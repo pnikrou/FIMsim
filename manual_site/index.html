@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FIMsim User Manual</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="FIMsim manual home">
+      <img src="assets/fimsim_logo.png" alt="FIMsim logo">
+      <span>
+        <strong>FIMsim</strong>
+        <small>User Manual</small>
+      </span>
+    </a>
+    <button class="nav-toggle" type="button" aria-label="Show topics" aria-expanded="false">
+      Topics
+    </button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" aria-label="Manual topics">
+      <div class="sidebar-head">
+        <h2>Topics</h2>
+        <input id="topicSearch" type="search" placeholder="Filter topics" aria-label="Filter topics">
+      </div>
+
+      <nav class="topic-nav" id="topicNav">
+        <details open>
+          <summary>Getting Started</summary>
+          <a href="#overview">Overview</a>
+          <a href="#manual-structure">Manual Structure</a>
+          <a href="#installation">Installation</a>
+        </details>
+
+        <details open>
+          <summary>Part 1: Preparing Input Parameters</summary>
+          <a href="#input-parameters">Part Overview</a>
+          <a href="#dem-mode">DEM Mode</a>
+          <a href="#lulc-mode">LULC &amp; Manning's n Mode</a>
+          <a href="#flowline-mode">Flowline Mode</a>
+          <a href="#streamflow-mode">Streamflow Data Mode</a>
+        </details>
+
+        <details>
+          <summary>DEM Details</summary>
+          <a href="#dem-project">Create or Open a Project</a>
+          <a href="#dem-aoi">Define AOI</a>
+          <a href="#dem-settings">Configure DEM Settings</a>
+          <a href="#dem-run">Run DEM Mode</a>
+        </details>
+
+        <details>
+          <summary>LULC Details</summary>
+          <a href="#lulc-settings">Configure Manning's n</a>
+          <a href="#lulc-sources">LULC Data Sources</a>
+          <a href="#lulc-table">Edit Manning's n Table</a>
+          <a href="#lulc-run">Run LULC Mode</a>
+        </details>
+
+        <details>
+          <summary>Flowline Details</summary>
+          <a href="#flowline-project">Project and AOI</a>
+          <a href="#flowline-settings">Configure Flowline Settings</a>
+          <a href="#flowline-run">Run Flowline Mode</a>
+          <a href="#flowline-output">Flowline Output Files</a>
+        </details>
+
+        <details>
+          <summary>Streamflow Details</summary>
+          <a href="#streamflow-project">Create or Open a Project</a>
+          <a href="#streamflow-sources">Choose Streamflow Sources</a>
+          <a href="#streamflow-ids">Entering IDs</a>
+          <a href="#streamflow-run">Run Streamflow Data</a>
+          <a href="#streamflow-output">Streamflow Output Files</a>
+          <a href="#combined-workflow">Using Flowline and Streamflow Together</a>
+        </details>
+
+        <details open>
+          <summary>Part 2: Flood Mapping Models</summary>
+          <a href="#flood-models">Part Overview</a>
+          <a href="#lisflood-model">LISFLOOD-FP</a>
+          <a href="#triton-model">TRITON</a>
+          <a href="#fimserv-model">OWP HAND-FIM</a>
+          <a href="#arc-model">ARC-Curve2Flood</a>
+        </details>
+
+        <details>
+          <summary>LISFLOOD-FP Details</summary>
+          <a href="#lisflood-layout">Application Layout</a>
+          <a href="#lisflood-workflow">Step-by-Step Guide</a>
+          <a href="#lisflood-outputs">Output Files</a>
+        </details>
+
+        <details>
+          <summary>TRITON Details</summary>
+          <a href="#triton-layout">Application Layout</a>
+          <a href="#triton-workflow">Step-by-Step Guide</a>
+          <a href="#triton-outputs">Output Files</a>
+        </details>
+      </nav>
+    </aside>
+
+    <main class="content" id="main">
+      <section class="hero" id="overview">
+        <div>
+          <p class="eyebrow">Flood Inundation Model Simulation Tool</p>
+          <h1>FIMsim User Manual</h1>
+          <p>
+            FIMsim is organized into two parts. The first part prepares input
+            parameters: DEM, LULC and Manning's n, Flowline, and Streamflow
+            Data. The second part prepares flood mapping model inputs, starting
+            with LISFLOOD-FP and TRITON.
+          </p>
+        </div>
+        <img src="assets/fimsim_logo.png" alt="FIMsim logo">
+      </section>
+
+      <section class="topic-section" id="manual-structure">
+        <h2>Manual Structure</h2>
+        <div class="part-grid">
+          <article>
+            <p class="part-label">Part 1</p>
+            <h3>Preparing Input Parameters</h3>
+            <p>Use these modules to create reusable spatial and hydrologic inputs before selecting a flood mapping model.</p>
+            <ul>
+              <li>DEM</li>
+              <li>LULC &amp; Manning's n</li>
+              <li>Flowline</li>
+              <li>Streamflow Data</li>
+            </ul>
+          </article>
+          <article>
+            <p class="part-label">Part 2</p>
+            <h3>Flood Mapping Models</h3>
+            <p>Use these model modules to assemble model-specific files from the prepared inputs.</p>
+            <ul>
+              <li>LISFLOOD-FP</li>
+              <li>TRITON</li>
+              <li>OWP HAND-FIM</li>
+              <li>ARC-Curve2Flood</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="topic-section" id="input-parameters">
+        <h2>Part 1: Preparing Input Parameters</h2>
+        <div class="mode-grid">
+          <article>
+            <h3>DEM Mode</h3>
+            <p>Download and process Digital Elevation Models for any Area of Interest.</p>
+            <p class="muted">Output: DEM raster (.tif / .asc / .gpkg).</p>
+          </article>
+          <article>
+            <h3>LULC &amp; Manning Mode</h3>
+            <p>Download land use/land cover data and assign Manning's n roughness coefficients.</p>
+            <p class="muted">Output: LULC raster and Manning's n raster / table.</p>
+          </article>
+          <article>
+            <h3>Flowline Mode</h3>
+            <p>Download NHD river flowlines, identify the main river, save USGS gages, and export NWM feature IDs.</p>
+            <p class="muted">Output: flowlines, gages CSV, feature IDs CSV.</p>
+          </article>
+          <article>
+            <h3>Streamflow Data Mode</h3>
+            <p>Download discharge time series from NOAA NWM retrospective, NOAA NWM forecast, or USGS stream gages.</p>
+            <p class="muted">Output: CSV files with time_hours and discharge_cms.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="topic-section" id="installation">
+        <h2>Installation</h2>
+        <p>
+          Install Anaconda first. Then open Terminal on Mac or Anaconda Prompt
+          on Windows and run these commands one by one:
+        </p>
+        <pre><code>git clone https://github.com/pnikrou/FIMsim.git
+cd FIMsim
+conda env create -f environment.yml
+conda activate FIMsim
+python main.py</code></pre>
+        <p>
+          The first-time setup usually takes around 10 minutes because it needs
+          to download the required packages. After that, open the app again with:
+        </p>
+        <pre><code>cd FIMsim
+conda activate FIMsim
+python main.py</code></pre>
+      </section>
+
+      <section class="topic-section" id="dem-mode">
+        <h2>DEM Mode</h2>
+        <p>
+          DEM Mode downloads and processes Digital Elevation Models for one or
+          more Areas of Interest using USGS 3DEP data, including
+          hydro-conditioned DEMs used for HAND-based flood inundation mapping.
+        </p>
+
+        <h3 id="dem-project">Step 1: Create or Open a Project</h3>
+        <p>Every session starts with a project. The project folder stores all downloaded files and settings.</p>
+        <ul>
+          <li>Enter a Project Name.</li>
+          <li>Click Browse to choose where the project folder will be created.</li>
+          <li>Click Create Project.</li>
+        </ul>
+
+        <h3 id="dem-aoi">Step 2: Define Area(s) of Interest (AOI)</h3>
+        <p>An AOI is a polygon shapefile (.shp) or GeoPackage (.gpkg) that defines the study boundary.</p>
+        <ul>
+          <li>Click Browse and select your AOI file. The AOI file may contain one polygon feature or multiple polygon features.</li>
+          <li>Select each feature you want to process in the Use column, or click Select all features.</li>
+          <li>Click Add more AOIs to include AOIs from another file.</li>
+          <li>Click Add to confirmed AOIs. A folder with the AOI name is automatically created inside the project folder.</li>
+          <li>Click Next step to continue.</li>
+        </ul>
+
+        <h3 id="dem-settings">Step 3: Configure DEM Settings</h3>
+        <p>For each AOI, choose the DEM source and output format.</p>
+        <table>
+          <tbody>
+            <tr>
+              <th>1</th>
+              <th>Source</th>
+              <td>3DEP: USGS 3D Elevation Program. HAND DEMs.</td>
+            </tr>
+            <tr>
+              <th>2</th>
+              <th>Cell size</th>
+              <td>Output raster cell size in meters. Default is 10 m. Match this to your flood model's required resolution.</td>
+            </tr>
+            <tr>
+              <th>3</th>
+              <th>Output format</th>
+              <td>GeoTIFF (.tif), GeoPackage (.gpkg), ASCII Grid (.asc).</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>For multiple AOIs, each AOI gets its own settings card. Use Apply current AOI's settings to all to copy settings across all AOIs at once.</p>
+
+        <h3 id="dem-run">Step 4: Run</h3>
+        <ul>
+          <li>Click Run.</li>
+          <li>Progress is shown in the log panel at the bottom.</li>
+          <li>When complete, click any AOI name to see the DEM preview and elevation statistics.</li>
+          <li>The DEM file is saved at: <code>&lt;project&gt;/&lt;AOI name&gt;/dem/dem.tif</code>, or .asc / .gpkg depending on your format choice.</li>
+        </ul>
+      </section>
+
+      <section class="topic-section" id="lulc-mode">
+        <h2>LULC &amp; Manning's n Mode</h2>
+        <p>
+          LULC Mode downloads land use / land cover data and derives Manning's n
+          hydraulic roughness coefficients for each AOI.
+        </p>
+
+        <h3>Steps 1-2: Project and AOI</h3>
+        <p>Follow the same steps as DEM Mode. The project and AOI setup are identical.</p>
+
+        <h3 id="lulc-settings">Step 3: Configure Manning's n Settings</h3>
+        <p>Choose how Manning's n is assigned across the AOI.</p>
+        <table>
+          <tbody>
+            <tr>
+              <th>Fixed (Uniform)</th>
+              <td>
+                A single Manning's n value is applied uniformly across the entire AOI.
+                Use this for simple simulations or when land cover variability is not critical.
+                No LULC download is required.
+              </td>
+            </tr>
+            <tr>
+              <th>Varying (Per LULC class)</th>
+              <td>LULC data is downloaded and each land cover class is assigned its own Manning's n value.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="lulc-sources">LULC Data Sources (Varying mode)</h3>
+        <ul>
+          <li><strong>NLCD (USA only, 30 m):</strong> National Land Cover Database from USGS. Best for USA-based studies.</li>
+          <li><strong>ESRI Sentinel-2 (Global, 10 m):</strong> Global land cover from ESRI. Use for study areas outside the USA or when 10 m resolution is needed.</li>
+        </ul>
+
+        <h3 id="lulc-table">Editing the Manning's n Table</h3>
+        <p>In Varying mode, a table lists all LULC classes with default Manning's n values.</p>
+        <ul>
+          <li>Click any value in the Manning's n column to edit it.</li>
+          <li>Default values are based on published hydraulic literature (Chow, 1959).</li>
+          <li>Changes apply only to the current session.</li>
+        </ul>
+
+        <h3 id="lulc-run">Step 4: Run</h3>
+        <ul>
+          <li>Click Run.</li>
+          <li>Progress is shown in the log panel at the bottom.</li>
+          <li>When complete, click any AOI name to view LULC and Manning raster previews plus a land cover breakdown table.</li>
+          <li>Output files are saved at: <code>&lt;project&gt;/&lt;AOI name&gt;/lulc.tif</code> and <code>&lt;AOI name&gt;/lulc.ascii</code> if requested.</li>
+        </ul>
+      </section>
+
+      <section class="topic-section" id="flowline-mode">
+        <h2>Flowline Mode</h2>
+        <p>
+          Flowline Mode downloads and processes river network data for one or
+          more Areas of Interest using NHD flowlines. It can save the main river,
+          all flowlines clipped to the AOI, nearby USGS gages, and NWM feature IDs.
+        </p>
+
+        <h3 id="flowline-project">Steps 1-2: Project and AOI</h3>
+        <p>Follow the same project and AOI setup steps as DEM Mode. After AOIs are confirmed, each AOI gets its own flowline settings card.</p>
+
+        <h3 id="flowline-settings">Step 3: Configure Flowline Settings</h3>
+        <p>For each AOI, choose which flowline products to save and which format to use.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Description</th>
+              <th>Available formats / notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Main river</td>
+              <td>Saves the highest-stream-order NHD river reach identified inside the AOI.</td>
+              <td>Shapefile (.shp), GeoPackage (.gpkg), TIF raster (.tif), or CSV (.csv). Selected by default.</td>
+            </tr>
+            <tr>
+              <td>All flowlines</td>
+              <td>Saves the full NHD reach set clipped to the AOI.</td>
+              <td>Shapefile, GeoPackage, TIF raster, or CSV. Optional.</td>
+            </tr>
+            <tr>
+              <td>Cell size for TIF</td>
+              <td>Controls raster cell size when either Main river or All flowlines is saved as a TIF.</td>
+              <td>Default is 30 m. Use the same or similar resolution as the hydraulic model grid when possible.</td>
+            </tr>
+            <tr>
+              <td>USGS gages CSV</td>
+              <td>Saves a CSV of USGS stream gages found for the AOI.</td>
+              <td>Selected by default. The gage IDs can be used later in Streamflow Data Mode.</td>
+            </tr>
+            <tr>
+              <td>Feature IDs CSV</td>
+              <td>Saves NWM feature IDs from the downloaded NHD flowlines.</td>
+              <td>Saved automatically. These IDs can be used for NWM retrospective or forecast streamflow downloads.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="flowline-run">Step 4: Run</h3>
+        <ul>
+          <li>Click Download Flowlines for all AOIs.</li>
+          <li>Progress is shown in the log panel and progress bar.</li>
+          <li>When complete, click any AOI name to view AOI polygon, downloaded flowlines, USGS gages, and upstream/downstream markers.</li>
+          <li>Output files are saved inside each AOI folder: <code>&lt;project&gt;/&lt;AOI name&gt;/</code>.</li>
+        </ul>
+
+        <h3 id="flowline-output">Flowline Output Files</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Output</th>
+              <th>Typical filename</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Main river</td>
+              <td>main_river_&lt;AOI name&gt;.*</td>
+              <td>Main NHD river reach selected for the AOI.</td>
+            </tr>
+            <tr>
+              <td>All flowlines</td>
+              <td>all_flowlines_&lt;AOI name&gt;.*</td>
+              <td>All NHD flowlines clipped to the AOI.</td>
+            </tr>
+            <tr>
+              <td>USGS gages</td>
+              <td>usgs_gages_&lt;AOI name&gt;.csv</td>
+              <td>Station number, station name, latitude, and longitude for USGS gages.</td>
+            </tr>
+            <tr>
+              <td>NWM feature IDs</td>
+              <td>feature_ids_&lt;AOI name&gt;.csv</td>
+              <td>Feature IDs / COMIDs used by NWM streamflow downloads.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="topic-section" id="streamflow-mode">
+        <h2>Streamflow Data Mode</h2>
+        <p>
+          Streamflow Data Mode downloads discharge time series without requiring
+          an AOI. Enter NWM feature IDs or USGS gage numbers directly, paste
+          comma-separated values, or browse to a CSV/TXT file with one ID per line.
+        </p>
+
+        <h3 id="streamflow-project">Step 1: Create or Open a Project</h3>
+        <p>Start by creating or opening a project. Streamflow CSV outputs are saved directly in the project folder.</p>
+
+        <h3 id="streamflow-sources">Step 2: Choose Streamflow Source(s)</h3>
+        <p>Enable one or more streamflow sources. Each enabled source has its own ID field, date range, and interval settings.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Required ID</th>
+              <th>Date coverage</th>
+              <th>Interval</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>NWM Retrospective</td>
+              <td>NWM feature ID / COMID</td>
+              <td>1979-02-01 to 2020-12-31. USA only.</td>
+              <td>0.5h, 1h, 3h, 6h, 12h, or 24h. Default is 1h.</td>
+            </tr>
+            <tr>
+              <td>NWM Forecast</td>
+              <td>NWM feature ID / COMID</td>
+              <td>Rolling forecast window, about 10 days from the current date. USA only. No historical archive.</td>
+              <td>Forecast output is saved at 1-hour interval.</td>
+            </tr>
+            <tr>
+              <td>USGS Stream Gage</td>
+              <td>USGS gage number</td>
+              <td>Depends on gage availability and requested period.</td>
+              <td>15min, 30min, 1h, 3h, 6h, 12h, or 24h. Default is 1h.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="streamflow-ids">Entering IDs</h3>
+        <ul>
+          <li>For NWM sources, enter a single feature ID, a comma-separated list of feature IDs, or browse to a CSV/TXT file. The feature_ids_&lt;AOI name&gt;.csv file from Flowline Mode can be used here.</li>
+          <li>For USGS Stream Gage, enter a single gage number, a comma-separated list of gage numbers, or browse to a CSV/TXT file. The usgs_gages_&lt;AOI name&gt;.csv file can be used as a reference.</li>
+          <li>CSV/TXT input files should contain one ID per line. A header row is not required.</li>
+        </ul>
+
+        <h3 id="streamflow-run">Step 3: Run</h3>
+        <ul>
+          <li>Click Download Streamflow Data.</li>
+          <li>Progress is shown while the app downloads and processes the selected source(s).</li>
+          <li>When complete, the app reports how many time series were saved. Data warnings appear in the results panel.</li>
+          <li>If one time series is downloaded, the hydrograph appears directly. If multiple time series are downloaded, click a row to preview its hydrograph.</li>
+        </ul>
+
+        <h3 id="streamflow-output">Streamflow Output Files</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Filename pattern</th>
+              <th>CSV columns</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>NWM Retrospective</td>
+              <td>nwm_retro_&lt;feature_id&gt;.csv</td>
+              <td>time_hours, discharge_cms</td>
+            </tr>
+            <tr>
+              <td>NWM Forecast</td>
+              <td>nwm_forecast_&lt;feature_id&gt;.csv</td>
+              <td>time_hours, discharge_cms</td>
+            </tr>
+            <tr>
+              <td>USGS Stream Gage</td>
+              <td>usgs_discharge_&lt;gage_id&gt;.csv</td>
+              <td>time_hours, discharge_cms</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          The primary model-ready discharge field is <code>discharge_cms</code>,
+          which stores discharge in cubic meters per second. The
+          <code>time_hours</code> column represents elapsed hours from the first
+          timestamp and is useful for hydraulic model boundary inputs.
+        </p>
+
+        <h3 id="combined-workflow">Using Flowline and Streamflow Together</h3>
+        <ul>
+          <li>Run Flowline Mode first when you need to discover NWM feature IDs or nearby USGS gages for an AOI.</li>
+          <li>Use feature_ids_&lt;AOI name&gt;.csv as input for NWM Retrospective or NWM Forecast downloads.</li>
+          <li>Use usgs_gages_&lt;AOI name&gt;.csv to identify candidate USGS gage numbers.</li>
+          <li>Check the hydrograph preview and warnings after each download to confirm the selected period has usable discharge data.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

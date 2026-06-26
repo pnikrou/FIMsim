@@ -1663,30 +1663,48 @@ class ModeFIMservWidget(QWidget):
             self._state["aoi_path"] = aoi_path
 
         self._rebuild_sf_cards()  # populate Streamflow cards as soon as AOI is confirmed
+        self._ensure_aoi_huc8_folders()
 
-        # Launch background worker: create AOI sub-folders + save HUC8 boundaries
-        project_dir   = self._state.get("project_dir")
-        aoi_features  = ctx.get("aoi_features") or []
-        if project_dir and aoi_features:
-            self._log(
-                f"AOI step complete — setting up {len(aoi_features)} project folder(s) "
-                "and saving HUC8 boundary data…"
-            )
-            self._aoi_setup_worker = Worker(
-                _setup_aoi_huc8_folders,
-                project_dir=project_dir,
-                aoi_features=aoi_features,
-            )
-            self._aoi_setup_worker.message.connect(self._log)
-            self._aoi_setup_worker.finished.connect(self._on_aoi_folders_done)
-            self._aoi_setup_worker.error.connect(
-                lambda msg: self._log(f"AOI folder setup error: {msg}")
-            )
-            self._aoi_setup_worker.start()
-        else:
-            self._log(
-                "AOI step complete — move to step 3 (Streamflow Data) then step 4 (Generate FIM)."
-            )
+    def _ensure_aoi_huc8_folders(self):
+        """Create per-AOI sub-folders and download + save each AOI's HUC8
+        boundary polygon(s).
+
+        Called from BOTH the AOI step's confirm (_on_aoi_done) and from tab
+        navigation (_on_tab_changed) so the boundaries get saved no matter how
+        the user leaves the AOI tab.  A signature guard prevents re-running for
+        the same confirmed AOI set.
+        """
+        project_dir  = self._state.get("project_dir")
+        aoi_features = self._state.get("ctx", {}).get("aoi_features") or []
+        if not (project_dir and aoi_features):
+            if aoi_features and not project_dir:
+                self._log("AOI confirmed, but complete step 1 (Project) first "
+                          "so HUC8 boundaries can be saved into folders.")
+            return
+
+        sig = tuple(
+            (f.get("name"), f.get("folder_path"))
+            for f in aoi_features if isinstance(f, dict)
+        )
+        if sig == getattr(self, "_aoi_folders_signature", None):
+            return  # already set up for this exact AOI set
+        self._aoi_folders_signature = sig
+
+        self._log(
+            f"AOI confirmed — setting up {len(aoi_features)} project folder(s) "
+            "and downloading + saving each AOI's HUC8 boundary…"
+        )
+        self._aoi_setup_worker = Worker(
+            _setup_aoi_huc8_folders,
+            project_dir=project_dir,
+            aoi_features=aoi_features,
+        )
+        self._aoi_setup_worker.message.connect(self._log)
+        self._aoi_setup_worker.finished.connect(self._on_aoi_folders_done)
+        self._aoi_setup_worker.error.connect(
+            lambda msg: self._log(f"AOI folder setup error: {msg}")
+        )
+        self._aoi_setup_worker.start()
 
     def _on_aoi_folders_done(self, result: dict):
         processed = result.get("processed", [])
@@ -2011,6 +2029,10 @@ class ModeFIMservWidget(QWidget):
                 if data:
                     self._state["ctx"]      = data.get("ctx",      self._state.get("ctx", {}))
                     self._state["ctx_path"] = data.get("ctx_path", self._state.get("ctx_path"))
+                # Download + save each AOI's HUC8 boundary if it hasn't been
+                # done yet — covers the case where the user leaves the AOI tab
+                # by clicking another tab instead of "Next step".
+                self._ensure_aoi_huc8_folders()
             except Exception:
                 pass
         if idx == _TAB_STREAMFLOW:
