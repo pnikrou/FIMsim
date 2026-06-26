@@ -52,9 +52,8 @@ _RUN_STYLE = (
 # Tab indices
 _TAB_PROJECT    = 0
 _TAB_AOI        = 1
-_TAB_DOWNLOAD   = 2
-_TAB_STREAMFLOW = 3
-_TAB_FIM        = 4
+_TAB_STREAMFLOW = 2
+_TAB_FIM        = 3
 
 _CONUS_ABBRS = {
     "AL","AR","AZ","CA","CO","CT","DC","DE","FL","GA","IA","ID",
@@ -203,9 +202,8 @@ class ModeFIMservWidget(QWidget):
 
         self._tabs.addTab(self._wrap(self._proj_step),               "1. Project")
         self._tabs.addTab(self._wrap(self._build_aoi_choice_tab()), "2. AOI")
-        self._tabs.addTab(self._wrap(self._build_huc8_tab()),       "3. Download HUC8")
-        self._tabs.addTab(self._wrap(self._build_streamflow_tab()), "4. Streamflow Data")
-        self._tabs.addTab(self._wrap(self._build_fim_tab()),        "5. Generate FIM")
+        self._tabs.addTab(self._wrap(self._build_streamflow_tab()), "3. Streamflow Data")
+        self._tabs.addTab(self._wrap(self._build_fim_tab()),        "4. Generate FIM")
 
         self._tabs.setCurrentIndex(0)
         self._update_nav(0)
@@ -425,11 +423,9 @@ class ModeFIMservWidget(QWidget):
             QMessageBox.warning(self, "No HUC8 IDs", "Add at least one HUC8 ID first.")
             return
         self._state["huc8_ids"] = ids
-        # Pre-fill step 3's direct-entry field so the user can see what's set.
-        self._huc8_edit.setText(", ".join(ids))
         self._aoi_huc8_status.setText(
             f"Confirmed {len(ids)} HUC8 ID(s): {', '.join(ids)}.  "
-            "Move to step 3 to download the rasters."
+            "Move to step 3 (Streamflow Data) then step 4 (Generate FIM)."
         )
         self._aoi_huc8_status.setVisible(True)
         self._log(
@@ -437,115 +433,7 @@ class ModeFIMservWidget(QWidget):
             + ", ".join(ids)
         )
 
-    # ── Step 3: Download HUC8 (resolve + map preview + download) ─────────────
-
-    def _build_huc8_tab(self) -> QWidget:
-        page = QWidget()
-        v = QVBoxLayout(page)
-        v.setSpacing(12)
-        v.setContentsMargins(14, 14, 14, 14)
-
-        title = QLabel("Download HUC8 OWP HAND rasters")
-        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        title.setStyleSheet("color:#2d3748;")
-        v.addWidget(title)
-
-        # AOI info from step 2
-        self._huc8_aoi_info = QLabel(
-            "Select an AOI in step 2 first.  HUC8 IDs will be resolved automatically.\n"
-            "Or enter HUC8 IDs directly below (overrides the AOI)."
-        )
-        self._huc8_aoi_info.setWordWrap(True)
-        self._huc8_aoi_info.setStyleSheet("color:#4a5568; font-size:12px;")
-        v.addWidget(self._huc8_aoi_info)
-
-        # HUC8 ID direct-entry (optional override)
-        src_gb = QGroupBox()
-        src_gb.setStyleSheet(_GB_STYLE)
-        src_v = QVBoxLayout(src_gb)
-        src_v.setSpacing(6)
-
-        huc_hdr = QLabel("HUC8 ID(s) — direct entry (optional)")
-        huc_hdr.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        src_v.addWidget(huc_hdr)
-
-        huc_row = QHBoxLayout()
-        huc_row.addWidget(QLabel("HUC8 ID(s):"))
-        self._huc8_edit = QLineEdit()
-        self._huc8_edit.setPlaceholderText(
-            "e.g. 03020201, 03020202  (leave blank to resolve from AOI)")
-        huc_row.addWidget(self._huc8_edit, 1)
-        src_v.addLayout(huc_row)
-
-        note = QLabel(
-            "★ Leave blank to resolve HUC8 IDs from the AOI selected in step 2.  "
-            "Fill in to skip the AOI and run directly over these HUC8 region(s).  USA only."
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet(_NOTE_STYLE)
-        src_v.addWidget(note)
-
-        resolve_row = QHBoxLayout()
-        self._resolve_btn = QPushButton("Resolve HUC8  &  Preview")
-        self._resolve_btn.setStyleSheet(_RUN_STYLE)
-        self._resolve_btn.clicked.connect(self._resolve)
-        resolve_row.addWidget(self._resolve_btn)
-        resolve_row.addStretch()
-        src_v.addLayout(resolve_row)
-        v.addWidget(src_gb)
-
-        # Map preview
-        self._map = USMapCanvas(self, width=10.0, height=4.0)
-        self._map.setVisible(False)
-        v.addWidget(self._map)
-
-        self._input_status = QLabel("")
-        self._input_status.setWordWrap(True)
-        self._input_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;")
-        self._input_status.setVisible(False)
-        v.addWidget(self._input_status)
-
-        self._input_progress = QProgressBar()
-        self._input_progress.setRange(0, 0)
-        self._input_progress.setVisible(False)
-        v.addWidget(self._input_progress)
-
-        # Download section
-        dl_sep = QLabel("Download")
-        dl_sep.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        dl_sep.setStyleSheet("color:#2d3748; margin-top:6px;")
-        v.addWidget(dl_sep)
-
-        self._dl_info = QLabel("Resolve HUC8 IDs above first.")
-        self._dl_info.setWordWrap(True)
-        self._dl_info.setStyleSheet("color:#4a5568; font-size:12px;")
-        v.addWidget(self._dl_info)
-
-        dl_row = QHBoxLayout()
-        self._dl_btn = QPushButton("Download HUC8 data")
-        self._dl_btn.setStyleSheet(_RUN_STYLE)
-        self._dl_btn.clicked.connect(self._download)
-        dl_row.addWidget(self._dl_btn)
-        dl_row.addStretch()
-        v.addLayout(dl_row)
-
-        self._dl_progress = QProgressBar()
-        self._dl_progress.setRange(0, 0)
-        self._dl_progress.setVisible(False)
-        v.addWidget(self._dl_progress)
-
-        self._dl_status = QLabel("")
-        self._dl_status.setWordWrap(True)
-        self._dl_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;")
-        self._dl_status.setVisible(False)
-        v.addWidget(self._dl_status)
-
-        v.addStretch()
-        return page
-
-    # ── Step 4: Streamflow ────────────────────────────────────────────────────
+    # ── Step 3: Streamflow ────────────────────────────────────────────────────
 
     def _build_streamflow_tab(self) -> QWidget:
         page = QWidget()
@@ -759,7 +647,7 @@ class ModeFIMservWidget(QWidget):
         self._forecast_box = box
         return box
 
-    # ── Step 5: Generate FIM ──────────────────────────────────────────────────
+    # ── Step 4: Generate FIM ──────────────────────────────────────────────────
 
     def _build_fim_tab(self) -> QWidget:
         page = QWidget()
@@ -779,8 +667,11 @@ class ModeFIMservWidget(QWidget):
         gv.addWidget(self._depth_chk)
 
         self._fim_note = QLabel(
-            "★ The flood inundation map is generated for the HUC8 region(s), "
-            "merged across HUC8s, and shown against your area of interest."
+            "★ Clicking 'Generate FIM' will automatically:\n"
+            "  1. Resolve HUC8 IDs from your AOI (if AOI mode was used in step 2)\n"
+            "  2. Download the OWP HAND HUC8 rasters\n"
+            "  3. Generate the flood inundation map\n"
+            "Previously-downloaded rasters are reused automatically."
         )
         self._fim_note.setWordWrap(True); self._fim_note.setStyleSheet(_NOTE_STYLE)
         gv.addWidget(self._fim_note)
@@ -849,173 +740,30 @@ class ModeFIMservWidget(QWidget):
         if ids:
             self._state["huc8_ids"]   = ids
             self._state["downloaded"] = existing.get("downloaded") or []
-            self._huc8_edit.setText(", ".join(ids))
-            self._input_status.setText(
+            self._log(
                 f"Found existing data for {len(ids)} HUC8(s): {', '.join(ids)}. "
-                "Already-finished steps will be skipped — go straight to the "
-                "step you need."
+                "Already-finished steps will be skipped — go straight to the step you need."
             )
-            self._input_status.setStyleSheet(
-                "color:#276749; font-size:12px; font-weight:bold;")
-            self._input_status.setVisible(True)
-            self._render_preview()
             # Jump to the first step that still has work remaining.
             if not existing.get("with_fim"):
                 if not existing.get("with_discharge"):
-                    if existing.get("downloaded"):
-                        self._tabs.setCurrentIndex(_TAB_STREAMFLOW)
-                    else:
-                        self._tabs.setCurrentIndex(_TAB_DOWNLOAD)
+                    self._tabs.setCurrentIndex(_TAB_STREAMFLOW)
                 else:
                     self._tabs.setCurrentIndex(_TAB_FIM)
         else:
-            self._log("Project ready — complete the AOI step, then resolve and download HUC8 data.")
+            self._log("Project ready — complete the AOI step, then generate the FIM.")
 
     def _on_aoi_done(self, data: dict):
         ctx      = data.get("ctx", {})
         ctx_path = data.get("ctx_path")
-        # Update our local state references
         self._state["ctx"]      = ctx
         self._state["ctx_path"] = ctx_path
         aoi_path = ctx.get("aoi_path")
         if aoi_path:
             self._state["aoi_path"] = aoi_path
-            self._huc8_aoi_info.setText(
-                f"AOI from step 2: {Path(aoi_path).name}  "
-                "(HUC8 IDs will be resolved automatically on 'Resolve HUC8 & Preview')"
-            )
-            self._huc8_aoi_info.setStyleSheet(
-                "color:#276749; font-size:12px; font-weight:bold;")
         self._log(
-            "AOI step complete — move to step 3 to resolve and download HUC8 data."
+            "AOI step complete — move to step 3 (Streamflow Data) then step 4 (Generate FIM)."
         )
-
-    # ── Resolve & Download ────────────────────────────────────────────────────
-
-    def _resolve(self):
-        if not self._state["project_dir"]:
-            QMessageBox.warning(self, "No project",
-                                "Complete the project setup in step 1 first.")
-            return
-
-        # Direct HUC8 IDs override the AOI when present.
-        raw = self._huc8_edit.text().strip()
-        direct_ids = (
-            [t.strip().zfill(8) for t in raw.replace(",", " ").split() if t.strip()]
-            if raw else []
-        )
-        aoi_path = None if direct_ids else self._state.get("aoi_path")
-
-        if not direct_ids and not aoi_path:
-            QMessageBox.warning(
-                self, "No input",
-                "Select an AOI in step 2 or enter HUC8 IDs directly in the field above."
-            )
-            return
-
-        self._input_progress.setVisible(True)
-        self._set_busy(self._input_status, "Resolving HUC8 …")
-        set_running(self._resolve_btn)
-
-        self._start_worker(
-            resolve_huc8_mode,
-            done=self._on_resolved,
-            project_dir=self._state["project_dir"],
-            aoi_path=aoi_path,
-            huc8_ids=direct_ids if direct_ids else None,
-        )
-
-    def _on_resolved(self, result: dict):
-        set_ready(self._resolve_btn)
-        self._input_progress.setVisible(False)
-        ids = result.get("huc8_ids", [])
-        self._state["huc8_ids"] = ids
-        if result.get("aoi_path"):
-            self._state["aoi_path"] = result.get("aoi_path")
-
-        if not ids:
-            self._input_status.setText("No HUC8 IDs found — check the AOI / IDs.")
-            self._input_status.setStyleSheet(
-                "color:#c53030; font-size:12px; font-weight:bold;")
-            self._input_status.setVisible(True)
-            return
-
-        self._input_status.setText(
-            f"Resolved {len(ids)} HUC8(s): {', '.join(ids)}.  "
-            "Click 'Download HUC8 data' below to download the rasters."
-        )
-        self._input_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;")
-        self._input_status.setVisible(True)
-        self._dl_info.setText(f"Ready to download {len(ids)} HUC8(s).")
-        self._render_preview()
-
-    def _download(self):
-        ids = self._state.get("huc8_ids") or []
-        if not ids:
-            QMessageBox.warning(self, "No HUC8",
-                                "Resolve HUC8 IDs first (button above).")
-            return
-        self._dl_progress.setVisible(True)
-        self._set_busy(self._dl_status,
-                       "Downloading HUC8 rasters — this can take a few minutes, "
-                       "hold tight …")
-        set_running(self._dl_btn)
-        self._start_worker(
-            download_huc8_mode,
-            done=self._on_downloaded,
-            project_dir=self._state["project_dir"],
-            huc8_ids=ids,
-        )
-
-    def _on_downloaded(self, result: dict):
-        set_ready(self._dl_btn)
-        self._dl_progress.setVisible(False)
-        ok = result.get("downloaded", [])
-        self._state["downloaded"] = ok
-        self._dl_status.setText(
-            f"Downloaded {len(ok)} of {len(self._state['huc8_ids'])} HUC8(s): "
-            f"{', '.join(ok) if ok else '—'}."
-        )
-        self._dl_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;")
-        self._dl_status.setVisible(True)
-
-    def _render_preview(self):
-        try:
-            import geopandas as gpd
-
-            api = FIMservAPI(self._state["project_dir"], log_fn=self._log)
-            huc8_gdf = api.huc8_polygons(self._state["huc8_ids"])
-
-            aoi_gdf = None
-            state_abbrs: List[str] = []
-            points = []
-            labels = []
-            aoi_path = self._state.get("aoi_path")
-            if aoi_path:
-                aoi_gdf = gpd.read_file(aoi_path)
-                c = aoi_gdf.to_crs("EPSG:4326").geometry.union_all().centroid
-                points = [(c.x, c.y)]
-                labels = ["AOI"]
-                st = detect_us_state(aoi_gdf)
-                if st.get("state_abbr"):
-                    state_abbrs = [st["state_abbr"]]
-            elif huc8_gdf is not None:
-                c = huc8_gdf.to_crs("EPSG:4326").geometry.union_all().centroid
-                points = [(c.x, c.y)]
-                labels = ["HUC8"]
-
-            self._map.update_plots(
-                highlighted_state_abbrs=state_abbrs,
-                aoi_points=points,
-                aoi_labels=labels,
-                aoi_gdf=aoi_gdf,
-                huc8_gdf=huc8_gdf,
-            )
-            self._map.setVisible(True)
-        except Exception as ex:
-            self._log(f"Map preview failed: {ex}")
 
     # ── Streamflow enable / disable logic ─────────────────────────────────────
 
@@ -1139,10 +887,10 @@ class ModeFIMservWidget(QWidget):
         self._sf_note.setStyleSheet(_NOTE_STYLE)
 
     def _get_streamflow(self):
-        ids = self._state.get("downloaded") or self._state.get("huc8_ids") or []
+        ids = self._state.get("huc8_ids") or []
         if not ids:
             QMessageBox.warning(self, "No HUC8",
-                                "Resolve and download HUC8 data in step 3 first.")
+                                "Complete step 2 (AOI) first — enter an AOI file or HUC8 IDs.")
             return
 
         if self._rb_fore.isChecked():
@@ -1239,22 +987,78 @@ class ModeFIMservWidget(QWidget):
                 )
                 self._hydro.setVisible(True)
 
-    # ── Generate FIM ──────────────────────────────────────────────────────────
+    # ── Generate FIM (auto-chain: resolve → download → generate) ─────────────
 
     def _generate(self):
-        ids = self._state.get("downloaded") or self._state.get("huc8_ids") or []
-        if not ids:
-            QMessageBox.warning(self, "No HUC8",
-                                "Resolve and download HUC8 data in step 3 first.")
+        if not self._state.get("project_dir"):
+            QMessageBox.warning(self, "No project",
+                                "Complete the project setup in step 1 first.")
             return
+
         self._fim_progress.setVisible(True)
         self._extent_canvas.setVisible(False)
         self._depth_canvas.setVisible(False)
         self._fim_files.setVisible(False)
-        self._set_busy(self._fim_status,
-                       "Generating flood inundation map — this can take a few "
-                       "minutes, hold tight …")
         set_running(self._fim_btn)
+
+        # Phase 1: if no HUC8 IDs yet, resolve them from the AOI.
+        if not self._state.get("huc8_ids"):
+            aoi_path = self._state.get("aoi_path")
+            if not aoi_path:
+                set_ready(self._fim_btn)
+                self._fim_progress.setVisible(False)
+                QMessageBox.warning(
+                    self, "No input",
+                    "Complete step 2 first — select an AOI file or enter HUC8 IDs directly."
+                )
+                return
+            self._set_busy(self._fim_status,
+                           "Phase 1/3 — Resolving HUC8 IDs from AOI …")
+            self._start_worker(
+                resolve_huc8_mode,
+                done=self._on_fim_resolved,
+                project_dir=self._state["project_dir"],
+                aoi_path=aoi_path,
+                huc8_ids=None,
+            )
+        else:
+            # HUC8 IDs already known (entered in step 2), skip resolve.
+            self._do_download_then_generate()
+
+    def _on_fim_resolved(self, result: dict):
+        ids = result.get("huc8_ids", [])
+        self._state["huc8_ids"] = ids
+        if result.get("aoi_path"):
+            self._state["aoi_path"] = result["aoi_path"]
+        if not ids:
+            set_ready(self._fim_btn)
+            self._fim_progress.setVisible(False)
+            self._fim_status.setText("Could not resolve HUC8 IDs from the AOI — check the AOI file.")
+            self._fim_status.setStyleSheet("color:#c53030; font-size:12px; font-weight:bold;")
+            self._fim_status.setVisible(True)
+            return
+        self._set_busy(self._fim_status,
+                       f"Phase 2/3 — Downloading {len(ids)} HUC8 raster(s) …")
+        self._do_download_then_generate()
+
+    def _do_download_then_generate(self):
+        ids = self._state.get("huc8_ids", [])
+        self._set_busy(self._fim_status,
+                       f"Phase 2/3 — Downloading {len(ids)} HUC8 raster(s) "
+                       "(already-cached rasters are skipped) …")
+        self._start_worker(
+            download_huc8_mode,
+            done=self._on_fim_downloaded,
+            project_dir=self._state["project_dir"],
+            huc8_ids=ids,
+        )
+
+    def _on_fim_downloaded(self, result: dict):
+        ok = result.get("downloaded", [])
+        self._state["downloaded"] = ok
+        ids = ok or self._state.get("huc8_ids", [])
+        self._set_busy(self._fim_status,
+                       "Phase 3/3 — Generating flood inundation map …")
         self._start_worker(
             generate_fim_mode,
             done=self._on_fim,
@@ -1345,13 +1149,12 @@ class ModeFIMservWidget(QWidget):
         self._worker.start()
 
     def _on_error(self, msg: str):
-        for btn in (self._resolve_btn, self._dl_btn, self._sf_btn, self._fim_btn):
+        for btn in (self._sf_btn, self._fim_btn):
             try:
                 set_ready(btn)
             except Exception:
                 pass
-        for pb in (self._input_progress, self._dl_progress,
-                   self._sf_progress, self._fim_progress):
+        for pb in (self._sf_progress, self._fim_progress):
             pb.setVisible(False)
         self._log(f"ERROR: {msg}")
         QMessageBox.critical(self, "FIMserv error", msg.splitlines()[0])
@@ -1390,12 +1193,6 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_gdf = None
         self._aoi_huc8_map._placeholder()
         self._aoi_huc8_status.setVisible(False)
-        self._huc8_edit.clear()
-        self._huc8_aoi_info.setText(
-            "Select an AOI in step 2 first.  HUC8 IDs will be resolved automatically.\n"
-            "Or enter HUC8 IDs directly below (overrides the AOI)."
-        )
-        self._huc8_aoi_info.setStyleSheet("color:#4a5568; font-size:12px;")
         self._rb_retro.setChecked(True)
         self._rb_specific.setChecked(True)
         self._event_edit.clear()
@@ -1410,13 +1207,11 @@ class ModeFIMservWidget(QWidget):
         self._extent_canvas.setVisible(False)
         self._depth_canvas.setVisible(False)
         self._fim_files.setVisible(False)
-        for lbl in (self._input_status, self._dl_status, self._sf_status,
-                    self._fim_status):
+        for lbl in (self._sf_status, self._fim_status):
             lbl.setVisible(False)
-        for pb in (self._input_progress, self._dl_progress,
-                   self._sf_progress, self._fim_progress):
+        for pb in (self._sf_progress, self._fim_progress):
             pb.setVisible(False)
-        for btn in (self._resolve_btn, self._dl_btn, self._sf_btn, self._fim_btn):
+        for btn in (self._sf_btn, self._fim_btn):
             try:
                 set_ready(btn)
             except Exception:
