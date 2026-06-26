@@ -293,45 +293,99 @@ class ModeFIMservWidget(QWidget):
         v.setSpacing(10)
         v.setContentsMargins(14, 14, 14, 14)
 
-        # ── Entry row ─────────────────────────────────────────────────────────
+        # ── HUC8 ID entry — matches Feature ID(s) style ───────────────────────
         gb = QGroupBox(); gb.setStyleSheet(_GB_STYLE)
-        gv = QVBoxLayout(gb); gv.setSpacing(6)
+        gv = QVBoxLayout(gb); gv.setSpacing(8)
 
-        note = QLabel(
-            "Enter one or more 8-digit HUC8 watershed IDs (USA only).  "
-            "Zero-padding is applied automatically.  Press Enter or click Add."
-        )
-        note.setWordWrap(True); note.setStyleSheet(_NOTE_STYLE)
-        gv.addWidget(note)
-
-        entry_row = QHBoxLayout()
+        id_row = QHBoxLayout()
+        id_lbl = QLabel("HUC8 ID(s):")
+        id_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        id_row.addWidget(id_lbl)
         self._aoi_huc8_entry = QLineEdit()
-        self._aoi_huc8_entry.setPlaceholderText("e.g. 03020201")
+        self._aoi_huc8_entry.setPlaceholderText("e.g. 03020201  (press Enter to add)")
         self._aoi_huc8_entry.returnPressed.connect(self._add_aoi_huc8)
-        entry_row.addWidget(self._aoi_huc8_entry, 1)
-        add_btn = QPushButton("Add"); add_btn.setFixedWidth(70)
-        add_btn.setStyleSheet(
-            "font-weight:bold; padding:5px 10px; background:#2b6cb0; "
-            "color:white; border-radius:4px; border:none;"
-        )
-        add_btn.clicked.connect(self._add_aoi_huc8)
-        entry_row.addWidget(add_btn)
-
-        csv_btn = QPushButton("Load CSV…"); csv_btn.setFixedWidth(100)
-        csv_btn.setStyleSheet(
-            "font-weight:bold; padding:5px 10px; background:#276749; "
-            "color:white; border-radius:4px; border:none;"
-        )
+        id_row.addWidget(self._aoi_huc8_entry, 1)
+        csv_btn = QPushButton("Browse CSV…")
+        csv_btn.setFixedWidth(110)
         csv_btn.clicked.connect(self._load_huc8_csv)
-        entry_row.addWidget(csv_btn)
-        gv.addLayout(entry_row)
+        id_row.addWidget(csv_btn)
+        gv.addLayout(id_row)
 
         csv_note = QLabel(
-            "★  CSV format: one column, no header — each row is one HUC8 ID."
+            "★  CSV: one HUC8 ID per line, no header required.  "
+            "Zero-padding applied automatically."
         )
         csv_note.setWordWrap(True)
         csv_note.setStyleSheet(_NOTE_STYLE)
         gv.addWidget(csv_note)
+
+        # ── Date selection ────────────────────────────────────────────────────
+        date_sep = QLabel("Date")
+        date_sep.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        date_sep.setStyleSheet("color:#2d3748; margin-top:4px;")
+        gv.addWidget(date_sep)
+
+        date_mode_row = QHBoxLayout()
+        self._huc8_date_grp = QButtonGroup(self)
+        self._rb_huc8_range    = QRadioButton("Date range")
+        self._rb_huc8_specific = QRadioButton("Specific date(s)")
+        self._rb_huc8_range.setChecked(True)
+        self._huc8_date_grp.addButton(self._rb_huc8_range,    0)
+        self._huc8_date_grp.addButton(self._rb_huc8_specific, 1)
+        self._rb_huc8_range.toggled.connect(self._on_huc8_date_mode_toggled)
+        date_mode_row.addWidget(self._rb_huc8_range)
+        date_mode_row.addWidget(self._rb_huc8_specific)
+        date_mode_row.addStretch()
+        gv.addLayout(date_mode_row)
+
+        # Range panel
+        self._huc8_range_box = QWidget()
+        rr = QHBoxLayout(self._huc8_range_box)
+        rr.setContentsMargins(0, 0, 0, 0); rr.setSpacing(10)
+        rr.addWidget(QLabel("Start date:"))
+        self._huc8_start = QDateTimeEdit()
+        self._huc8_start.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._huc8_start.setCalendarPopup(True)
+        self._huc8_start.setDateTime(QDateTime.fromString("2020-05-20 00:00", "yyyy-MM-dd HH:mm"))
+        rr.addWidget(self._huc8_start)
+        rr.addSpacing(16)
+        rr.addWidget(QLabel("End date:"))
+        self._huc8_end = QDateTimeEdit()
+        self._huc8_end.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._huc8_end.setCalendarPopup(True)
+        self._huc8_end.setDateTime(QDateTime.fromString("2020-05-22 00:00", "yyyy-MM-dd HH:mm"))
+        rr.addWidget(self._huc8_end)
+        rr.addStretch()
+        gv.addWidget(self._huc8_range_box)
+
+        # Specific-dates panel
+        self._huc8_specific_box = QWidget()
+        sv = QVBoxLayout(self._huc8_specific_box)
+        sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(4)
+        sp_row = QHBoxLayout()
+        sp_row.addWidget(QLabel("Date / time:"))
+        self._huc8_specific_dt = QDateTimeEdit()
+        self._huc8_specific_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._huc8_specific_dt.setCalendarPopup(True)
+        self._huc8_specific_dt.setDateTime(
+            QDateTime.fromString("2020-05-21 00:00", "yyyy-MM-dd HH:mm"))
+        sp_row.addWidget(self._huc8_specific_dt)
+        sp_add = QPushButton("Add"); sp_add.setFixedWidth(60)
+        sp_add.clicked.connect(self._add_huc8_specific_date)
+        sp_row.addWidget(sp_add)
+        sp_rem = QPushButton("Remove"); sp_rem.setFixedWidth(70)
+        sp_rem.clicked.connect(self._remove_huc8_specific_date)
+        sp_row.addWidget(sp_rem)
+        sp_row.addStretch()
+        sv.addLayout(sp_row)
+        self._huc8_specific_list = QListWidget()
+        self._huc8_specific_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._huc8_specific_list.setMaximumHeight(80)
+        sv.addWidget(self._huc8_specific_list)
+        self._huc8_specific_box.setVisible(False)
+        gv.addWidget(self._huc8_specific_box)
+
         v.addWidget(gb)
 
         # ── HUC8 list — link-button rows, same style as AOI confirmed list ───
@@ -562,6 +616,25 @@ class ModeFIMservWidget(QWidget):
     def _refresh_aoi_huc8_map(self, selected_id=None):
         self._refresh_aoi_huc8_gdf()
 
+    # ── HUC8 date-mode helpers ────────────────────────────────────────────────
+
+    def _on_huc8_date_mode_toggled(self, checked: bool):
+        is_range = self._rb_huc8_range.isChecked()
+        self._huc8_range_box.setVisible(is_range)
+        self._huc8_specific_box.setVisible(not is_range)
+
+    def _add_huc8_specific_date(self):
+        dt_str = self._huc8_specific_dt.dateTime().toString("yyyy-MM-dd HH:mm")
+        existing = [self._huc8_specific_list.item(i).text()
+                    for i in range(self._huc8_specific_list.count())]
+        if dt_str not in existing:
+            self._huc8_specific_list.addItem(dt_str)
+
+    def _remove_huc8_specific_date(self):
+        for item in self._huc8_specific_list.selectedItems():
+            self._huc8_specific_list.takeItem(
+                self._huc8_specific_list.row(item))
+
     def _confirm_aoi_huc8(self):
         ids = self._aoi_huc8_ids
         if not ids:
@@ -569,9 +642,23 @@ class ModeFIMservWidget(QWidget):
             return
         self._state["huc8_ids"] = list(ids)
 
+        # Collect date selection
+        if self._rb_huc8_range.isChecked():
+            date_info = {
+                "mode": "range",
+                "start": self._huc8_start.dateTime().toString("yyyy-MM-dd HH:mm"),
+                "end":   self._huc8_end.dateTime().toString("yyyy-MM-dd HH:mm"),
+            }
+        else:
+            dates = [self._huc8_specific_list.item(i).text()
+                     for i in range(self._huc8_specific_list.count())]
+            date_info = {"mode": "specific", "dates": dates}
+        self._state["huc8_date"] = date_info
+
         # Persist to context file so the IDs survive an app restart
         ctx = self._state.get("ctx") or {}
-        ctx["huc8_ids"] = list(ids)
+        ctx["huc8_ids"]  = list(ids)
+        ctx["huc8_date"] = date_info
         self._state["ctx"] = ctx
         ctx_path = self._state.get("ctx_path")
         if ctx_path:
@@ -1373,6 +1460,17 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_map.setVisible(False)
         self._aoi_huc8_map_placeholder.setVisible(True)
         self._aoi_huc8_status.setVisible(False)
+        # Reset date selection to defaults
+        self._rb_huc8_range.setChecked(True)
+        self._huc8_start.setDateTime(
+            QDateTime.fromString("2020-05-20 00:00", "yyyy-MM-dd HH:mm"))
+        self._huc8_end.setDateTime(
+            QDateTime.fromString("2020-05-22 00:00", "yyyy-MM-dd HH:mm"))
+        self._huc8_specific_dt.setDateTime(
+            QDateTime.fromString("2020-05-21 00:00", "yyyy-MM-dd HH:mm"))
+        self._huc8_specific_list.clear()
+        self._huc8_range_box.setVisible(True)
+        self._huc8_specific_box.setVisible(False)
         self._rb_retro.setChecked(True)
         self._rb_specific.setChecked(True)
         self._event_edit.clear()
