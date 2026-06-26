@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QTabWidget, QProgressBar, QGroupBox, QRadioButton,
     QLineEdit, QDateTimeEdit, QComboBox, QCheckBox, QFileDialog,
     QListWidget, QListWidgetItem, QAbstractItemView,
-    QButtonGroup, QMessageBox, QSizePolicy,
+    QButtonGroup, QMessageBox, QSizePolicy, QFrame,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QDateTime
 from PyQt6.QtGui import QFont
@@ -136,6 +136,15 @@ _NOTE_STYLE = "color:#718096; font-size:11px;"
 _RUN_STYLE = (
     "font-weight:bold; padding:8px 22px; background:#276749; "
     "color:white; border-radius:4px; font-size:13px;"
+)
+# Collapsible streamflow card — same look as the LISFLOOD AOIDEMCard.
+_SF_CARD_COLLAPSED = (
+    "QFrame#card { background:#f9fafb; border:1px solid #e2e8f0; "
+    "border-radius:6px; padding:6px; }"
+)
+_SF_CARD_EXPANDED = (
+    "QFrame#card { background:#f9fafb; border:2px solid #a0aec0; "
+    "border-radius:6px; padding:8px; }"
 )
 
 # ── Folder-setup worker functions (run in background thread) ─────────────────
@@ -1030,11 +1039,26 @@ class ModeFIMservWidget(QWidget):
         intro.setStyleSheet(_NOTE_STYLE)
         v.addWidget(intro)
 
-        # ── Per-AOI/HUC8 date cards ───────────────────────────────────────────
-        cards_lbl = QLabel("Date configuration — one card per AOI / HUC8:")
+        # ── Per-AOI/HUC8 cards: header row with an "apply to all" button ──────
+        cards_hdr = QHBoxLayout()
+        cards_lbl = QLabel("One card per AOI / HUC8 — click Edit to configure:")
         cards_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         cards_lbl.setStyleSheet("color:#2d3748; margin-top:4px;")
-        v.addWidget(cards_lbl)
+        cards_hdr.addWidget(cards_lbl)
+        cards_hdr.addStretch()
+        self._sf_apply_all_btn = QPushButton("Apply current card's settings to all")
+        self._sf_apply_all_btn.setStyleSheet(
+            "QPushButton { background:#2b6cb0; color:white; border-radius:4px; "
+            "padding:4px 10px; font-size:11px; } "
+            "QPushButton:disabled { background:#cbd5e0; color:#718096; }"
+        )
+        self._sf_apply_all_btn.setToolTip(
+            "Expand (Edit) the card whose Source/dates you want to broadcast, "
+            "then click here to copy them to every other card.")
+        self._sf_apply_all_btn.clicked.connect(self._apply_sf_to_all)
+        self._sf_apply_all_btn.setEnabled(False)
+        cards_hdr.addWidget(self._sf_apply_all_btn)
+        v.addLayout(cards_hdr)
 
         cards_scroll = QScrollArea()
         cards_scroll.setWidgetResizable(True)
@@ -1083,11 +1107,35 @@ class ModeFIMservWidget(QWidget):
         self._sf_cards: List[dict] = []
         self._sf_pending: List[dict] = []
         self._sf_current_card: Optional[dict] = None
+        self._sf_cards_signature = None
 
         return page
 
+    def _sf_signature(self):
+        """Identity of the current AOI / HUC8 set — used to avoid rebuilding
+        (and wiping) the cards when nothing actually changed."""
+        huc8_ids = self._state.get("huc8_ids") or []
+        if huc8_ids:
+            return ("huc8", tuple(huc8_ids))
+        aoi_features = self._state.get("ctx", {}).get("aoi_features") or []
+        names = []
+        for i, feat in enumerate(aoi_features, 1):
+            nm = ((feat.get("name") or feat.get("id") or str(i))
+                  if isinstance(feat, dict) else str(i))
+            names.append(nm)
+        return ("aoi", tuple(names))
+
     def _rebuild_sf_cards(self):
-        """Clear and recreate per-AOI/HUC8 date cards in the Streamflow tab."""
+        """Recreate per-AOI/HUC8 cards in the Streamflow tab.
+
+        Skips the rebuild when the AOI / HUC8 set is unchanged, so a user's
+        per-card edits survive navigating away from and back to this tab.
+        """
+        sig = self._sf_signature()
+        if self._sf_cards and sig == self._sf_cards_signature:
+            return
+        self._sf_cards_signature = sig
+
         self._sf_cards = []
         # Remove ALL items from layout — takeAt handles both widgets and spacers.
         while self._sf_cards_layout.count() > 0:
@@ -1101,7 +1149,8 @@ class ModeFIMservWidget(QWidget):
         if huc8_ids:
             for hid in huc8_ids:
                 label = f"HUC8: {hid}"
-                card_widget, card_refs = self._build_one_sf_card(label, hid, "huc8")
+                card_widget, card_refs = self._build_one_sf_card(
+                    label, hid, "huc8", source_obj=hid)
                 self._sf_cards_layout.addWidget(card_widget)
                 self._sf_cards.append(card_refs)
         elif aoi_features:
@@ -1112,7 +1161,8 @@ class ModeFIMservWidget(QWidget):
                 )
                 label = f"AOI {i}: {name}"
                 item_id = str(i)
-                card_widget, card_refs = self._build_one_sf_card(label, item_id, "aoi")
+                card_widget, card_refs = self._build_one_sf_card(
+                    label, item_id, "aoi", source_obj=feat)
                 self._sf_cards_layout.addWidget(card_widget)
                 self._sf_cards.append(card_refs)
         else:
@@ -1123,23 +1173,58 @@ class ModeFIMservWidget(QWidget):
         self._sf_cards_layout.addStretch()
         # Force the scroll-area container to recalculate its size hint
         self._sf_cards_container.updateGeometry()
+        if hasattr(self, "_sf_apply_all_btn"):
+            self._sf_apply_all_btn.setEnabled(
+                any(c.get("expanded") for c in self._sf_cards))
 
-    def _build_one_sf_card(self, label: str, item_id: str, mode: str):
-        """Build a single self-contained card for one HUC8/AOI.
+    def _build_one_sf_card(self, label: str, item_id: str, mode: str,
+                           source_obj=None):
+        """Build a single collapsible card for one HUC8/AOI.
 
-        Each card carries its OWN Source (Retrospective / Forecast) and the
-        matching inputs — Retrospective shows date range / specific date(s);
-        Forecast shows range, latest-run, forecast date + hour, aggregation.
+        Matches the LISFLOOD accordion: header row with caret + name … status
+        + Edit/Done + Remove; the body (Source + dates/forecast) shows only
+        when expanded.  Each card carries its OWN Source (Retrospective /
+        Forecast) and the matching inputs.
 
-        Returns (QGroupBox widget, dict of widget refs).
+        Returns (QFrame widget, dict of widget refs).
         """
-        card = QGroupBox(label)
-        card.setStyleSheet(
-            "QGroupBox { font-weight:bold; background:#f9fafb; "
-            "border:1px solid #e2e8f0; border-radius:6px; padding-top:8px; }"
-        )
-        cv = QVBoxLayout(card)
-        cv.setSpacing(6)
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(_SF_CARD_COLLAPSED)
+
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(2, 2, 2, 2)
+        outer.setSpacing(6)
+
+        # ── Header: caret + name … status + Edit + Remove ─────────────────────
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        caret = QLabel("▶"); caret.setFixedWidth(14)
+        caret.setStyleSheet("color:#4a5568; font-weight:bold;")
+        header.addWidget(caret)
+        name_lbl = QLabel(f"<b>{label}</b>")
+        name_lbl.setStyleSheet("color:#2d3748;")
+        header.addWidget(name_lbl)
+        header.addStretch()
+        status_lbl = QLabel("")
+        status_lbl.setStyleSheet("color:#666; font-size:11px;")
+        header.addWidget(status_lbl)
+        toggle_btn = QPushButton("Edit"); toggle_btn.setFixedWidth(80)
+        header.addWidget(toggle_btn)
+        remove_btn = QPushButton("Remove"); remove_btn.setFixedWidth(70)
+        remove_btn.setStyleSheet(
+            "background:#e53e3e; color:white; border-radius:3px; "
+            "font-size:11px; padding:2px 4px;")
+        remove_btn.setToolTip(f"Remove {label} from this run")
+        header.addWidget(remove_btn)
+        outer.addLayout(header)
+
+        # ── Body — shown only when the card is expanded ───────────────────────
+        body = QWidget()
+        body.setVisible(False)
+        cv = QVBoxLayout(body)
+        cv.setContentsMargins(2, 2, 2, 2); cv.setSpacing(6)
+        outer.addWidget(body)
 
         # ── Source: Retrospective / Forecast (per card) ───────────────────────
         src_row = QHBoxLayout()
@@ -1263,12 +1348,6 @@ class ModeFIMservWidget(QWidget):
         forecast_box.setVisible(False)
         cv.addWidget(forecast_box)
 
-        # Card status label
-        status_lbl = QLabel("")
-        status_lbl.setStyleSheet("color:#276749; font-size:11px;")
-        status_lbl.setVisible(False)
-        cv.addWidget(status_lbl)
-
         # ── Wiring ────────────────────────────────────────────────────────────
         # Source toggle: Retrospective shows retro_box, Forecast shows forecast_box.
         rb_src_retro.toggled.connect(
@@ -1314,6 +1393,15 @@ class ModeFIMservWidget(QWidget):
             "label":         label,
             "item_id":       item_id,
             "mode":          mode,
+            "source_obj":    source_obj,
+            # card chrome
+            "card":          card,
+            "caret":         caret,
+            "name_lbl":      name_lbl,
+            "toggle_btn":    toggle_btn,
+            "remove_btn":    remove_btn,
+            "body":          body,
+            "expanded":      False,
             # source
             "rb_src_retro":  rb_src_retro,
             "rb_src_fore":   rb_src_fore,
@@ -1335,10 +1423,129 @@ class ModeFIMservWidget(QWidget):
             "fc_hour":       fc_hour,
             "fc_sort_by":    fc_sort_by,
             "forecast_box":  forecast_box,
-            # status
+            # status (header)
             "status_lbl":    status_lbl,
         }
+        # Edit/Done toggle (single-card accordion) and Remove.
+        toggle_btn.clicked.connect(lambda _c=False, r=refs: self._on_sf_toggle(r))
+        remove_btn.clicked.connect(lambda _c=False, r=refs: self._on_sf_remove(r))
         return card, refs
+
+    # ── Streamflow card accordion: expand / remove / apply-to-all ─────────────
+
+    def _sf_set_expanded(self, refs: dict, expanded: bool):
+        refs["expanded"] = expanded
+        refs["body"].setVisible(expanded)
+        refs["caret"].setText("▼" if expanded else "▶")
+        refs["toggle_btn"].setText("Done" if expanded else "Edit")
+        refs["card"].setStyleSheet(
+            _SF_CARD_EXPANDED if expanded else _SF_CARD_COLLAPSED)
+        # When collapsing, show a one-line summary in the header status.
+        if not expanded:
+            refs["status_lbl"].setText(self._sf_status_summary(refs))
+        else:
+            refs["status_lbl"].setText("")
+
+    def _on_sf_toggle(self, refs: dict):
+        if refs.get("expanded"):
+            self._sf_set_expanded(refs, False)
+        else:
+            for c in self._sf_cards:           # single-card accordion
+                self._sf_set_expanded(c, c is refs)
+        self._sf_apply_all_btn.setEnabled(
+            any(c.get("expanded") for c in self._sf_cards))
+
+    def _on_sf_remove(self, refs: dict):
+        reply = QMessageBox.question(
+            self, "Remove",
+            f"Remove <b>{refs['label']}</b> from this run?\n\n"
+            "The AOI / HUC8 data folder is NOT deleted — only removed from "
+            "the current run.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Drop from the underlying source list so later steps agree.
+        if refs["mode"] == "huc8":
+            ids = self._state.get("huc8_ids") or []
+            if refs["item_id"] in ids:
+                ids.remove(refs["item_id"])
+        else:
+            feats = self._state.get("ctx", {}).get("aoi_features") or []
+            so = refs.get("source_obj")
+            if so is not None and so in feats:
+                feats.remove(so)
+        # Remove the card widget + ref.
+        refs["card"].setParent(None)
+        refs["card"].deleteLater()
+        if refs in self._sf_cards:
+            self._sf_cards.remove(refs)
+        # Keep the signature in sync so re-entering the tab doesn't rebuild
+        # (which would wipe the remaining cards' edits).
+        self._sf_cards_signature = self._sf_signature()
+        self._sf_apply_all_btn.setEnabled(
+            any(c.get("expanded") for c in self._sf_cards))
+
+    def _sf_status_summary(self, refs: dict) -> str:
+        if refs["rb_src_fore"].isChecked():
+            rng = refs["fc_range"].currentText()
+            when = ("latest run" if refs["fc_latest_chk"].isChecked()
+                    else refs["fc_date"].dateTime().toString("yyyy-MM-dd"))
+            return f"Forecast · {rng} · {when}"
+        if refs["rb_range"].isChecked():
+            return (f"Retrospective · "
+                    f"{refs['start_dt'].dateTime().toString('yyyy-MM-dd')} → "
+                    f"{refs['end_dt'].dateTime().toString('yyyy-MM-dd')}")
+        n = refs["specific_list"].count()
+        return f"Retrospective · {n} specific date(s)"
+
+    def _sf_get_cfg(self, refs: dict) -> dict:
+        return {
+            "source":  "forecast" if refs["rb_src_fore"].isChecked() else "retro",
+            "date_mode": "range" if refs["rb_range"].isChecked() else "specific",
+            "start":   refs["start_dt"].dateTime(),
+            "end":     refs["end_dt"].dateTime(),
+            "specific_times": [refs["specific_list"].item(i).text()
+                               for i in range(refs["specific_list"].count())],
+            "fc_range":  refs["fc_range"].currentText(),
+            "fc_latest": refs["fc_latest_chk"].isChecked(),
+            "fc_date":   refs["fc_date"].dateTime(),
+            "fc_hour":   refs["fc_hour"].currentText(),
+            "fc_sort":   refs["fc_sort_by"].currentText(),
+        }
+
+    def _sf_set_cfg(self, refs: dict, cfg: dict):
+        (refs["rb_src_fore"] if cfg["source"] == "forecast"
+         else refs["rb_src_retro"]).setChecked(True)
+        (refs["rb_range"] if cfg["date_mode"] == "range"
+         else refs["rb_specific"]).setChecked(True)
+        refs["start_dt"].setDateTime(cfg["start"])
+        refs["end_dt"].setDateTime(cfg["end"])
+        refs["specific_list"].clear()
+        for t in cfg["specific_times"]:
+            refs["specific_list"].addItem(t)
+        refs["fc_range"].setCurrentText(cfg["fc_range"])
+        refs["fc_latest_chk"].setChecked(cfg["fc_latest"])
+        refs["fc_date"].setDateTime(cfg["fc_date"])
+        refs["fc_hour"].setCurrentText(cfg["fc_hour"])
+        refs["fc_sort_by"].setCurrentText(cfg["fc_sort"])
+
+    def _apply_sf_to_all(self):
+        src = next((c for c in self._sf_cards if c.get("expanded")), None)
+        if src is None:
+            QMessageBox.information(
+                self, "Pick a card to copy from",
+                "Click Edit on the card whose Source / dates you want to copy, "
+                "then click 'Apply current card's settings to all'.",
+            )
+            return
+        cfg = self._sf_get_cfg(src)
+        for c in self._sf_cards:
+            if c is src:
+                continue
+            self._sf_set_cfg(c, cfg)
+        self._log(f"Applied {src['label']} settings to all "
+                  f"{len(self._sf_cards)} card(s).")
 
     # ── Step 4: Generate FIM ──────────────────────────────────────────────────
 
