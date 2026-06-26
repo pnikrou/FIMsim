@@ -138,6 +138,129 @@ _RUN_STYLE = (
     "color:white; border-radius:4px; font-size:13px;"
 )
 
+# ── Folder-setup worker functions (run in background thread) ─────────────────
+
+def _setup_huc8_folders(project_dir: str, huc8_ids: list, log_fn=print) -> dict:
+    """HUC8 mode: create one sub-folder per HUC8 ID and save its boundary polygon.
+
+    Returns {"created": [huc8_id, ...], "skipped": [...]} so the GUI can
+    report what happened.
+    """
+    from pathlib import Path
+    from core.aoi_info import _load_huc8_boundaries
+
+    base = Path(project_dir)
+    gdf  = _load_huc8_boundaries()
+    created, skipped = [], []
+
+    for hid in huc8_ids:
+        folder = base / hid
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except Exception as ex:
+            log_fn(f"  Could not create folder {folder}: {ex}")
+            skipped.append(hid)
+            continue
+
+        if gdf is None or gdf.empty:
+            log_fn(f"  HUC8 boundary data not available — folder created but no .gpkg saved for {hid}.")
+            created.append(hid)
+            continue
+
+        col = (
+            "huc8" if "huc8" in gdf.columns
+            else next((c for c in gdf.columns if c.lower() == "huc8"), None)
+        )
+        if col is None:
+            log_fn(f"  Could not identify HUC8 column — skipping polygon save for {hid}.")
+            created.append(hid)
+            continue
+
+        row = gdf[gdf[col].astype(str).str.zfill(8) == hid]
+        out = folder / "huc8_bound.gpkg"
+        if not row.empty:
+            try:
+                row.to_file(str(out), driver="GPKG", layer="huc8_bound")
+                log_fn(f"  Saved HUC8 boundary → {out.relative_to(base)}")
+            except Exception as ex:
+                log_fn(f"  Could not save boundary for {hid}: {ex}")
+        else:
+            log_fn(f"  HUC8 {hid} not found in bundled boundaries — folder created, no .gpkg.")
+
+        created.append(hid)
+
+    return {"created": created, "skipped": skipped}
+
+
+def _setup_aoi_huc8_folders(project_dir: str, aoi_features: list, log_fn=print) -> dict:
+    """AOI mode: for each confirmed AOI, resolve its HUC8 IDs and save the
+    HUC8 boundary polygon(s) in that AOI's project sub-folder.
+
+    Returns {"processed": [aoi_name, ...], "skipped": [...]}
+    """
+    import re
+    from pathlib import Path
+    from core.aoi_info import _load_huc8_boundaries, lookup_huc8
+
+    base = Path(project_dir)
+    huc_gdf = _load_huc8_boundaries()
+    processed, skipped = [], []
+
+    for feat in aoi_features:
+        name        = feat.get("name") or "AOI"
+        folder_path = feat.get("folder_path")
+        src_file    = feat.get("source_file")
+        feat_idx    = feat.get("feature_index", 0)
+
+        # Resolve or create the folder
+        if folder_path:
+            folder = Path(folder_path)
+        else:
+            safe = re.sub(r"[^\w\-]", "_", name)
+            folder = base / safe
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except Exception as ex:
+            log_fn(f"  Could not create folder for {name}: {ex}")
+            skipped.append(name)
+            continue
+
+        # Resolve HUC8 codes (use cached value from AOI confirm if present)
+        huc8_codes = feat.get("huc8_codes") or []
+        if not huc8_codes and src_file:
+            log_fn(f"  Looking up HUC8 IDs for {name} …")
+            huc8_codes = lookup_huc8(src_file, feat_idx, log_fn=log_fn)
+
+        if not huc8_codes:
+            log_fn(f"  No HUC8 IDs found for {name} — folder created, no .gpkg saved.")
+            processed.append(name)
+            continue
+
+        # Save HUC8 boundary polygons for this AOI
+        if huc_gdf is not None and not huc_gdf.empty:
+            col = (
+                "huc8" if "huc8" in huc_gdf.columns
+                else next((c for c in huc_gdf.columns if c.lower() == "huc8"), None)
+            )
+            if col:
+                want = {str(h).zfill(8) for h in huc8_codes}
+                rows = huc_gdf[huc_gdf[col].astype(str).str.zfill(8).isin(want)]
+                if not rows.empty:
+                    out = folder / "huc8_bounds.gpkg"
+                    try:
+                        rows.to_file(str(out), driver="GPKG", layer="huc8_bounds")
+                        log_fn(
+                            f"  Saved {len(rows)} HUC8 boundary(s) for {name} "
+                            f"→ {out.relative_to(base)}"
+                        )
+                    except Exception as ex:
+                        log_fn(f"  Could not save HUC8 boundaries for {name}: {ex}")
+
+        processed.append(name)
+
+    return {"processed": processed, "skipped": skipped}
+
+
 # Tab indices
 _TAB_PROJECT    = 0
 _TAB_AOI        = 1
@@ -271,6 +394,7 @@ class ModeFIMservWidget(QWidget):
             "downloaded":  [],
         }
         self._worker: Optional[Worker] = None
+        self._aoi_setup_worker: Optional[Worker] = None
         self._setup_ui()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -809,17 +933,48 @@ class ModeFIMservWidget(QWidget):
                 pass
 
         self._aoi_huc8_status.setText(
-            f"✓  {len(ids)} HUC8 ID(s) confirmed and saved.  "
-            "Proceed to step 3 (Streamflow Data)."
+            f"✓  {len(ids)} HUC8 ID(s) confirmed.  "
+            "Creating project folders and saving HUC8 boundaries…"
         )
-        self._aoi_huc8_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;"
-        )
+        self._aoi_huc8_status.setStyleSheet("color:#744210; font-size:12px; font-weight:bold;")
         self._aoi_huc8_status.setVisible(True)
         self._log(
             f"AOI step (HUC8 mode) — confirmed {len(ids)} HUC8(s): "
             + ", ".join(ids)
         )
+
+        # Create per-HUC8 folders and save boundary polygons in the background
+        project_dir = self._state.get("project_dir")
+        if project_dir:
+            self._aoi_setup_worker = Worker(
+                _setup_huc8_folders,
+                project_dir=project_dir,
+                huc8_ids=list(ids),
+            )
+            self._aoi_setup_worker.message.connect(self._log)
+            self._aoi_setup_worker.finished.connect(self._on_huc8_folders_done)
+            self._aoi_setup_worker.error.connect(
+                lambda msg: self._log(f"HUC8 folder setup error: {msg}")
+            )
+            self._aoi_setup_worker.start()
+        else:
+            self._aoi_huc8_status.setText(
+                f"✓  {len(ids)} HUC8 ID(s) confirmed.  "
+                "(Complete step 1 Project first to create folders.)"
+            )
+            self._aoi_huc8_status.setStyleSheet(
+                "color:#276749; font-size:12px; font-weight:bold;"
+            )
+
+    def _on_huc8_folders_done(self, result: dict):
+        created = result.get("created", [])
+        skipped = result.get("skipped", [])
+        msg = f"✓  {len(created)} HUC8 folder(s) created with boundary data saved."
+        if skipped:
+            msg += f"  ({len(skipped)} skipped — see log.)"
+        self._aoi_huc8_status.setText(msg + "  Proceed to step 3 (Streamflow Data).")
+        self._aoi_huc8_status.setStyleSheet("color:#276749; font-size:12px; font-weight:bold;")
+        self._log(msg)
 
     # ── Step 3: Streamflow ────────────────────────────────────────────────────
 
@@ -1237,9 +1392,40 @@ class ModeFIMservWidget(QWidget):
         aoi_path = ctx.get("aoi_path")
         if aoi_path:
             self._state["aoi_path"] = aoi_path
-        self._log(
-            "AOI step complete — move to step 3 (Streamflow Data) then step 4 (Generate FIM)."
+
+        # Launch background worker: create AOI sub-folders + save HUC8 boundaries
+        project_dir   = self._state.get("project_dir")
+        aoi_features  = ctx.get("aoi_features") or []
+        if project_dir and aoi_features:
+            self._log(
+                f"AOI step complete — setting up {len(aoi_features)} project folder(s) "
+                "and saving HUC8 boundary data…"
+            )
+            self._aoi_setup_worker = Worker(
+                _setup_aoi_huc8_folders,
+                project_dir=project_dir,
+                aoi_features=aoi_features,
+            )
+            self._aoi_setup_worker.message.connect(self._log)
+            self._aoi_setup_worker.finished.connect(self._on_aoi_folders_done)
+            self._aoi_setup_worker.error.connect(
+                lambda msg: self._log(f"AOI folder setup error: {msg}")
+            )
+            self._aoi_setup_worker.start()
+        else:
+            self._log(
+                "AOI step complete — move to step 3 (Streamflow Data) then step 4 (Generate FIM)."
+            )
+
+    def _on_aoi_folders_done(self, result: dict):
+        processed = result.get("processed", [])
+        skipped   = result.get("skipped", [])
+        msg = (
+            f"✓  {len(processed)} AOI folder(s) ready with HUC8 boundary data."
         )
+        if skipped:
+            msg += f"  ({len(skipped)} skipped — see log.)"
+        self._log(msg + "  Proceed to step 3 (Streamflow Data) then step 4.")
 
     # ── Streamflow enable / disable logic ─────────────────────────────────────
 
