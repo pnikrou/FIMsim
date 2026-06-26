@@ -1028,20 +1028,13 @@ class ModeFIMservWidget(QWidget):
         title.setStyleSheet("color:#2d3748;")
         v.addWidget(title)
 
-        # Source + dates are configured per AOI / HUC8 — one card each below.
-        intro = QLabel(
-            "★ Each AOI / HUC8 has its own card below — set the Source "
-            "(Retrospective or Forecast) and the dates independently for each.")
+        intro = QLabel("★ Each AOI / HUC8 has its own settings.")
         intro.setWordWrap(True)
         intro.setStyleSheet(_NOTE_STYLE)
         v.addWidget(intro)
 
         # ── Per-AOI/HUC8 cards: header row with an "apply to all" button ──────
         cards_hdr = QHBoxLayout()
-        cards_lbl = QLabel("One card per AOI / HUC8 — click Edit to configure:")
-        cards_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        cards_lbl.setStyleSheet("color:#2d3748; margin-top:4px;")
-        cards_hdr.addWidget(cards_lbl)
         cards_hdr.addStretch()
         self._sf_apply_all_btn = QPushButton("Apply current card's settings to all")
         self._sf_apply_all_btn.setStyleSheet(
@@ -1799,17 +1792,35 @@ class ModeFIMservWidget(QWidget):
                     return
                 kwargs = dict(source="retrospective", value_times=times)
 
+        # Resolve which HUC8(s) to fetch and WHERE to save them.
+        #   HUC8 mode → that HUC8, saved under the main project folder.
+        #   AOI mode  → the HUC8(s) the AOI covers, saved INSIDE the AOI's
+        #               own folder (so each AOI is self-contained).
+        if card["mode"] == "huc8":
+            huc8_ids = [card["item_id"]]
+            run_project_dir = self._state["project_dir"]
+        else:
+            feat = card.get("source_obj") or {}
+            huc8_ids = feat.get("huc8_codes") or []
+            if not huc8_ids and feat.get("source_file"):
+                from core.aoi_info import lookup_huc8
+                huc8_ids = lookup_huc8(
+                    feat["source_file"], feat.get("feature_index", 0),
+                    log_fn=self._log)
+            run_project_dir = feat.get("folder_path") or self._state["project_dir"]
+            if not huc8_ids:
+                card["status_lbl"].setText("⚠ No HUC8 found for this AOI — skipped.")
+                card["status_lbl"].setVisible(True)
+                self._start_next_sf()
+                return
+
         card["status_lbl"].setText("⏳ Fetching …")
         card["status_lbl"].setVisible(True)
 
-        huc8_ids = (
-            [card["item_id"]] if card["mode"] == "huc8"
-            else (self._state.get("huc8_ids") or [])
-        )
         self._start_worker(
             streamflow_mode,
             done=self._on_streamflow,
-            project_dir=self._state["project_dir"],
+            project_dir=run_project_dir,
             huc8_ids=huc8_ids,
             **kwargs,
         )
