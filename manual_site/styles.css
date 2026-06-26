@@ -304,6 +304,82 @@ th {
   color: var(--green);
 }
 
+.part-grid,
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #1c1c1c;
+  background: #ffffff;
+}
+
+.part-grid article,
+.model-grid article {
+  min-height: 150px;
+  padding: 16px;
+  border-right: 1px solid #1c1c1c;
+  border-bottom: 1px solid #1c1c1c;
+}
+
+.part-grid article:nth-child(2n),
+.model-grid article:nth-child(2n) {
+  border-right: 0;
+}
+
+.part-grid article:nth-last-child(-n + 2),
+.model-grid article:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.part-grid article:nth-child(odd),
+.model-grid article:nth-child(odd) {
+  background: #eaf7ff;
+}
+
+.part-grid article:nth-child(even),
+.model-grid article:nth-child(even) {
+  background: #e8fbf7;
+}
+
+.part-grid h3,
+.model-grid h3 {
+  margin: 0 0 8px;
+  color: var(--brand-dark);
+}
+
+.part-grid article:nth-child(even) h3,
+.model-grid article:nth-child(even) h3 {
+  color: var(--green);
+}
+
+.part-label {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-badge {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 3px 8px;
+  border: 1px solid #1c1c1c;
+  border-radius: 4px;
+  color: #101820;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-badge.ready {
+  background: #dff3ff;
+}
+
+.status-badge.pending {
+  background: #eef5f1;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -347,18 +423,28 @@ th {
     display: none;
   }
 
-  .mode-grid {
+  .mode-grid,
+  .part-grid,
+  .model-grid {
     grid-template-columns: 1fr;
   }
 
   .mode-grid article,
   .mode-grid article:nth-child(2n),
-  .mode-grid article:nth-last-child(-n + 2) {
+  .mode-grid article:nth-last-child(-n + 2),
+  .part-grid article,
+  .part-grid article:nth-child(2n),
+  .part-grid article:nth-last-child(-n + 2),
+  .model-grid article,
+  .model-grid article:nth-child(2n),
+  .model-grid article:nth-last-child(-n + 2) {
     border-right: 0;
     border-bottom: 1px solid #1c1c1c;
   }
 
-  .mode-grid article:last-child {
+  .mode-grid article:last-child,
+  .part-grid article:last-child,
+  .model-grid article:last-child {
     border-bottom: 0;
   }
 

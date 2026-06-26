@@ -496,6 +496,361 @@ python main.py</code></pre>
           <li>Check the hydrograph preview and warnings after each download to confirm the selected period has usable discharge data.</li>
         </ul>
       </section>
+
+      <section class="topic-section" id="flood-models">
+        <h2>Part 2: Flood Mapping Models</h2>
+        <p>
+          Flood Mapping Models convert prepared terrain, roughness, boundary,
+          and discharge inputs into complete model-ready folders. Four model
+          options are shown in the app structure. LISFLOOD-FP and TRITON are
+          documented below; the remaining two slots are reserved for model
+          documentation as those workflows are finalized.
+        </p>
+        <div class="model-grid">
+          <article>
+            <span class="status-badge ready">Ready</span>
+            <h3>LISFLOOD-FP</h3>
+            <p>Prepares raster terrain, Manning's n, boundary condition, discharge, and simulation control files.</p>
+          </article>
+          <article>
+            <span class="status-badge ready">Ready</span>
+            <h3>TRITON</h3>
+            <p>Prepares raster terrain, friction, boundary, hydrograph, and configuration files for TRITON runs.</p>
+          </article>
+          <article>
+            <span class="status-badge pending">Reserved</span>
+            <h3>OWP HAND-FIM</h3>
+            <p>Manual section reserved for the OWP HAND-FIM flood mapping workflow.</p>
+          </article>
+          <article>
+            <span class="status-badge pending">Reserved</span>
+            <h3>ARC-Curve2Flood</h3>
+            <p>Manual section reserved for the ARC-Curve2Flood flood mapping workflow.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="topic-section" id="lisflood-model">
+        <h2>LISFLOOD-FP</h2>
+        <p>
+          The LISFLOOD-FP module prepares the input folder needed to run a
+          LISFLOOD-FP flood simulation. It combines the same source datasets
+          used in the input-parameter modules, then writes model-specific files
+          for elevation, roughness, boundary locations, discharge hydrographs,
+          and simulation settings.
+        </p>
+
+        <h3 id="lisflood-layout">Application Layout</h3>
+        <p>
+          The LISFLOOD-FP workflow is organized into seven tabs. Each tab
+          collects one group of settings and writes one part of the final
+          LISFLOOD-FP input folder. A log panel reports progress, warnings, and
+          saved file locations.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Tab</th>
+              <th>Purpose</th>
+              <th>Main output</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Project</td>
+              <td>Create a project folder or open an existing project.</td>
+              <td>Project workspace</td>
+            </tr>
+            <tr>
+              <td>AOI</td>
+              <td>Load AOI polygons, select features, and create one model folder per AOI.</td>
+              <td>AOI folders</td>
+            </tr>
+            <tr>
+              <td>DEM</td>
+              <td>Download or use a terrain raster and convert it to LISFLOOD-FP format.</td>
+              <td>dem.ascii</td>
+            </tr>
+            <tr>
+              <td>Manning</td>
+              <td>Use a fixed value or LULC-based Manning's n table.</td>
+              <td>lulc.ascii</td>
+            </tr>
+            <tr>
+              <td>BCI</td>
+              <td>Define upstream and downstream boundary locations.</td>
+              <td>BC.bci</td>
+            </tr>
+            <tr>
+              <td>BDY</td>
+              <td>Prepare discharge hydrographs for variable-flow boundaries.</td>
+              <td>BC.bdy</td>
+            </tr>
+            <tr>
+              <td>PAR File</td>
+              <td>Write simulation controls and file references.</td>
+              <td>&lt;project&gt;.par</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="lisflood-workflow">Step-by-Step Guide</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>What to do</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. Project</td>
+              <td>Select a base directory and project name, or open an existing project.</td>
+              <td>The app stores AOI-specific files inside the project folder.</td>
+            </tr>
+            <tr>
+              <td>2. AOI</td>
+              <td>Load an AOI shapefile, choose one or more polygons, and confirm the AOIs.</td>
+              <td>The app can detect state, HUC information, main river, USGS gages, and CRS where available.</td>
+            </tr>
+            <tr>
+              <td>3. DEM</td>
+              <td>Download USGS 3DEP data or use a local GeoTIFF, then choose the target cell size.</td>
+              <td>The default cell size is commonly 10 m. The model-ready raster is written as <code>dem.ascii</code>.</td>
+            </tr>
+            <tr>
+              <td>4. Manning</td>
+              <td>Choose a fixed Manning's n value or generate spatially varying roughness from LULC.</td>
+              <td>Supported LULC paths include NLCD, Sentinel-2, or a user-provided raster.</td>
+            </tr>
+            <tr>
+              <td>5. BCI</td>
+              <td>Set upstream and downstream boundary locations using automatic NHD detection or manual coordinates.</td>
+              <td>Typical boundary choices include QVAR or QFIX upstream, and FREE or HFIX downstream.</td>
+            </tr>
+            <tr>
+              <td>6. BDY</td>
+              <td>Choose NWM retrospective, NWM forecast, USGS gage data, or a user hydrograph file.</td>
+              <td>The generated hydrograph supports QVAR boundary conditions.</td>
+            </tr>
+            <tr>
+              <td>7. PAR File</td>
+              <td>Set simulation timing, solver options, initial condition, checkpointing, and output options.</td>
+              <td>The app writes a LISFLOOD-FP <code>.par</code> file that references the prepared inputs.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="lisflood-outputs">Output Files</h3>
+        <p>
+          For each AOI, the LISFLOOD-FP files are saved in a
+          <code>lisflood-files</code> folder inside the AOI project folder.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>dem.ascii</td>
+              <td>Model-ready elevation grid.</td>
+            </tr>
+            <tr>
+              <td>lulc.ascii</td>
+              <td>Manning's n roughness grid prepared from fixed or LULC-based settings.</td>
+            </tr>
+            <tr>
+              <td>BC.bci</td>
+              <td>Boundary condition index file defining boundary locations and types.</td>
+            </tr>
+            <tr>
+              <td>BC.bdy</td>
+              <td>Boundary discharge hydrograph for variable-flow boundaries.</td>
+            </tr>
+            <tr>
+              <td>&lt;project&gt;.par</td>
+              <td>LISFLOOD-FP simulation control file.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="topic-section" id="triton-model">
+        <h2>TRITON</h2>
+        <p>
+          The TRITON module follows the same overall structure as the
+          LISFLOOD-FP module, but writes TRITON-specific files. It prepares the
+          terrain grid, friction grid, external boundary files, hydrograph, and
+          configuration file needed for a TRITON flood simulation.
+        </p>
+
+        <h3 id="triton-layout">Application Layout</h3>
+        <p>
+          The TRITON workflow is organized into seven tabs. The names differ
+          from LISFLOOD-FP where TRITON uses different file concepts, but the
+          workflow remains parallel: define the project and AOI, prepare grids,
+          set boundaries, provide discharge data, then write the model control
+          file.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Tab</th>
+              <th>Purpose</th>
+              <th>Main output</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Project</td>
+              <td>Create or open a TRITON preparation project.</td>
+              <td>Project workspace</td>
+            </tr>
+            <tr>
+              <td>AOI</td>
+              <td>Load AOI polygons and create AOI-specific TRITON folders.</td>
+              <td>AOI folders</td>
+            </tr>
+            <tr>
+              <td>DEM</td>
+              <td>Download or import terrain and convert it to TRITON ASCII grid format.</td>
+              <td>dem.asc</td>
+            </tr>
+            <tr>
+              <td>Friction</td>
+              <td>Create a fixed or LULC-based roughness grid for TRITON.</td>
+              <td>friction .asc grid</td>
+            </tr>
+            <tr>
+              <td>BC</td>
+              <td>Create source and external boundary definitions.</td>
+              <td>.src and .extbc</td>
+            </tr>
+            <tr>
+              <td>Hydrograph</td>
+              <td>Prepare discharge time series for model inflow.</td>
+              <td>&lt;AOI&gt;.hyg</td>
+            </tr>
+            <tr>
+              <td>Config</td>
+              <td>Write TRITON run settings and file references.</td>
+              <td>&lt;AOI&gt;.cfg</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="triton-workflow">Step-by-Step Guide</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>What to do</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. Project</td>
+              <td>Select a base directory and project name, or open an existing TRITON project.</td>
+              <td>The app keeps TRITON outputs in AOI-specific folders.</td>
+            </tr>
+            <tr>
+              <td>2. AOI</td>
+              <td>Load the AOI shapefile, select the polygons to process, and confirm the AOIs.</td>
+              <td>Multiple AOIs can be prepared in one project.</td>
+            </tr>
+            <tr>
+              <td>3. DEM</td>
+              <td>Download terrain data or use a local DEM, then create the TRITON DEM grid.</td>
+              <td>The output is saved as <code>dem.asc</code> and is referenced by the TRITON config file.</td>
+            </tr>
+            <tr>
+              <td>4. Friction</td>
+              <td>Choose fixed friction or generate a spatial roughness grid from LULC data.</td>
+              <td>The setup mirrors the Manning workflow but writes TRITON friction output.</td>
+            </tr>
+            <tr>
+              <td>5. BC</td>
+              <td>Use automatic NHD detection or manual coordinates to set the inflow point and downstream boundary segment.</td>
+              <td>Downstream boundary options include free flow, water level versus time, normal slope, and Froude number.</td>
+            </tr>
+            <tr>
+              <td>6. Hydrograph</td>
+              <td>Select NWM retrospective, NWM forecast, USGS gage data, or upload a CSV/XLSX hydrograph.</td>
+              <td>The app writes a TRITON <code>.hyg</code> file for the source boundary.</td>
+            </tr>
+            <tr>
+              <td>7. Config</td>
+              <td>Set output format, print option, time step, print interval, and Courant number.</td>
+              <td>The app automatically fills file references, projection, number of sources, number of external boundaries, and simulation duration.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="triton-outputs">Output Files</h3>
+        <p>
+          For each AOI, the TRITON files are saved in a
+          <code>triton-files</code> folder inside the AOI project folder.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>dem.asc</td>
+              <td>TRITON-ready elevation grid.</td>
+            </tr>
+            <tr>
+              <td>friction .asc grid</td>
+              <td>TRITON roughness or friction grid created from fixed or LULC-based settings.</td>
+            </tr>
+            <tr>
+              <td>.src</td>
+              <td>Source boundary file describing inflow source locations.</td>
+            </tr>
+            <tr>
+              <td>.extbc</td>
+              <td>External boundary condition file describing downstream boundary segments and types.</td>
+            </tr>
+            <tr>
+              <td>&lt;AOI&gt;.hyg</td>
+              <td>Hydrograph file containing time and discharge values.</td>
+            </tr>
+            <tr>
+              <td>&lt;AOI&gt;.cfg</td>
+              <td>TRITON configuration file with run controls and input references.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="topic-section" id="fimserv-model">
+        <h2>OWP HAND-FIM</h2>
+        <p>
+          This section is reserved for the OWP HAND-FIM flood mapping workflow.
+          It appears in the manual structure so the Flood Mapping Models part
+          has four model options, but the full step-by-step documentation has
+          not been added yet.
+        </p>
+      </section>
+
+      <section class="topic-section" id="arc-model">
+        <h2>ARC-Curve2Flood</h2>
+        <p>
+          This section is reserved for the ARC-Curve2Flood flood mapping
+          workflow. It appears in the manual structure so this part has four
+          model options, but the full step-by-step documentation has not been
+          added yet.
+        </p>
+      </section>
     </main>
   </div>
 

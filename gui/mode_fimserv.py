@@ -974,12 +974,9 @@ class ModeFIMservWidget(QWidget):
             except Exception:
                 pass
 
-        self._aoi_huc8_status.setText(
-            f"✓  {len(ids)} HUC8 ID(s) confirmed.  "
-            "Creating project folders and saving HUC8 boundaries…"
-        )
-        self._aoi_huc8_status.setStyleSheet("color:#744210; font-size:12px; font-weight:bold;")
-        self._aoi_huc8_status.setVisible(True)
+        # No on-screen status report in the AOI HUC8 panel (per request) —
+        # keep only a quiet log line.
+        self._aoi_huc8_status.setVisible(False)
         self._log(
             f"AOI step (HUC8 mode) — confirmed {len(ids)} HUC8(s): "
             + ", ".join(ids)
@@ -1011,12 +1008,12 @@ class ModeFIMservWidget(QWidget):
     def _on_huc8_folders_done(self, result: dict):
         created = result.get("created", [])
         skipped = result.get("skipped", [])
-        msg = f"✓  {len(created)} HUC8 folder(s) created with boundary data saved."
-        if skipped:
-            msg += f"  ({len(skipped)} skipped — see log.)"
-        self._aoi_huc8_status.setText(msg + "  Proceed to step 3 (Streamflow Data).")
-        self._aoi_huc8_status.setStyleSheet("color:#276749; font-size:12px; font-weight:bold;")
-        self._log(msg)
+        # No on-screen status report (per request) — quiet log line only.
+        self._aoi_huc8_status.setVisible(False)
+        self._log(
+            f"HUC8 folders ready: {len(created)} created"
+            + (f", {len(skipped)} skipped" if skipped else "")
+        )
         self._rebuild_sf_cards()  # ensure Streamflow cards reflect confirmed HUC8s
 
     # ── Step 3: Streamflow ────────────────────────────────────────────────────
