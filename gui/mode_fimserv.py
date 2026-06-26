@@ -273,17 +273,13 @@ class ModeFIMservWidget(QWidget):
         v.setSpacing(10)
         v.setContentsMargins(14, 14, 14, 14)
 
-        title = QLabel("Enter HUC8 IDs")
-        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        title.setStyleSheet("color:#2d3748;")
-        v.addWidget(title)
-
+        # ── Entry row ─────────────────────────────────────────────────────────
         gb = QGroupBox(); gb.setStyleSheet(_GB_STYLE)
         gv = QVBoxLayout(gb); gv.setSpacing(6)
 
         note = QLabel(
             "Enter one or more 8-digit HUC8 watershed IDs (USA only).  "
-            "Zero-padding is applied automatically."
+            "Zero-padding is applied automatically.  Press Enter or click Add."
         )
         note.setWordWrap(True); note.setStyleSheet(_NOTE_STYLE)
         gv.addWidget(note)
@@ -300,40 +296,34 @@ class ModeFIMservWidget(QWidget):
         )
         add_btn.clicked.connect(self._add_aoi_huc8)
         entry_row.addWidget(add_btn)
-        rem_btn = QPushButton("Remove"); rem_btn.setFixedWidth(80)
-        rem_btn.setStyleSheet(
-            "padding:5px 10px; background:#e53e3e; color:white; "
-            "border-radius:4px; border:none; font-weight:bold;"
-        )
-        rem_btn.clicked.connect(self._remove_aoi_huc8)
-        entry_row.addWidget(rem_btn)
         gv.addLayout(entry_row)
         v.addWidget(gb)
 
-        # List + map side by side
-        split = QHBoxLayout()
-        split.setSpacing(10)
+        # ── HUC8 list — link-button rows, same style as AOI confirmed list ───
+        self._aoi_huc8_list_gb = QGroupBox("HUC8 IDs — click a row to highlight on map")
+        self._aoi_huc8_list_gb.setStyleSheet("QGroupBox { font-weight:bold; }")
+        list_gb_layout = QVBoxLayout(self._aoi_huc8_list_gb)
+        list_gb_layout.setContentsMargins(4, 8, 4, 4)
 
-        # Left: list
-        list_box = QVBoxLayout()
-        list_lbl = QLabel("HUC8 list — click to highlight on map:")
-        list_lbl.setStyleSheet("color:#4a5568; font-size:11px;")
-        list_box.addWidget(list_lbl)
-        self._aoi_huc8_list = QListWidget()
-        self._aoi_huc8_list.setFixedWidth(170)
-        self._aoi_huc8_list.setStyleSheet(
-            "font-family:monospace; font-size:12px; border:1px solid #e2e8f0;"
-        )
-        self._aoi_huc8_list.itemClicked.connect(self._on_aoi_huc8_clicked)
-        list_box.addWidget(self._aoi_huc8_list, 1)
-        split.addLayout(list_box)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(130)
+        scroll.setStyleSheet("QScrollArea { border:none; }")
 
-        # Right: USA map
-        self._aoi_huc8_map = _HUC8MapCanvas(self, width=9.0, height=4.0)
-        split.addWidget(self._aoi_huc8_map, 1)
-        v.addLayout(split, 1)
+        self._aoi_huc8_rows_widget = QWidget()
+        self._aoi_huc8_rows_layout = QVBoxLayout(self._aoi_huc8_rows_widget)
+        self._aoi_huc8_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._aoi_huc8_rows_layout.setSpacing(2)
+        self._aoi_huc8_rows_layout.addStretch()
+        scroll.setWidget(self._aoi_huc8_rows_widget)
+        list_gb_layout.addWidget(scroll)
+        v.addWidget(self._aoi_huc8_list_gb)
 
-        # Confirm button + status
+        # ── Full CONUS map ────────────────────────────────────────────────────
+        self._aoi_huc8_map = _HUC8MapCanvas(self, width=10.0, height=4.5)
+        v.addWidget(self._aoi_huc8_map, 1)
+
+        # ── Confirm button + status ───────────────────────────────────────────
         confirm_row = QHBoxLayout()
         confirm_btn = QPushButton("Confirm HUC8 IDs  ▶")
         confirm_btn.setStyleSheet(_RUN_STYLE)
@@ -349,49 +339,85 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_status.setVisible(False)
         v.addWidget(self._aoi_huc8_status)
 
-        # cache for fetched polygons
+        # internal state
+        self._aoi_huc8_ids: List[str] = []
         self._aoi_huc8_gdf = None
 
         return panel
+
+    def _rebuild_huc8_rows(self):
+        """Rebuild the link-button rows from self._aoi_huc8_ids."""
+        # Remove all widgets except the trailing stretch
+        while self._aoi_huc8_rows_layout.count() > 1:
+            item = self._aoi_huc8_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for i, hid in enumerate(self._aoi_huc8_ids, 1):
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(4, 0, 4, 0)
+            rl.setSpacing(6)
+
+            btn = QPushButton(f"{i}.  {hid}")
+            btn.setStyleSheet(
+                "QPushButton { text-align:left; background:transparent; "
+                "border:none; color:#2d3748; padding:2px; font-family:monospace; }"
+                "QPushButton:hover { color:#2b6cb0; text-decoration:underline; }"
+            )
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _checked, h=hid: self._on_aoi_huc8_clicked(h))
+            rl.addWidget(btn, 1)
+
+            rm = QPushButton("Remove")
+            rm.setFixedWidth(66)
+            rm.setStyleSheet(
+                "background:transparent; color:#c53030; border:none; "
+                "padding:2px 4px; font-size:11px;"
+            )
+            rm.setCursor(Qt.CursorShape.PointingHandCursor)
+            rm.clicked.connect(lambda _checked, h=hid: self._remove_aoi_huc8(h))
+            rl.addWidget(rm)
+
+            self._aoi_huc8_rows_layout.insertWidget(
+                self._aoi_huc8_rows_layout.count() - 1, row
+            )
 
     def _add_aoi_huc8(self):
         raw = self._aoi_huc8_entry.text().strip()
         if not raw:
             return
-        ids = [t.strip().zfill(8) for t in raw.replace(",", " ").split() if t.strip()]
-        existing = [self._aoi_huc8_list.item(i).text()
-                    for i in range(self._aoi_huc8_list.count())]
+        new_ids = [t.strip().zfill(8) for t in raw.replace(",", " ").split() if t.strip()]
         added = 0
-        for hid in ids:
-            if hid not in existing:
-                self._aoi_huc8_list.addItem(hid)
-                existing.append(hid)
+        for hid in new_ids:
+            if hid not in self._aoi_huc8_ids:
+                self._aoi_huc8_ids.append(hid)
                 added += 1
         self._aoi_huc8_entry.clear()
         if added:
+            self._rebuild_huc8_rows()
             self._refresh_aoi_huc8_map()
 
-    def _remove_aoi_huc8(self):
-        for it in self._aoi_huc8_list.selectedItems():
-            self._aoi_huc8_list.takeItem(self._aoi_huc8_list.row(it))
+    def _remove_aoi_huc8(self, huc_id: str):
+        if huc_id in self._aoi_huc8_ids:
+            self._aoi_huc8_ids.remove(huc_id)
         self._aoi_huc8_gdf = None
-        if self._aoi_huc8_list.count() == 0:
+        self._rebuild_huc8_rows()
+        if not self._aoi_huc8_ids:
             self._aoi_huc8_map._placeholder()
         else:
             self._refresh_aoi_huc8_map()
 
-    def _on_aoi_huc8_clicked(self, item):
+    def _on_aoi_huc8_clicked(self, huc_id: str):
         """Highlight the clicked HUC8 on the map (orange)."""
-        selected_id = item.text()
         if self._aoi_huc8_gdf is not None:
-            self._aoi_huc8_map.show_huc8s(self._aoi_huc8_gdf, selected_id)
+            self._aoi_huc8_map.show_huc8s(self._aoi_huc8_gdf, huc_id)
         else:
-            self._refresh_aoi_huc8_map(selected_id=selected_id)
+            self._refresh_aoi_huc8_map(selected_id=huc_id)
 
     def _refresh_aoi_huc8_map(self, selected_id=None):
-        """Fetch polygon GDF for current list contents and redraw map."""
-        ids = [self._aoi_huc8_list.item(i).text()
-               for i in range(self._aoi_huc8_list.count())]
+        """Fetch polygon GDF for current IDs and redraw map."""
+        ids = self._aoi_huc8_ids
         if not ids:
             return
         try:
@@ -412,8 +438,7 @@ class ModeFIMservWidget(QWidget):
             self._log(f"HUC8 preview failed: {ex}")
 
     def _confirm_aoi_huc8(self):
-        ids = [self._aoi_huc8_list.item(i).text()
-               for i in range(self._aoi_huc8_list.count())]
+        ids = self._aoi_huc8_ids
         if not ids:
             QMessageBox.warning(self, "No HUC8 IDs", "Add at least one HUC8 ID first.")
             return
@@ -1185,7 +1210,8 @@ class ModeFIMservWidget(QWidget):
         self._aoi_mode_stack.setVisible(False)
         self._aoi_mode_stack.setCurrentIndex(0)
         self._aoi_huc8_entry.clear()
-        self._aoi_huc8_list.clear()
+        self._aoi_huc8_ids.clear()
+        self._rebuild_huc8_rows()
         self._aoi_huc8_gdf = None
         self._aoi_huc8_map._placeholder()
         self._aoi_huc8_status.setVisible(False)
