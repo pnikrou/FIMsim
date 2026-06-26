@@ -1047,6 +1047,7 @@ class ModeFIMservWidget(QWidget):
             "then click here to copy them to every other card.")
         self._sf_apply_all_btn.clicked.connect(self._apply_sf_to_all)
         self._sf_apply_all_btn.setEnabled(False)
+        self._sf_apply_all_btn.setVisible(False)   # only shown when >1 card
         cards_hdr.addWidget(self._sf_apply_all_btn)
         v.addLayout(cards_hdr)
 
@@ -1184,9 +1185,7 @@ class ModeFIMservWidget(QWidget):
         self._sf_cards_layout.addStretch()
         # Force the scroll-area container to recalculate its size hint
         self._sf_cards_container.updateGeometry()
-        if hasattr(self, "_sf_apply_all_btn"):
-            self._sf_apply_all_btn.setEnabled(
-                any(c.get("expanded") for c in self._sf_cards))
+        self._update_apply_all_btn()
 
     def _build_one_sf_card(self, label: str, item_id: str, mode: str,
                            source_obj=None):
@@ -1457,14 +1456,23 @@ class ModeFIMservWidget(QWidget):
         else:
             refs["status_lbl"].setText("")
 
+    def _update_apply_all_btn(self):
+        """Show 'Apply to all' only when there's more than one card; enable it
+        only when a card is expanded to copy from."""
+        if not hasattr(self, "_sf_apply_all_btn"):
+            return
+        many = len(self._sf_cards) > 1
+        self._sf_apply_all_btn.setVisible(many)
+        self._sf_apply_all_btn.setEnabled(
+            many and any(c.get("expanded") for c in self._sf_cards))
+
     def _on_sf_toggle(self, refs: dict):
         if refs.get("expanded"):
             self._sf_set_expanded(refs, False)
         else:
             for c in self._sf_cards:           # single-card accordion
                 self._sf_set_expanded(c, c is refs)
-        self._sf_apply_all_btn.setEnabled(
-            any(c.get("expanded") for c in self._sf_cards))
+        self._update_apply_all_btn()
 
     def _on_sf_remove(self, refs: dict):
         reply = QMessageBox.question(
@@ -1494,8 +1502,7 @@ class ModeFIMservWidget(QWidget):
         # Keep the signature in sync so re-entering the tab doesn't rebuild
         # (which would wipe the remaining cards' edits).
         self._sf_cards_signature = self._sf_signature()
-        self._sf_apply_all_btn.setEnabled(
-            any(c.get("expanded") for c in self._sf_cards))
+        self._update_apply_all_btn()
 
     def _sf_status_summary(self, refs: dict) -> str:
         if refs["rb_src_fore"].isChecked():
