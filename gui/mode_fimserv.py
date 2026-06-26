@@ -225,36 +225,36 @@ class ModeFIMservWidget(QWidget):
         v.setSpacing(0)
         v.setContentsMargins(0, 0, 0, 0)
 
-        # ── Choice bar ────────────────────────────────────────────────────────
-        choice_bar = QWidget()
-        choice_bar.setStyleSheet(
-            "background:#ebf8ff; border-bottom:1px solid #90cdf4;"
-        )
-        bar_row = QHBoxLayout(choice_bar)
-        bar_row.setContentsMargins(16, 10, 16, 10)
-        bar_row.setSpacing(24)
+        # ── Input-type selector (centred combo, same style as Manning step) ─────
+        combo_bar = QWidget()
+        combo_bar.setStyleSheet("background:transparent;")
+        combo_row = QHBoxLayout(combo_bar)
+        combo_row.setContentsMargins(16, 14, 16, 14)
+        combo_row.setSpacing(10)
+        combo_row.addStretch()
 
         lbl = QLabel("Select input type:")
         lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        lbl.setStyleSheet("color:#2b6cb0; border:none;")
-        bar_row.addWidget(lbl)
+        lbl.setStyleSheet("color:#2d3748; border:none;")
+        combo_row.addWidget(lbl)
 
-        self._rb_aoi_mode  = QRadioButton("Area of Interest (AOI file)")
-        self._rb_huc8_mode = QRadioButton("HUC8 IDs directly")
-        self._rb_aoi_mode.setChecked(True)
-        self._rb_aoi_mode.setStyleSheet("font-size:12px; font-weight:bold; border:none;")
-        self._rb_huc8_mode.setStyleSheet("font-size:12px; font-weight:bold; border:none;")
-        _bg = QButtonGroup(self)
-        _bg.addButton(self._rb_aoi_mode,  0)
-        _bg.addButton(self._rb_huc8_mode, 1)
-        self._rb_aoi_mode.toggled.connect(self._on_aoi_choice_changed)
-        bar_row.addWidget(self._rb_aoi_mode)
-        bar_row.addWidget(self._rb_huc8_mode)
-        bar_row.addStretch()
-        v.addWidget(choice_bar)
+        self._aoi_type_combo = QComboBox()
+        self._aoi_type_combo.addItem("— pick an input type —")
+        self._aoi_type_combo.addItem("AOI (shapefile / GeoPackage)")
+        self._aoi_type_combo.addItem("HUC8 IDs (enter directly)")
+        self._aoi_type_combo.setFixedWidth(260)
+        self._aoi_type_combo.setStyleSheet(
+            "font-size:12px; padding:4px 8px; border:1px solid #90cdf4; "
+            "border-radius:4px; background:white;"
+        )
+        self._aoi_type_combo.currentIndexChanged.connect(self._on_aoi_choice_changed)
+        combo_row.addWidget(self._aoi_type_combo)
+        combo_row.addStretch()
+        v.addWidget(combo_bar)
 
-        # ── Stacked content area ──────────────────────────────────────────────
+        # ── Stacked content area (hidden until user picks a type) ────────────
         self._aoi_mode_stack = QStackedWidget()
+        self._aoi_mode_stack.setVisible(False)
 
         # Page 0: full multi-AOI widget (same as TRITON / LISFLOOD-FP)
         self._aoi_step = StepTritonAOIWidget(self._log, model="generic")
@@ -267,8 +267,13 @@ class ModeFIMservWidget(QWidget):
         v.addWidget(self._aoi_mode_stack, 1)
         return page
 
-    def _on_aoi_choice_changed(self, aoi_checked: bool):
-        self._aoi_mode_stack.setCurrentIndex(0 if aoi_checked else 1)
+    def _on_aoi_choice_changed(self, combo_index: int):
+        # 0 = placeholder, 1 = AOI file, 2 = HUC8 IDs
+        if combo_index == 0:
+            self._aoi_mode_stack.setVisible(False)
+        else:
+            self._aoi_mode_stack.setCurrentIndex(combo_index - 1)
+            self._aoi_mode_stack.setVisible(True)
 
     # ── HUC8 entry panel (AOI tab, page 1) ───────────────────────────────────
 
@@ -1185,8 +1190,9 @@ class ModeFIMservWidget(QWidget):
             self._proj_step.reset()
         if hasattr(self._aoi_step, "reset"):
             self._aoi_step.reset()
-        # Reset AOI choice radio + HUC8 entry panel
-        self._rb_aoi_mode.setChecked(True)
+        # Reset AOI combo + HUC8 entry panel
+        self._aoi_type_combo.setCurrentIndex(0)
+        self._aoi_mode_stack.setVisible(False)
         self._aoi_mode_stack.setCurrentIndex(0)
         self._aoi_huc8_entry.clear()
         self._aoi_huc8_list.clear()
