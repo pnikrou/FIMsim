@@ -279,11 +279,44 @@ class ModeFIMservWidget(QWidget):
 
     def _on_aoi_choice_changed(self, combo_index: int):
         # 0 = placeholder, 1 = AOI file, 2 = HUC8 IDs
+        # Switching modes clears the OTHER mode so only one can be confirmed at a time.
         if combo_index == 0:
             self._aoi_mode_stack.setVisible(False)
-        else:
-            self._aoi_mode_stack.setCurrentIndex(combo_index - 1)
+        elif combo_index == 1:
+            # Switching to AOI file — wipe any HUC8 data
+            self._clear_huc8_selection()
+            self._aoi_mode_stack.setCurrentIndex(0)
             self._aoi_mode_stack.setVisible(True)
+        else:
+            # Switching to HUC8 — wipe any AOI file data
+            self._clear_aoi_selection()
+            self._aoi_mode_stack.setCurrentIndex(1)
+            self._aoi_mode_stack.setVisible(True)
+
+    def _clear_huc8_selection(self):
+        """Wipe all HUC8 entries and state so AOI file becomes the active mode."""
+        self._aoi_huc8_ids.clear()
+        self._aoi_huc8_gdf = None
+        self._aoi_huc8_entry.clear()
+        self._rebuild_huc8_rows()
+        self._aoi_huc8_map.setVisible(False)
+        self._aoi_huc8_map_placeholder.setVisible(True)
+        self._aoi_huc8_status.setVisible(False)
+        self._huc8_specific_list.clear()
+        self._rb_huc8_range.setChecked(True)
+        self._huc8_range_box.setVisible(True)
+        self._huc8_specific_box.setVisible(False)
+        self._state["huc8_ids"] = []
+        self._state.get("ctx", {}).pop("huc8_ids", None)
+        self._state.get("ctx", {}).pop("huc8_date", None)
+
+    def _clear_aoi_selection(self):
+        """Wipe AOI file selection and state so HUC8 becomes the active mode."""
+        if hasattr(self._aoi_step, "reset"):
+            self._aoi_step.reset()
+        self._state["aoi_path"] = None
+        self._state.get("ctx", {}).pop("aoi_path", None)
+        self._state.get("ctx", {}).pop("aoi_features", None)
 
     # ── HUC8 entry panel (AOI tab, page 1) ───────────────────────────────────
 
