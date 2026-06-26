@@ -296,7 +296,22 @@ class ModeFIMservWidget(QWidget):
         )
         add_btn.clicked.connect(self._add_aoi_huc8)
         entry_row.addWidget(add_btn)
+
+        csv_btn = QPushButton("Load CSV…"); csv_btn.setFixedWidth(100)
+        csv_btn.setStyleSheet(
+            "font-weight:bold; padding:5px 10px; background:#276749; "
+            "color:white; border-radius:4px; border:none;"
+        )
+        csv_btn.clicked.connect(self._load_huc8_csv)
+        entry_row.addWidget(csv_btn)
         gv.addLayout(entry_row)
+
+        csv_note = QLabel(
+            "★  CSV format: one column, no header — each row is one HUC8 ID."
+        )
+        csv_note.setWordWrap(True)
+        csv_note.setStyleSheet(_NOTE_STYLE)
+        gv.addWidget(csv_note)
         v.addWidget(gb)
 
         # ── HUC8 list — link-button rows, same style as AOI confirmed list ───
@@ -430,6 +445,35 @@ class ModeFIMservWidget(QWidget):
         if added:
             self._rebuild_huc8_rows()
             self._refresh_aoi_huc8_map()
+
+    def _load_huc8_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select HUC8 CSV file", "", "CSV files (*.csv);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            added = 0
+            with open(path, "r") as fh:
+                for line in fh:
+                    val = line.strip().strip('"').strip("'")
+                    if not val:
+                        continue
+                    hid = val.zfill(8)
+                    if hid not in self._aoi_huc8_ids:
+                        self._aoi_huc8_ids.append(hid)
+                        added += 1
+            if added:
+                self._rebuild_huc8_rows()
+                self._refresh_aoi_huc8_map()
+                self._log(f"Loaded {added} HUC8 ID(s) from {Path(path).name}")
+            else:
+                QMessageBox.information(
+                    self, "No new IDs",
+                    "All HUC8 IDs in the CSV are already in the list."
+                )
+        except Exception as ex:
+            QMessageBox.critical(self, "CSV read error", str(ex))
 
     def _remove_aoi_huc8(self, huc_id: str):
         if huc_id in self._aoi_huc8_ids:
