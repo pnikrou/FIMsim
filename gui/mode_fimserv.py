@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QTabWidget, QProgressBar, QGroupBox, QRadioButton,
     QLineEdit, QDateTimeEdit, QComboBox, QCheckBox, QFileDialog,
     QListWidget, QListWidgetItem, QAbstractItemView,
-    QButtonGroup, QMessageBox,
+    QButtonGroup, QMessageBox, QSizePolicy,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QDateTime
 from PyQt6.QtGui import QFont
@@ -332,9 +332,29 @@ class ModeFIMservWidget(QWidget):
         list_gb_layout.addWidget(add_more_btn)
         v.addWidget(self._aoi_huc8_list_gb)
 
-        # ── Full CONUS map ────────────────────────────────────────────────────
-        self._aoi_huc8_map = _HUC8MapCanvas(self, width=10.0, height=4.5)
-        v.addWidget(self._aoi_huc8_map, 1)
+        # ── Map preview — QGroupBox matching AOI style ────────────────────────
+        self._aoi_huc8_map_gb = QGroupBox("Map preview")
+        self._aoi_huc8_map_gb.setStyleSheet("QGroupBox { font-weight:bold; }")
+        map_gb_layout = QVBoxLayout(self._aoi_huc8_map_gb)
+
+        self._aoi_huc8_map_placeholder = QLabel(
+            "<i>Click a HUC8 ID in the list above to see its location on the map.</i>"
+        )
+        self._aoi_huc8_map_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._aoi_huc8_map_placeholder.setStyleSheet(
+            "color:#888; padding:40px; background:#fafafa; "
+            "border:1px dashed #cbd5e0; border-radius:4px;"
+        )
+        map_gb_layout.addWidget(self._aoi_huc8_map_placeholder)
+
+        self._aoi_huc8_map = USMapCanvas(self, width=10, height=4.0)
+        self._aoi_huc8_map.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._aoi_huc8_map.setVisible(False)
+        map_gb_layout.addWidget(self._aoi_huc8_map)
+
+        v.addWidget(self._aoi_huc8_map_gb, 1)
 
         # ── Confirm button + status ───────────────────────────────────────────
         confirm_row = QHBoxLayout()
@@ -417,19 +437,45 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_gdf = None
         self._rebuild_huc8_rows()
         if not self._aoi_huc8_ids:
-            self._aoi_huc8_map._placeholder()
+            self._aoi_huc8_map.setVisible(False)
+            self._aoi_huc8_map_placeholder.setVisible(True)
         else:
-            self._refresh_aoi_huc8_map()
+            self._refresh_aoi_huc8_gdf()
 
     def _on_aoi_huc8_clicked(self, huc_id: str):
-        """Highlight the clicked HUC8 on the map (orange)."""
-        if self._aoi_huc8_gdf is not None:
-            self._aoi_huc8_map.show_huc8s(self._aoi_huc8_gdf, huc_id)
-        else:
-            self._refresh_aoi_huc8_map(selected_id=huc_id)
+        """Show the 3-panel map for the clicked HUC8 (CONUS / state / close-up)."""
+        if self._aoi_huc8_gdf is None:
+            self._refresh_aoi_huc8_gdf()
+        if self._aoi_huc8_gdf is None:
+            return
+        try:
+            col = next(
+                c for c in self._aoi_huc8_gdf.columns
+                if c.lower() == "huc8"
+            )
+            single = self._aoi_huc8_gdf[
+                self._aoi_huc8_gdf[col].astype(str).str.zfill(8) == huc_id
+            ]
+            if single.empty:
+                return
+            single_4326 = single.to_crs("EPSG:4326")
+            centroid = single_4326.geometry.union_all().centroid
+            lon, lat = centroid.x, centroid.y
+            st = detect_us_state(single_4326)
+            state_abbrs = [st["state_abbr"]] if st.get("state_abbr") else []
+            self._aoi_huc8_map_placeholder.setVisible(False)
+            self._aoi_huc8_map.setVisible(True)
+            self._aoi_huc8_map.update_plots(
+                highlighted_state_abbrs=state_abbrs,
+                aoi_points=[(lon, lat)],
+                aoi_labels=[huc_id],
+                huc8_gdf=single_4326,
+            )
+        except Exception as ex:
+            self._log(f"HUC8 map preview failed: {ex}")
 
-    def _refresh_aoi_huc8_map(self, selected_id=None):
-        """Fetch polygon GDF for current IDs and redraw map."""
+    def _refresh_aoi_huc8_gdf(self):
+        """Load HUC8 boundary polygons for all current IDs into self._aoi_huc8_gdf."""
         ids = self._aoi_huc8_ids
         if not ids:
             return
@@ -443,12 +489,14 @@ class ModeFIMservWidget(QWidget):
                               gdf.columns[0]))
             want = {str(x).zfill(8) for x in ids}
             hits = gdf[gdf[col].astype(str).str.zfill(8).isin(want)]
-            if hits.empty:
-                return
-            self._aoi_huc8_gdf = hits
-            self._aoi_huc8_map.show_huc8s(hits, selected_id)
+            if not hits.empty:
+                self._aoi_huc8_gdf = hits
         except Exception as ex:
-            self._log(f"HUC8 preview failed: {ex}")
+            self._log(f"HUC8 boundary load failed: {ex}")
+
+    # keep old name as alias so reset() and _add_aoi_huc8 still work
+    def _refresh_aoi_huc8_map(self, selected_id=None):
+        self._refresh_aoi_huc8_gdf()
 
     def _confirm_aoi_huc8(self):
         ids = self._aoi_huc8_ids
@@ -1226,7 +1274,8 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_ids.clear()
         self._rebuild_huc8_rows()
         self._aoi_huc8_gdf = None
-        self._aoi_huc8_map._placeholder()
+        self._aoi_huc8_map.setVisible(False)
+        self._aoi_huc8_map_placeholder.setVisible(True)
         self._aoi_huc8_status.setVisible(False)
         self._rb_retro.setChecked(True)
         self._rb_specific.setChecked(True)
