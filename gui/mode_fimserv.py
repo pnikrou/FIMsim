@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QScrollArea, QTabWidget, QProgressBar, QGroupBox, QRadioButton,
     QLineEdit, QDateTimeEdit, QComboBox, QCheckBox, QFileDialog,
     QListWidget, QListWidgetItem, QAbstractItemView,
@@ -225,32 +225,22 @@ class ModeFIMservWidget(QWidget):
         v.setSpacing(0)
         v.setContentsMargins(0, 0, 0, 0)
 
-        # ── Input-type selector (centred combo, same style as Manning step) ─────
-        combo_bar = QWidget()
-        combo_bar.setStyleSheet("background:transparent;")
-        combo_row = QHBoxLayout(combo_bar)
-        combo_row.setContentsMargins(16, 14, 16, 14)
-        combo_row.setSpacing(10)
-        combo_row.addStretch()
+        # ── Input-type selector — QGroupBox + QFormLayout, same as Manning step ─
+        gb = QGroupBox("2. Area of Interest")
+        gb_layout = QVBoxLayout(gb)
 
-        lbl = QLabel("Select input type:")
-        lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        lbl.setStyleSheet("color:#2d3748; border:none;")
-        combo_row.addWidget(lbl)
+        form = QFormLayout()
+        form.setContentsMargins(0, 4, 0, 4)
 
         self._aoi_type_combo = QComboBox()
-        self._aoi_type_combo.addItem("— pick an input type —")
-        self._aoi_type_combo.addItem("AOI (shapefile / GeoPackage)")
-        self._aoi_type_combo.addItem("HUC8 IDs (enter directly)")
-        self._aoi_type_combo.setFixedWidth(260)
-        self._aoi_type_combo.setStyleSheet(
-            "font-size:12px; padding:4px 8px; border:1px solid #90cdf4; "
-            "border-radius:4px; background:white;"
-        )
+        self._aoi_type_combo.addItem("—  pick an input type  —")
+        self._aoi_type_combo.addItem("AOI file  (shapefile / GeoPackage)")
+        self._aoi_type_combo.addItem("HUC8 IDs  (type them in directly)")
+        self._aoi_type_combo.setFixedWidth(280)
         self._aoi_type_combo.currentIndexChanged.connect(self._on_aoi_choice_changed)
-        combo_row.addWidget(self._aoi_type_combo)
-        combo_row.addStretch()
-        v.addWidget(combo_bar)
+        form.addRow("<b>Input type:</b>", self._aoi_type_combo)
+        gb_layout.addLayout(form)
+        v.addWidget(gb)
 
         # ── Stacked content area (hidden until user picks a type) ────────────
         self._aoi_mode_stack = QStackedWidget()
