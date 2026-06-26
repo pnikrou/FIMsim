@@ -119,59 +119,49 @@ class StepTritonAOIWidget(QWidget):
             })
         self._ctx["aoi_features"] = aoi_list
 
-        # Bridge: legacy single-AOI keys point at the FIRST confirmed feature
-        # so existing downstream steps keep working until they're refactored
-        # to iterate.  Each AOI already has its own subfolder created by
-        # MultiAOIWidget at <project>/<feature.folder_name>/.
+        # Bridge: common AOI keys always set regardless of model.
+        # Model-specific subdir (lisflood-files / triton-files) and the
+        # file-path defaults (.bci, .bdy, .par, …) are only created for
+        # LISFLOOD-FP and TRITON — NOT for "generic" (HAND-FIM), which has
+        # its own folder structure and must not get a stray lisflood-files/.
         if features:
-            from core.multi_aoi import model_files_subdir
-
             f0 = features[0]
             is_triton = (self._model == "triton")
-            mf_dir = model_files_subdir(f0.folder_path, is_triton=is_triton)
 
             self._ctx["aoi_path"]            = f0.source_file
             self._ctx["aoi_name"]            = f0.name
             self._ctx["aoi_feature_index"]   = f0.feature_index
-            # Bridge: first AOI's working CRS shows up on the parent ctx
-            # so single-AOI consumers (which read ctx directly) get the
-            # right metric projection too.
             if f0.working_crs_epsg is not None:
                 self._ctx["working_crs_epsg"]  = f0.working_crs_epsg
             if f0.working_crs_label:
                 self._ctx["working_crs_label"] = f0.working_crs_label
-            # Files needed to RUN the model live inside lisflood-files
-            # (or triton-files) — a sub-folder of the AOI folder.  The
-            # AOI folder itself still holds intermediate scratch files.
-            if is_triton:
-                self._ctx["triton_dir"]      = mf_dir
-                self._ctx.pop("lisflood_dir", None)
-            else:
-                self._ctx["lisflood_dir"]    = mf_dir
-                self._ctx.pop("triton_dir", None)
-            self._ctx["model_dir"]           = mf_dir
-            # Single-AOI: point project_dir at the AOI's OWN folder so every
-            # intermediate/downloaded file (LULC, Manning tif, NHD flowlines,
-            # main_river_*, discharge CSVs, …) is saved inside the case folder
-            # (<project>/<AOI>/), not the main project folder.  Multi-AOI
-            # already does this per-AOI inside the orchestrators.
             if len(features) == 1:
                 self._ctx["project_dir"] = f0.folder_path
-            # Per-AOI sensible default file paths (LISFLOOD / TRITON style)
-            mf = Path(mf_dir)
-            self._ctx.setdefault("dem_ascii_path",
-                                 str(mf / ("dem.asc" if is_triton else "dem.ascii")))
-            self._ctx.setdefault("manning_ascii_path",
-                                 str(mf / "lulc.ascii"))
-            # .bci / .bdy are named after the AOI by the BCI / BDY steps.
-            self._ctx.setdefault("bci_path",
-                                 str(mf / f"{f0.name}.bci"))
-            self._ctx.setdefault("bdy_path",
-                                 str(mf / f"{f0.name}.bdy"))
-            self._ctx.setdefault(
-                "par_path",
-                str(mf / f"{self._ctx.get('project_name', 'model')}.par"),
-            )
+
+            # Model-specific subdir + file-path defaults (LISFLOOD-FP / TRITON only)
+            if self._model != "generic":
+                from core.multi_aoi import model_files_subdir
+                mf_dir = model_files_subdir(f0.folder_path, is_triton=is_triton)
+                if is_triton:
+                    self._ctx["triton_dir"]   = mf_dir
+                    self._ctx.pop("lisflood_dir", None)
+                else:
+                    self._ctx["lisflood_dir"] = mf_dir
+                    self._ctx.pop("triton_dir", None)
+                self._ctx["model_dir"] = mf_dir
+                mf = Path(mf_dir)
+                self._ctx.setdefault("dem_ascii_path",
+                                     str(mf / ("dem.asc" if is_triton else "dem.ascii")))
+                self._ctx.setdefault("manning_ascii_path",
+                                     str(mf / "lulc.ascii"))
+                self._ctx.setdefault("bci_path",
+                                     str(mf / f"{f0.name}.bci"))
+                self._ctx.setdefault("bdy_path",
+                                     str(mf / f"{f0.name}.bdy"))
+                self._ctx.setdefault(
+                    "par_path",
+                    str(mf / f"{self._ctx.get('project_name', 'model')}.par"),
+                )
 
         # Save to disk
         if self._ctx_path:
