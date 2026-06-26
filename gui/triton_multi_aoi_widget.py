@@ -503,6 +503,7 @@ class MultiAOIWidget(QWidget):
         # itself is no longer obscured when many AOIs are selected.
         self._gb_map = QGroupBox("Map preview")
         self._gb_map.setFixedHeight(320)
+        self._gb_map.setStyleSheet("QGroupBox { font-weight:bold; }")
         m_outer = QVBoxLayout(self._gb_map)
 
         # Placeholder fills the whole group while no AOI is loaded.

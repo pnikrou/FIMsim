@@ -302,7 +302,7 @@ class ModeFIMservWidget(QWidget):
 
         self._tabs = QTabWidget()
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
-        self._tabs.currentChanged.connect(self._update_nav)
+        self._tabs.currentChanged.connect(self._on_tab_changed)
         outer.addWidget(self._tabs)
 
         # Step 1 — Project (identical widget to TRITON / LISFLOOD-FP)
@@ -391,17 +391,12 @@ class ModeFIMservWidget(QWidget):
         self._aoi_huc8_map.setVisible(False)
         self._aoi_huc8_map_placeholder.setVisible(True)
         self._aoi_huc8_status.setVisible(False)
-        self._huc8_specific_list.clear()
-        self._rb_huc8_range.setChecked(True)
-        self._huc8_range_box.setVisible(True)
-        self._huc8_specific_box.setVisible(False)
         self._huc8_detail_gb.setVisible(False)
         self._huc8_detail_lbl.setText("(click any HUC8 ID above to see details here)")
         self._huc8_detail_cache.clear()
         self._huc8_selected_id = None
         self._state["huc8_ids"] = []
         self._state.get("ctx", {}).pop("huc8_ids", None)
-        self._state.get("ctx", {}).pop("huc8_date", None)
 
     def _clear_aoi_selection(self):
         """Wipe AOI file selection and state so HUC8 becomes the active mode."""
@@ -444,73 +439,6 @@ class ModeFIMservWidget(QWidget):
         csv_note.setWordWrap(True)
         csv_note.setStyleSheet(_NOTE_STYLE)
         gv.addWidget(csv_note)
-
-        # ── Date selection ────────────────────────────────────────────────────
-        date_sep = QLabel("Date")
-        date_sep.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        date_sep.setStyleSheet("color:#2d3748; margin-top:4px;")
-        gv.addWidget(date_sep)
-
-        date_mode_row = QHBoxLayout()
-        self._huc8_date_grp = QButtonGroup(self)
-        self._rb_huc8_range    = QRadioButton("Date range")
-        self._rb_huc8_specific = QRadioButton("Specific date(s)")
-        self._rb_huc8_range.setChecked(True)
-        self._huc8_date_grp.addButton(self._rb_huc8_range,    0)
-        self._huc8_date_grp.addButton(self._rb_huc8_specific, 1)
-        self._rb_huc8_range.toggled.connect(self._on_huc8_date_mode_toggled)
-        date_mode_row.addWidget(self._rb_huc8_range)
-        date_mode_row.addWidget(self._rb_huc8_specific)
-        date_mode_row.addStretch()
-        gv.addLayout(date_mode_row)
-
-        # Range panel
-        self._huc8_range_box = QWidget()
-        rr = QHBoxLayout(self._huc8_range_box)
-        rr.setContentsMargins(0, 0, 0, 0); rr.setSpacing(10)
-        rr.addWidget(QLabel("Start date:"))
-        self._huc8_start = QDateTimeEdit()
-        self._huc8_start.setDisplayFormat("yyyy-MM-dd HH:mm")
-        self._huc8_start.setCalendarPopup(True)
-        self._huc8_start.setDateTime(QDateTime.fromString("2020-05-20 00:00", "yyyy-MM-dd HH:mm"))
-        rr.addWidget(self._huc8_start)
-        rr.addSpacing(16)
-        rr.addWidget(QLabel("End date:"))
-        self._huc8_end = QDateTimeEdit()
-        self._huc8_end.setDisplayFormat("yyyy-MM-dd HH:mm")
-        self._huc8_end.setCalendarPopup(True)
-        self._huc8_end.setDateTime(QDateTime.fromString("2020-05-22 00:00", "yyyy-MM-dd HH:mm"))
-        rr.addWidget(self._huc8_end)
-        rr.addStretch()
-        gv.addWidget(self._huc8_range_box)
-
-        # Specific-dates panel
-        self._huc8_specific_box = QWidget()
-        sv = QVBoxLayout(self._huc8_specific_box)
-        sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(4)
-        sp_row = QHBoxLayout()
-        sp_row.addWidget(QLabel("Date / time:"))
-        self._huc8_specific_dt = QDateTimeEdit()
-        self._huc8_specific_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
-        self._huc8_specific_dt.setCalendarPopup(True)
-        self._huc8_specific_dt.setDateTime(
-            QDateTime.fromString("2020-05-21 00:00", "yyyy-MM-dd HH:mm"))
-        sp_row.addWidget(self._huc8_specific_dt)
-        sp_add = QPushButton("Add"); sp_add.setFixedWidth(60)
-        sp_add.clicked.connect(self._add_huc8_specific_date)
-        sp_row.addWidget(sp_add)
-        sp_rem = QPushButton("Remove"); sp_rem.setFixedWidth(70)
-        sp_rem.clicked.connect(self._remove_huc8_specific_date)
-        sp_row.addWidget(sp_rem)
-        sp_row.addStretch()
-        sv.addLayout(sp_row)
-        self._huc8_specific_list = QListWidget()
-        self._huc8_specific_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._huc8_specific_list.setMaximumHeight(80)
-        sv.addWidget(self._huc8_specific_list)
-        self._huc8_specific_box.setVisible(False)
-        gv.addWidget(self._huc8_specific_box)
 
         v.addWidget(gb)
 
@@ -861,25 +789,6 @@ class ModeFIMservWidget(QWidget):
     def _refresh_aoi_huc8_map(self, selected_id=None):
         self._refresh_aoi_huc8_gdf()
 
-    # ── HUC8 date-mode helpers ────────────────────────────────────────────────
-
-    def _on_huc8_date_mode_toggled(self, checked: bool):
-        is_range = self._rb_huc8_range.isChecked()
-        self._huc8_range_box.setVisible(is_range)
-        self._huc8_specific_box.setVisible(not is_range)
-
-    def _add_huc8_specific_date(self):
-        dt_str = self._huc8_specific_dt.dateTime().toString("yyyy-MM-dd HH:mm")
-        existing = [self._huc8_specific_list.item(i).text()
-                    for i in range(self._huc8_specific_list.count())]
-        if dt_str not in existing:
-            self._huc8_specific_list.addItem(dt_str)
-
-    def _remove_huc8_specific_date(self):
-        for item in self._huc8_specific_list.selectedItems():
-            self._huc8_specific_list.takeItem(
-                self._huc8_specific_list.row(item))
-
     def _confirm_aoi_huc8(self):
         ids = self._aoi_huc8_ids
         if not ids:
@@ -887,23 +796,9 @@ class ModeFIMservWidget(QWidget):
             return
         self._state["huc8_ids"] = list(ids)
 
-        # Collect date selection
-        if self._rb_huc8_range.isChecked():
-            date_info = {
-                "mode": "range",
-                "start": self._huc8_start.dateTime().toString("yyyy-MM-dd HH:mm"),
-                "end":   self._huc8_end.dateTime().toString("yyyy-MM-dd HH:mm"),
-            }
-        else:
-            dates = [self._huc8_specific_list.item(i).text()
-                     for i in range(self._huc8_specific_list.count())]
-            date_info = {"mode": "specific", "dates": dates}
-        self._state["huc8_date"] = date_info
-
         # Persist to context file so the IDs survive an app restart
         ctx = self._state.get("ctx") or {}
-        ctx["huc8_ids"]  = list(ids)
-        ctx["huc8_date"] = date_info
+        ctx["huc8_ids"] = list(ids)
         self._state["ctx"] = ctx
         ctx_path = self._state.get("ctx_path")
         if ctx_path:
@@ -938,8 +833,9 @@ class ModeFIMservWidget(QWidget):
         title.setStyleSheet("color:#2d3748;")
         v.addWidget(title)
 
-        gb = QGroupBox(); gb.setStyleSheet(_GB_STYLE)
-        gv = QVBoxLayout(gb); gv.setSpacing(8)
+        # ── Global source groupbox ────────────────────────────────────────────
+        src_gb = QGroupBox("Source"); src_gb.setStyleSheet(_GB_STYLE)
+        gv = QVBoxLayout(src_gb); gv.setSpacing(8)
 
         src_row = QHBoxLayout()
         src_row.addWidget(QLabel("Source:"))
@@ -955,18 +851,49 @@ class ModeFIMservWidget(QWidget):
         src_row.addStretch()
         gv.addLayout(src_row)
 
-        gv.addWidget(self._build_retro_group())
+        self._retro_note = QLabel(
+            "★ Set date range or specific dates in each card below.")
+        self._retro_note.setWordWrap(True)
+        self._retro_note.setStyleSheet(_NOTE_STYLE)
+        gv.addWidget(self._retro_note)
+
         gv.addWidget(self._build_forecast_group())
 
         self._sf_note = QLabel("")
         self._sf_note.setWordWrap(True); self._sf_note.setStyleSheet(_NOTE_STYLE)
         gv.addWidget(self._sf_note)
-        v.addWidget(gb)
+        v.addWidget(src_gb)
 
+        # ── Per-AOI/HUC8 date cards ───────────────────────────────────────────
+        cards_lbl = QLabel("Date configuration — one card per AOI / HUC8:")
+        cards_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        cards_lbl.setStyleSheet("color:#2d3748; margin-top:4px;")
+        v.addWidget(cards_lbl)
+
+        cards_scroll = QScrollArea()
+        cards_scroll.setWidgetResizable(True)
+        cards_scroll.setStyleSheet("QScrollArea { border:none; }")
+        cards_scroll.setMinimumHeight(120)
+
+        self._sf_cards_container = QWidget()
+        self._sf_cards_layout = QVBoxLayout(self._sf_cards_container)
+        self._sf_cards_layout.setSpacing(8)
+        self._sf_cards_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._sf_no_items_lbl = QLabel(
+            "(Complete step 2 (AOI) first — cards will appear here.)")
+        self._sf_no_items_lbl.setStyleSheet("color:#888; font-style:italic; padding:8px;")
+        self._sf_cards_layout.addWidget(self._sf_no_items_lbl)
+        self._sf_cards_layout.addStretch()
+
+        cards_scroll.setWidget(self._sf_cards_container)
+        v.addWidget(cards_scroll, 1)
+
+        # ── Run button, progress, status, hydro ──────────────────────────────
         run_row = QHBoxLayout()
-        self._sf_btn = QPushButton("Get streamflow data")
+        self._sf_btn = QPushButton("Get streamflow data for all")
         self._sf_btn.setStyleSheet(_RUN_STYLE)
-        self._sf_btn.clicked.connect(self._get_streamflow)
+        self._sf_btn.clicked.connect(self._get_streamflow_all)
         run_row.addWidget(self._sf_btn)
         run_row.addStretch()
         v.addLayout(run_row)
@@ -986,110 +913,13 @@ class ModeFIMservWidget(QWidget):
         self._hydro.setVisible(False)
         v.addWidget(self._hydro)
 
-        v.addStretch()
+        # Internal card state
+        self._sf_cards: List[dict] = []
+        self._sf_pending: List[dict] = []
+        self._sf_current_card: Optional[dict] = None
+
         self._on_source_toggled()
         return page
-
-    def _build_retro_group(self) -> QWidget:
-        box = QWidget()
-        lv = QVBoxLayout(box); lv.setContentsMargins(0, 0, 0, 0); lv.setSpacing(6)
-
-        self._retro_grp = QButtonGroup(self)
-        self._rb_specific = QRadioButton("Specific event date(s) / time(s)")
-        self._rb_range    = QRadioButton("Date range")
-        self._rb_specific.setChecked(True)
-        self._retro_grp.addButton(self._rb_specific)
-        self._retro_grp.addButton(self._rb_range)
-        self._rb_specific.toggled.connect(self._on_retro_submode_toggled)
-        lv.addWidget(self._rb_specific)
-
-        self._specific_box = QWidget()
-        sb = QVBoxLayout(self._specific_box)
-        sb.setContentsMargins(20, 0, 0, 0); sb.setSpacing(4)
-        ev_row = QHBoxLayout()
-        self._event_edit = QLineEdit()
-        self._event_edit.setPlaceholderText("YYYY-MM-DD  or  YYYY-MM-DD HH:MM:SS")
-        ev_row.addWidget(self._event_edit, 1)
-        add_btn = QPushButton("Add"); add_btn.setFixedWidth(60)
-        add_btn.clicked.connect(self._add_event_time)
-        ev_row.addWidget(add_btn)
-        del_btn = QPushButton("Remove"); del_btn.setFixedWidth(70)
-        del_btn.clicked.connect(self._remove_event_time)
-        ev_row.addWidget(del_btn)
-        sb.addLayout(ev_row)
-        self._event_list = QListWidget()
-        self._event_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._event_list.setMaximumHeight(90)
-        self._event_list.setMinimumWidth(240)
-        sb.addWidget(self._event_list)
-        lv.addWidget(self._specific_box)
-
-        lv.addWidget(self._rb_range)
-
-        self._range_box = QWidget()
-        rb = QVBoxLayout(self._range_box)
-        rb.setContentsMargins(20, 0, 0, 0); rb.setSpacing(4)
-
-        dt_row = QHBoxLayout()
-        dt_row.addWidget(QLabel("Start date:"))
-        self._sf_start = QDateTimeEdit()
-        self._sf_start.setDisplayFormat("yyyy-MM-dd")
-        self._sf_start.setCalendarPopup(True)
-        self._sf_start.setDateTime(QDateTime.fromString("2020-05-20", "yyyy-MM-dd"))
-        dt_row.addWidget(self._sf_start)
-        dt_row.addSpacing(12)
-        dt_row.addWidget(QLabel("End date:"))
-        self._sf_end = QDateTimeEdit()
-        self._sf_end.setDisplayFormat("yyyy-MM-dd")
-        self._sf_end.setCalendarPopup(True)
-        self._sf_end.setDateTime(QDateTime.fromString("2020-05-22", "yyyy-MM-dd"))
-        dt_row.addWidget(self._sf_end)
-        dt_row.addStretch()
-        rb.addLayout(dt_row)
-
-        rng_note = QLabel(
-            "Start/end set the download window and the hydrograph preview. "
-            "Add event time(s) within the range to save those hours (one FIM "
-            "each) — or add none to use the aggregation below."
-        )
-        rng_note.setWordWrap(True); rng_note.setStyleSheet(_NOTE_STYLE)
-        rb.addWidget(rng_note)
-
-        self._timestep_lbl = QLabel("Event time(s) within the range:")
-        rb.addWidget(self._timestep_lbl)
-        tev_row = QHBoxLayout()
-        self._range_event_edit = QLineEdit()
-        self._range_event_edit.setPlaceholderText("YYYY-MM-DD  or  YYYY-MM-DD HH:MM:SS")
-        tev_row.addWidget(self._range_event_edit, 1)
-        radd = QPushButton("Add"); radd.setFixedWidth(60)
-        radd.clicked.connect(self._add_range_event_time)
-        tev_row.addWidget(radd)
-        rdel = QPushButton("Remove"); rdel.setFixedWidth(70)
-        rdel.clicked.connect(self._remove_range_event_time)
-        tev_row.addWidget(rdel)
-        rb.addLayout(tev_row)
-
-        self._timestep_list = QListWidget()
-        self._timestep_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._timestep_list.setMaximumHeight(90)
-        self._timestep_list.setMinimumWidth(240)
-        self._timestep_list.itemSelectionChanged.connect(self._on_timesteps_picked)
-        rb.addWidget(self._timestep_list)
-
-        agg_row = QHBoxLayout()
-        self._agg_lbl = QLabel("Aggregation (used when no event time picked):")
-        agg_row.addWidget(self._agg_lbl)
-        self._sort_by = QComboBox()
-        self._sort_by.addItems(["maximum", "median", "minimum"])
-        agg_row.addWidget(self._sort_by)
-        agg_row.addStretch()
-        rb.addLayout(agg_row)
-        lv.addWidget(self._range_box)
-
-        self._retro_box = box
-        return box
 
     def _build_forecast_group(self) -> QWidget:
         box = QWidget()
@@ -1139,6 +969,159 @@ class ModeFIMservWidget(QWidget):
 
         self._forecast_box = box
         return box
+
+    def _rebuild_sf_cards(self):
+        """Clear and recreate per-AOI/HUC8 date cards in the Streamflow tab."""
+        self._sf_cards = []
+        # Remove all widgets from layout (keep the stretch at the end)
+        while self._sf_cards_layout.count() > 0:
+            item = self._sf_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        huc8_ids = self._state.get("huc8_ids") or []
+        aoi_features = self._state.get("ctx", {}).get("aoi_features") or []
+
+        if huc8_ids:
+            for hid in huc8_ids:
+                label = f"HUC8: {hid}"
+                card_widget, card_refs = self._build_one_sf_card(label, hid, "huc8")
+                self._sf_cards_layout.addWidget(card_widget)
+                self._sf_cards.append(card_refs)
+        elif aoi_features:
+            for i, feat in enumerate(aoi_features, 1):
+                name = (
+                    feat.get("name") or feat.get("id") or str(i)
+                    if isinstance(feat, dict) else str(i)
+                )
+                label = f"AOI {i}: {name}"
+                item_id = str(i)
+                card_widget, card_refs = self._build_one_sf_card(label, item_id, "aoi")
+                self._sf_cards_layout.addWidget(card_widget)
+                self._sf_cards.append(card_refs)
+        else:
+            self._sf_no_items_lbl = QLabel(
+                "(Complete step 2 (AOI) first — cards will appear here.)")
+            self._sf_no_items_lbl.setStyleSheet(
+                "color:#888; font-style:italic; padding:8px;")
+            self._sf_cards_layout.addWidget(self._sf_no_items_lbl)
+
+        self._sf_cards_layout.addStretch()
+
+    def _build_one_sf_card(self, label: str, item_id: str, mode: str):
+        """Build a single date-config card for one HUC8/AOI.
+
+        Returns (QGroupBox widget, dict of widget refs).
+        """
+        card = QGroupBox(label)
+        card.setStyleSheet(
+            "QGroupBox { font-weight:bold; background:#f9fafb; "
+            "border:1px solid #e2e8f0; border-radius:6px; padding-top:8px; }"
+        )
+        cv = QVBoxLayout(card)
+        cv.setSpacing(6)
+
+        # Radio buttons: Date range / Specific date(s)
+        date_grp = QButtonGroup(card)
+        rb_range    = QRadioButton("Date range")
+        rb_specific = QRadioButton("Specific date(s)")
+        rb_range.setChecked(True)
+        date_grp.addButton(rb_range,    0)
+        date_grp.addButton(rb_specific, 1)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(rb_range)
+        mode_row.addWidget(rb_specific)
+        mode_row.addStretch()
+        cv.addLayout(mode_row)
+
+        # Range box
+        range_box = QWidget()
+        rr = QHBoxLayout(range_box)
+        rr.setContentsMargins(0, 0, 0, 0); rr.setSpacing(10)
+        rr.addWidget(QLabel("Start date:"))
+        start_dt = QDateTimeEdit()
+        start_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
+        start_dt.setCalendarPopup(True)
+        start_dt.setDateTime(QDateTime.fromString("2020-05-20 00:00", "yyyy-MM-dd HH:mm"))
+        rr.addWidget(start_dt)
+        rr.addSpacing(12)
+        rr.addWidget(QLabel("End date:"))
+        end_dt = QDateTimeEdit()
+        end_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
+        end_dt.setCalendarPopup(True)
+        end_dt.setDateTime(QDateTime.fromString("2020-05-22 00:00", "yyyy-MM-dd HH:mm"))
+        rr.addWidget(end_dt)
+        rr.addStretch()
+        cv.addWidget(range_box)
+
+        # Specific box
+        specific_box = QWidget()
+        sv = QVBoxLayout(specific_box)
+        sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(4)
+        sp_row = QHBoxLayout()
+        sp_row.addWidget(QLabel("Date / time:"))
+        specific_dt = QDateTimeEdit()
+        specific_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
+        specific_dt.setCalendarPopup(True)
+        specific_dt.setDateTime(QDateTime.fromString("2020-05-21 00:00", "yyyy-MM-dd HH:mm"))
+        sp_row.addWidget(specific_dt)
+        sp_add = QPushButton("Add"); sp_add.setFixedWidth(60)
+        sp_row.addWidget(sp_add)
+        sp_rem = QPushButton("Remove"); sp_rem.setFixedWidth(70)
+        sp_row.addWidget(sp_rem)
+        sp_row.addStretch()
+        sv.addLayout(sp_row)
+        specific_list = QListWidget()
+        specific_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        specific_list.setMaximumHeight(80)
+        sv.addWidget(specific_list)
+        specific_box.setVisible(False)
+        cv.addWidget(specific_box)
+
+        # Card status label
+        status_lbl = QLabel("")
+        status_lbl.setStyleSheet("color:#276749; font-size:11px;")
+        status_lbl.setVisible(False)
+        cv.addWidget(status_lbl)
+
+        # Wire up radio buttons
+        rb_range.toggled.connect(
+            lambda checked, rb=range_box, sb=specific_box:
+                (rb.setVisible(checked), sb.setVisible(not checked))
+        )
+
+        # Wire up Add/Remove buttons
+        sp_add.clicked.connect(
+            lambda _checked, sdt=specific_dt, sl=specific_list: (
+                sl.addItem(sdt.dateTime().toString("yyyy-MM-dd HH:mm"))
+                if sdt.dateTime().toString("yyyy-MM-dd HH:mm")
+                not in [sl.item(i).text() for i in range(sl.count())]
+                else None
+            )
+        )
+        sp_rem.clicked.connect(
+            lambda _checked, sl=specific_list: [
+                sl.takeItem(sl.row(it)) for it in sl.selectedItems()
+            ]
+        )
+
+        refs = {
+            "label":         label,
+            "item_id":       item_id,
+            "mode":          mode,
+            "rb_range":      rb_range,
+            "rb_specific":   rb_specific,
+            "date_grp":      date_grp,
+            "start_dt":      start_dt,
+            "end_dt":        end_dt,
+            "specific_dt":   specific_dt,
+            "specific_list": specific_list,
+            "range_box":     range_box,
+            "specific_box":  specific_box,
+            "status_lbl":    status_lbl,
+        }
+        return card, refs
 
     # ── Step 4: Generate FIM ──────────────────────────────────────────────────
 
@@ -1262,55 +1245,12 @@ class ModeFIMservWidget(QWidget):
 
     def _on_source_toggled(self, *_):
         retro = self._rb_retro.isChecked()
-        self._retro_box.setVisible(retro)
         self._forecast_box.setVisible(not retro)
-        if retro:
-            self._on_retro_submode_toggled()
-        else:
+        self._retro_note.setVisible(retro)
+        self._hydro.setVisible(False)
+        if not retro:
             self._on_fc_latest_toggled()
             self._on_fc_range_changed()
-        self._hydro.setVisible(False)
-        self._refresh_sf_note()
-
-    def _on_retro_submode_toggled(self, *_):
-        specific = self._rb_specific.isChecked()
-        self._specific_box.setEnabled(specific)
-        self._range_box.setEnabled(not specific)
-        self._on_timesteps_picked()
-        self._refresh_sf_note()
-
-    def _on_timesteps_picked(self, *_):
-        if self._rb_specific.isChecked():
-            self._sort_by.setEnabled(False)
-            self._agg_lbl.setEnabled(False)
-            return
-        has_event = bool(self._selected_event_times())
-        self._sort_by.setEnabled(not has_event)
-        self._agg_lbl.setEnabled(not has_event)
-
-    def _add_range_event_time(self):
-        txt = self._range_event_edit.text().strip()
-        if not txt:
-            return
-        if not self._valid_event_str(txt):
-            QMessageBox.warning(self, "Event time",
-                                "Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS.")
-            return
-        for ph in ("(fetch the range first)", "(no timesteps available)"):
-            for it in self._timestep_list.findItems(ph, Qt.MatchFlag.MatchExactly):
-                self._timestep_list.takeItem(self._timestep_list.row(it))
-        item = QListWidgetItem(txt)
-        self._timestep_list.addItem(item)
-        item.setSelected(True)
-        self._timestep_list.setEnabled(True)
-        self._range_event_edit.clear()
-        self._on_timesteps_picked()
-        self._refresh_sf_note()
-
-    def _remove_range_event_time(self):
-        for it in self._timestep_list.selectedItems():
-            self._timestep_list.takeItem(self._timestep_list.row(it))
-        self._on_timesteps_picked()
         self._refresh_sf_note()
 
     def _on_fc_latest_toggled(self, *_):
@@ -1324,34 +1264,6 @@ class ModeFIMservWidget(QWidget):
         self._fc_sort_by.setEnabled(agg_ok)
         self._fc_agg_lbl.setEnabled(agg_ok)
 
-    @staticmethod
-    def _valid_event_str(txt: str) -> bool:
-        import datetime as _dt
-        for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-            try:
-                _dt.datetime.strptime(txt, fmt)
-                return True
-            except ValueError:
-                continue
-        return False
-
-    def _add_event_time(self):
-        txt = self._event_edit.text().strip()
-        if not txt:
-            return
-        if not self._valid_event_str(txt):
-            QMessageBox.warning(self, "Event time",
-                                "Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS.")
-            return
-        self._event_list.addItem(txt)
-        self._event_edit.clear()
-        self._refresh_sf_note()
-
-    def _remove_event_time(self):
-        for it in self._event_list.selectedItems():
-            self._event_list.takeItem(self._event_list.row(it))
-        self._refresh_sf_note()
-
     def _refresh_sf_note(self, *_):
         if self._rb_fore.isChecked():
             rng = self._fc_range.currentText()
@@ -1359,27 +1271,13 @@ class ModeFIMservWidget(QWidget):
                     else f"{self._fc_date.dateTime().toString('yyyy-MM-dd')} "
                          f"{self._fc_hour.currentText()}:00 UTC")
             self._sf_note.setText(f"★ NWM {rng} forecast — {when}.")
-        elif self._rb_specific.isChecked():
-            n = self._event_list.count()
-            self._sf_note.setText(
-                f"★ NWM retrospective — {n} specific event time(s); "
-                "one discharge CSV (and one FIM) per time."
-            )
         else:
-            picked = self._selected_event_times()
-            if picked:
-                self._sf_note.setText(
-                    f"★ NWM retrospective range — {len(picked)} event time(s) "
-                    "picked; those hours are saved (aggregation ignored)."
-                )
-            else:
-                self._sf_note.setText(
-                    f"★ NWM retrospective range — aggregation "
-                    f"({self._sort_by.currentText()}) over the window."
-                )
+            self._sf_note.setText(
+                "★ NWM retrospective — set date range or specific dates per card below."
+            )
         self._sf_note.setStyleSheet(_NOTE_STYLE)
 
-    def _get_streamflow(self):
+    def _get_streamflow_all(self):
         if not self._fimserve_ok:
             QMessageBox.critical(
                 self, "fimserve not installed",
@@ -1388,105 +1286,118 @@ class ModeFIMservWidget(QWidget):
                 "Then restart the app."
             )
             return
-        ids = self._state.get("huc8_ids") or []
-        if not ids:
-            QMessageBox.warning(self, "No HUC8",
-                                "Complete step 2 (AOI) first — enter an AOI file or HUC8 IDs.")
+        if not self._state.get("project_dir"):
+            QMessageBox.warning(self, "No project",
+                                "Complete project setup in step 1 first.")
+            return
+        if not self._sf_cards:
+            QMessageBox.warning(self, "No cards",
+                                "Complete step 2 (AOI) first — no cards are configured.")
             return
 
+        # Build common forecast kwargs if applicable
+        self._sf_forecast_kwargs: Optional[dict] = None
         if self._rb_fore.isChecked():
-            kwargs = dict(
+            self._sf_forecast_kwargs = dict(
                 source="forecast",
                 forecast_range=self._fc_range.currentText(),
                 sort_by=self._fc_sort_by.currentText(),
             )
             if not self._fc_latest_chk.isChecked():
-                kwargs["forecast_date"] = self._fc_date.dateTime().toString("yyyy-MM-dd")
-                kwargs["forecast_hour"] = int(self._fc_hour.currentText())
-        elif self._rb_specific.isChecked():
-            times = [self._event_list.item(i).text()
-                     for i in range(self._event_list.count())]
-            if not times:
-                QMessageBox.warning(self, "Event time",
-                                    "Add at least one event date/time.")
-                return
-            kwargs = dict(source="retrospective", value_times=times)
-        else:
-            start = self._sf_start.dateTime().toPyDateTime()
-            end   = self._sf_end.dateTime().toPyDateTime()
-            if end <= start:
-                QMessageBox.warning(self, "Dates",
-                                    "End date must be after the start date.")
-                return
-            picked = self._selected_event_times()
-            kwargs = dict(
-                source="retrospective",
-                start_date=start.strftime("%Y-%m-%d"),
-                end_date=end.strftime("%Y-%m-%d"),
-                value_times=picked,
-                sort_by=self._sort_by.currentText(),
-            )
+                self._sf_forecast_kwargs["forecast_date"] = (
+                    self._fc_date.dateTime().toString("yyyy-MM-dd"))
+                self._sf_forecast_kwargs["forecast_hour"] = (
+                    int(self._fc_hour.currentText()))
 
+        # Reset card status labels
+        for card in self._sf_cards:
+            card["status_lbl"].setText("")
+            card["status_lbl"].setVisible(False)
+
+        self._sf_pending = list(self._sf_cards)
         self._sf_progress.setVisible(True)
         self._set_busy(self._sf_status,
-                       "Fetching NWM discharge — this can take a few minutes, "
-                       "hold tight …")
+                       "Fetching NWM discharge — this can take a few minutes …")
         self._hydro.setVisible(False)
         set_running(self._sf_btn)
+        self._start_next_sf()
+
+    def _start_next_sf(self):
+        if not self._sf_pending:
+            set_ready(self._sf_btn)
+            self._sf_progress.setVisible(False)
+            self._sf_status.setText("NWM discharge complete for all cards.")
+            self._sf_status.setStyleSheet(
+                "color:#276749; font-size:12px; font-weight:bold;")
+            self._sf_status.setVisible(True)
+            return
+
+        card = self._sf_pending.pop(0)
+        self._sf_current_card = card
+
+        if self._sf_forecast_kwargs is not None:
+            kwargs = dict(self._sf_forecast_kwargs)
+        else:
+            # Retrospective — read from this card's date widgets
+            if card["rb_range"].isChecked():
+                start = card["start_dt"].dateTime().toPyDateTime()
+                end   = card["end_dt"].dateTime().toPyDateTime()
+                if end <= start:
+                    card["status_lbl"].setText("⚠ End date must be after start — skipped.")
+                    card["status_lbl"].setVisible(True)
+                    self._start_next_sf()
+                    return
+                kwargs = dict(
+                    source="retrospective",
+                    start_date=start.strftime("%Y-%m-%d"),
+                    end_date=end.strftime("%Y-%m-%d"),
+                )
+            else:
+                times = [
+                    card["specific_list"].item(i).text()
+                    for i in range(card["specific_list"].count())
+                ]
+                if not times:
+                    card["status_lbl"].setText("⚠ No dates added — skipped.")
+                    card["status_lbl"].setVisible(True)
+                    self._start_next_sf()
+                    return
+                kwargs = dict(source="retrospective", value_times=times)
+
+        card["status_lbl"].setText("⏳ Fetching …")
+        card["status_lbl"].setVisible(True)
+
+        huc8_ids = (
+            [card["item_id"]] if card["mode"] == "huc8"
+            else (self._state.get("huc8_ids") or [])
+        )
         self._start_worker(
             streamflow_mode,
             done=self._on_streamflow,
             project_dir=self._state["project_dir"],
-            huc8_ids=ids,
+            huc8_ids=huc8_ids,
             **kwargs,
         )
 
-    def _selected_event_times(self):
-        if not self._timestep_list.isEnabled():
-            return None
-        picked = [it.text() for it in self._timestep_list.selectedItems()
-                  if it.text() not in ("(fetch the range first)",
-                                       "(no timesteps available)")]
-        return picked or None
-
     def _on_streamflow(self, result: dict):
-        set_ready(self._sf_btn)
-        self._sf_progress.setVisible(False)
-        mode   = result.get("discharge_mode", "—")
+        card = self._sf_current_card
+        mode  = result.get("discharge_mode", "—")
         hydros = result.get("hydrographs", {})
-        timesteps = result.get("timesteps", {})
-        self._sf_status.setText(f"NWM {mode} discharge ready.")
-        self._sf_status.setStyleSheet(
-            "color:#276749; font-size:12px; font-weight:bold;")
-        self._sf_status.setVisible(True)
+
+        if card is not None:
+            card["status_lbl"].setText(f"✓ NWM {mode} discharge ready.")
+            card["status_lbl"].setVisible(True)
+
         if hydros:
             huc, csv = next(iter(hydros.items()))
-            stamps = timesteps.get(huc, [])
-            existing = [
-                self._timestep_list.item(i).text()
-                for i in range(self._timestep_list.count())
-                if self._timestep_list.item(i).text()
-                not in ("(fetch the range first)", "(no timesteps available)")
-            ]
-            self._timestep_list.clear()
-            merged = existing + [s for s in stamps if s not in existing]
-            if merged:
-                self._timestep_list.addItems(merged)
-                self._timestep_list.setEnabled(True)
-                self._on_timesteps_picked()
-                self._sf_status.setText(
-                    f"NWM {mode} discharge ready — pick in-range event time(s) "
-                    "and re-run to save a FIM per time, or run as-is to aggregate."
-                )
-            else:
-                self._timestep_list.addItem("(no timesteps available)")
-                self._timestep_list.setEnabled(False)
             if csv and Path(csv).exists():
                 self._hydro.show_hydrograph(
                     csv,
                     title=f"NWM {mode} — HUC8 {huc} (feature with max discharge)",
                 )
                 self._hydro.setVisible(True)
+
+        self._start_next_sf()
 
     # ── Generate FIM (auto-chain: resolve → download → generate) ─────────────
 
@@ -1670,6 +1581,11 @@ class ModeFIMservWidget(QWidget):
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
+    def _on_tab_changed(self, idx: int):
+        self._update_nav(idx)
+        if idx == _TAB_STREAMFLOW:
+            self._rebuild_sf_cards()
+
     def _update_nav(self, idx: int):
         self.nav_changed.emit(idx, self._tabs.count())
 
@@ -1709,25 +1625,11 @@ class ModeFIMservWidget(QWidget):
         self._huc8_detail_lbl.setText("(click any HUC8 ID above to see details here)")
         self._huc8_detail_cache.clear()
         self._huc8_selected_id = None
-        # Reset date selection to defaults
-        self._rb_huc8_range.setChecked(True)
-        self._huc8_start.setDateTime(
-            QDateTime.fromString("2020-05-20 00:00", "yyyy-MM-dd HH:mm"))
-        self._huc8_end.setDateTime(
-            QDateTime.fromString("2020-05-22 00:00", "yyyy-MM-dd HH:mm"))
-        self._huc8_specific_dt.setDateTime(
-            QDateTime.fromString("2020-05-21 00:00", "yyyy-MM-dd HH:mm"))
-        self._huc8_specific_list.clear()
-        self._huc8_range_box.setVisible(True)
-        self._huc8_specific_box.setVisible(False)
+        # Reset streamflow tab
         self._rb_retro.setChecked(True)
-        self._rb_specific.setChecked(True)
-        self._event_edit.clear()
-        self._event_list.clear()
         self._fc_latest_chk.setChecked(True)
-        self._timestep_list.clear()
-        self._timestep_list.addItem("(fetch the range first)")
-        self._timestep_list.setEnabled(False)
+        self._sf_cards.clear()
+        self._rebuild_sf_cards()
         self._on_source_toggled()
         self._hydro.setVisible(False)
         self._extent_canvas.setVisible(False)
