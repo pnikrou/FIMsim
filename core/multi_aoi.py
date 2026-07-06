@@ -157,13 +157,28 @@ def inspect_features(aoi_path, selected_indices=None, log_fn=print) -> List[AOIF
 
         folder_name = clean_name(name)
 
-        # Auto-pick the working (metric) CRS for this feature from its
-        # centroid.  NAD83 / UTM for North America, WGS84 / UTM
-        # elsewhere.  Stored per-AOI so two features in different UTM
-        # zones each get the correct local projection.
-        wcrs_epsg = nad83_utm_epsg_from_lonlat(centroid_lon, centroid_lat)
+        # Working (metric) CRS for this feature.
+        #
+        # Prefer the SHAPEFILE'S OWN CRS when it is already a projected,
+        # metre-based CRS — so the DEM / LULC / Manning rasters come out in the
+        # exact same coordinate system as the user's AOI shapefile.  Only when
+        # the input is geographic (e.g. EPSG:4326) or non-metric do we auto-pick
+        # a local UTM zone from the centroid (NAD83 in North America, else WGS84).
+        wcrs_epsg = None
+        src_crs = gdf.crs
+        if src_crs is not None and getattr(src_crs, "is_projected", False):
+            try:
+                units = {str(ax.unit_name).lower() for ax in src_crs.axis_info}
+            except Exception:
+                units = set()
+            if units & {"metre", "meter", "metres", "meters"}:
+                src_epsg = src_crs.to_epsg()
+                if src_epsg is not None:
+                    wcrs_epsg = int(src_epsg)
         if wcrs_epsg is None:
-            wcrs_epsg = wgs84_utm_epsg_from_lonlat(centroid_lon, centroid_lat)
+            wcrs_epsg = nad83_utm_epsg_from_lonlat(centroid_lon, centroid_lat)
+            if wcrs_epsg is None:
+                wcrs_epsg = wgs84_utm_epsg_from_lonlat(centroid_lon, centroid_lat)
         wcrs_label = working_crs_label(int(wcrs_epsg))
 
         info = AOIFeatureInfo(

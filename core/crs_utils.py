@@ -101,7 +101,27 @@ def pick_working_crs_epsg(aoi_gdf, log_fn=print) -> int:
     The returned EPSG is the canonical "working" CRS for the AOI: every
     raster (DEM, LULC, Manning) the pipeline writes for this AOI will be
     in this CRS, at metric cell sizes.
+
+    When the AOI shapefile is ALREADY in a projected, metre-based CRS we keep
+    that exact CRS — so the DEM / LULC / Manning rasters match the user's
+    shapefile.  We only auto-pick a UTM zone when the input is geographic
+    (e.g. EPSG:4326) or non-metric.
     """
+    src_crs = getattr(aoi_gdf, "crs", None)
+    if src_crs is not None and getattr(src_crs, "is_projected", False):
+        try:
+            units = {str(ax.unit_name).lower() for ax in src_crs.axis_info}
+        except Exception:
+            units = set()
+        if units & {"metre", "meter", "metres", "meters"}:
+            src_epsg = src_crs.to_epsg()
+            if src_epsg is not None:
+                log_fn(
+                    f"Working CRS: EPSG:{int(src_epsg)} — using the AOI "
+                    "shapefile's own projected CRS."
+                )
+                return int(src_epsg)
+
     lon, lat = _aoi_centroid_lonlat(aoi_gdf)
     nad83 = nad83_utm_epsg_from_lonlat(lon, lat)
     if nad83 is not None:
