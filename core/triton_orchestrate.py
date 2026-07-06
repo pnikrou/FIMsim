@@ -529,6 +529,9 @@ def run_triton_hydro_for_all_aois(
                 gage_id=cfg.get("gage_id") or None,
                 user_csv_path=(cfg.get("file_path") if bdy_source == "csv" else None),
                 nwm_reach_id=reach_id,
+                forecast_range=cfg.get("forecast_range", "medium_range"),
+                forecast_date=cfg.get("forecast_date"),
+                forecast_hour=cfg.get("forecast_hour", 0),
                 log_fn=log_fn,
             )
             summary.append({

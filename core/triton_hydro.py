@@ -207,11 +207,19 @@ def _resample_to_interval(ser, start_ts, end_ts, interval_hours):
     }).reset_index(drop=True)
 
 
+_RETRO_START = pd.Timestamp("1979-02-01")
+_RETRO_END   = pd.Timestamp("2023-01-31")
+# Read the zarr over plain HTTPS (fsspec http backend) instead of s3:// — the
+# anonymous-S3 client is broken by a botocore/aiobotocore/s3fs version clash.
+_RETRO_ZARR_URL = (
+    "https://noaa-nwm-retrospective-3-0-pds.s3.amazonaws.com/CONUS/zarr/chrtout.zarr"
+)
+
+
 def _get_nwm_retrospective(feature_id, start_ts, end_ts, interval_hours, log_fn):
-    """Pull discharge from the NWM v2.1 retrospective Zarr store."""
-    url = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"
-    log_fn("Opening NWM retrospective Zarr store (NOAA v2.1) …")
-    ds = xr.open_zarr(url, consolidated=True, storage_options={"anon": True})
+    """Pull discharge from the NWM v3.0 retrospective Zarr store (1979–2023)."""
+    log_fn("Opening NWM retrospective Zarr store (NOAA v3.0, 1979–2023) …")
+    ds = xr.open_zarr(_RETRO_ZARR_URL, consolidated=True)
 
     feature_id = int(feature_id)
     log_fn(f"Extracting streamflow for feature_id={feature_id} …")
@@ -370,7 +378,8 @@ def _bdy_read_user_discharge_table(path):
 
 def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
                             interval_hours, gage_id=None, user_csv_path=None,
-                            nwm_reach_id=None, log_fn=print):
+                            nwm_reach_id=None, forecast_range="medium_range",
+                            forecast_date=None, forecast_hour=0, log_fn=print):
     """One-inflow TRITON .hyg from a chosen source (NWM retro/forecast, USGS,
     or uploaded CSV), using TRITON's own discharge fetchers and the existing
     ``_write_triton_hyg`` writer.  Writes <AOI>.hyg into triton-files and a
@@ -386,11 +395,29 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
     if bdy_source == "nwm_retro":
         if nwm_reach_id is None:
             raise ValueError("NWM source needs an upstream reach/feature ID (run BC first).")
+        if start_ts < _RETRO_START or end_ts > _RETRO_END:
+            raise RuntimeError(
+                f"NWM Retrospective only covers {_RETRO_START.date()} to "
+                f"{_RETRO_END.date()}.  Your window {start_ts.date()} → "
+                f"{end_ts.date()} is outside that range — this data is not "
+                "available for this time.\nUse the 'NWM Forecast (2019–now)' "
+                "source for more recent dates.")
         df_flow = _get_nwm_retrospective(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
     elif bdy_source == "nwm_forecast":
         if nwm_reach_id is None:
             raise ValueError("NWM source needs an upstream reach/feature ID (run BC first).")
-        df_flow = _get_nwm_forecast(nwm_reach_id, start_ts, end_ts, interval_hours, log_fn)
+        from core.nwm_forecast import get_nwm_forecast_series
+        if not forecast_date:
+            raise ValueError("A forecast issue date is required for the NWM Forecast source.")
+        fdf = get_nwm_forecast_series(
+            nwm_reach_id, forecast_date,
+            forecast_range=forecast_range or "medium_range",
+            cycle_hour=int(forecast_hour or 0), log_fn=log_fn)
+        fser = pd.Series(fdf["discharge_cms"].astype(float).values,
+                         index=pd.DatetimeIndex(fdf["datetime"]))
+        df_flow = _resample_to_interval(
+            fser, pd.Timestamp(fser.index.min()), pd.Timestamp(fser.index.max()),
+            interval_hours)
     elif bdy_source == "usgs":
         if not gage_id:
             raise ValueError("gage_id is required when the source is USGS.")
