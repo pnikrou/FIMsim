@@ -4,8 +4,11 @@ Date updated: June 2026
 
 FIMserv (OWP HAND FIM) standalone mode — 3-step wizard.
 
+Standalone — its own step widgets (step_fimserv_project / step_fimserv_aoi /
+fimserv_multi_aoi_widget); shares no workflow code with LISFLOOD / TRITON.
+
 Tabs:
-  1. Project — same StepTritonProjectWidget as TRITON / LISFLOOD-FP
+  1. Project — FIMserv's own Project step
   2. AOI     — AOI file (multi-shapefile) OR HUC8 IDs; on confirm, each item's
               HUC8 boundary is downloaded into its folder
   3. FIM     — one card per AOI / HUC8 (own Source + dates).  "Generate FIM
@@ -26,7 +29,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt, QDateTime
 from PyQt6.QtGui import QFont
 
-from gui.step_triton_project import StepTritonProjectWidget
+from gui.step_fimserv_project import StepFimservProjectWidget
 from gui.run_button import set_running, set_ready
 from gui.worker import Worker
 from gui.map_viewer import USMapCanvas
@@ -472,7 +475,7 @@ class ModeFIMservWidget(QWidget):
         outer.addWidget(self._tabs)
 
         # Step 1 — Project (identical widget to TRITON / LISFLOOD-FP)
-        self._proj_step = StepTritonProjectWidget(self._log, model="generic")
+        self._proj_step = StepFimservProjectWidget(self._log, model="generic")
         self._proj_step.step_completed.connect(self._on_project_done)
 
         self._tabs.addTab(self._wrap(self._proj_step),               "1. Project")
@@ -492,7 +495,7 @@ class ModeFIMservWidget(QWidget):
 
     def _build_aoi_choice_tab(self) -> QWidget:
         from PyQt6.QtWidgets import QStackedWidget
-        from gui.step_triton_aoi import StepTritonAOIWidget
+        from gui.step_fimserv_aoi import StepFimservAOIWidget
 
         page = QWidget()
         v = QVBoxLayout(page)
@@ -521,7 +524,7 @@ class ModeFIMservWidget(QWidget):
         self._aoi_mode_stack.setVisible(False)
 
         # Page 0: full multi-AOI widget (same as TRITON / LISFLOOD-FP)
-        self._aoi_step = StepTritonAOIWidget(self._log, model="generic")
+        self._aoi_step = StepFimservAOIWidget(self._log, model="generic")
         self._aoi_step.step_completed.connect(self._on_aoi_done)
         self._aoi_mode_stack.addWidget(self._aoi_step)           # index 0
 
