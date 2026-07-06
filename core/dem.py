@@ -1,5 +1,6 @@
 """Step 3-4 — DEM: use existing raster or download from 3DEP, then export ASCII."""
 import math
+import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -104,13 +105,42 @@ def _bounds_to_wgs84(aoi_gdf):
     return min(lons), min(lats), max(lons), max(lats)
 
 
-def _download_3dep_tiles(aoi_gdf, dem_res_m, dem_tiles_dir, log_fn):
-    DEM_RESOLUTION = "13"
-    N_THREADS = 6
+DEM_RESOLUTION = "13"
 
-    minx, miny, maxx, maxy = _bounds_to_wgs84(aoi_gdf)
-    log_fn(f"AOI bounds EPSG:4326: ({minx:.5f}, {miny:.5f}, {maxx:.5f}, {maxy:.5f})")
+# GDAL /vsicurl tuning for windowed COG reads (setdefault — user overrides win).
+_GDAL_ENV = {
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff,.vrt",
+    "GDAL_HTTP_MULTIPLEX": "YES",
+    "GDAL_HTTP_VERSION": "2",
+    "VSI_CACHE": "TRUE",
+    "VSI_CACHE_SIZE": "100000000",
+    "GDAL_CACHEMAX": "5%",
+    "GDAL_NUM_THREADS": "ALL_CPUS",
+    "GDAL_HTTP_MAX_RETRY": "5",
+    "GDAL_HTTP_RETRY_DELAY": "1",
+}
 
+
+def _apply_gdal_env():
+    for k, v in _GDAL_ENV.items():
+        os.environ.setdefault(k, v)
+
+
+def _max_connections():
+    """Concurrent S3 connections, scaled to the machine (bounded 4–16)."""
+    return max(4, min(16, 2 * (os.cpu_count() or 2)))
+
+
+def _tile_url(tile_name):
+    return (
+        f"https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/"
+        f"{DEM_RESOLUTION}/TIFF/current/{tile_name}/"
+        f"USGS_{DEM_RESOLUTION}_{tile_name}.tif"
+    )
+
+
+def _tile_names_for_bounds(minx, miny, maxx, maxy):
     min_lon_idx = math.floor(minx)
     max_lon_idx = math.ceil(maxx)
     min_lat_idx = math.floor(miny) + 1
@@ -129,18 +159,98 @@ def _download_3dep_tiles(aoi_gdf, dem_res_m, dem_tiles_dir, log_fn):
                 tile_name = f"{ns}{abs(lat_idx):02d}{ew}{abs(lon_idx):03d}"
                 tile_names.append(tile_name)
 
-    tile_names = sorted(set(tile_names))
-    log_fn(f"Tiles needed ({len(tile_names)}): {tile_names}")
+    return sorted(set(tile_names))
 
-    if not tile_names:
-        raise RuntimeError("No 3DEP tiles intersect the AOI.")
+
+def _fetch_tile_windows(tile_names, bounds_wgs84, dem_tiles_dir, log_fn):
+    """Read only the AOI window of each 1° COG tile over /vsicurl.
+
+    Windows are split into row-strips read in parallel, then written as
+    small local GeoTIFFs so everything downstream is unchanged.
+    """
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import Window, from_bounds as window_from_bounds
+
+    _apply_gdal_env()
+    max_conns = _max_connections()
+
+    def _probe(tile_name):
+        url = _tile_url(tile_name)
+        try:
+            with rasterio.open("/vsicurl/" + url) as ds:
+                tb = transform_bounds("EPSG:4326", ds.crs, *bounds_wgs84,
+                                      densify_pts=21)
+                pad = 3 * abs(ds.transform.a)
+                w = window_from_bounds(tb[0] - pad, tb[1] - pad,
+                                       tb[2] + pad, tb[3] + pad, ds.transform)
+                w = w.round_offsets().round_lengths()
+                w = w.intersection(Window(0, 0, ds.width, ds.height))
+                if w.width <= 0 or w.height <= 0:
+                    return None
+                profile = {
+                    "driver": "GTiff",
+                    "height": int(w.height),
+                    "width": int(w.width),
+                    "count": 1,
+                    "dtype": ds.dtypes[0],
+                    "crs": ds.crs,
+                    "transform": ds.window_transform(w),
+                    "nodata": ds.nodata,
+                    "compress": "lzw",
+                }
+                return tile_name, url, w, profile
+        except Exception as exc:
+            log_fn(f"  Tile {tile_name} skipped ({exc})")
+            return None
+
+    with ThreadPoolExecutor(max_workers=min(max_conns, len(tile_names))) as ex:
+        tiles = [t for t in ex.map(_probe, tile_names) if t is not None]
+    if not tiles:
+        raise RuntimeError("No 3DEP tiles could be opened for the AOI.")
+
+    strips_per_tile = max(1, max_conns // len(tiles))
+    arrays = {url: np.empty((prof["height"], prof["width"]),
+                            dtype=prof["dtype"])
+              for _, url, _, prof in tiles}
+    jobs = []
+    for _, url, w, _ in tiles:
+        edges = np.linspace(0, int(w.height), strips_per_tile + 1).astype(int)
+        jobs += [(url, w, int(r0), int(r1 - r0))
+                 for r0, r1 in zip(edges[:-1], edges[1:]) if r1 > r0]
+
+    def _read_strip(job):
+        url, w, r0, rh = job
+        sw = Window(w.col_off, w.row_off + r0, w.width, rh)
+        for attempt in (1, 2):
+            try:
+                with rasterio.open("/vsicurl/" + url) as ds:
+                    arrays[url][r0:r0 + rh] = ds.read(1, window=sw)
+                return
+            except Exception:
+                if attempt == 2:
+                    raise
+
+    with ThreadPoolExecutor(max_workers=min(max_conns, len(jobs))) as ex:
+        list(ex.map(_read_strip, jobs))
+
+    tile_paths = []
+    for tile_name, url, _, profile in tiles:
+        local_path = dem_tiles_dir / f"USGS_{DEM_RESOLUTION}_{tile_name}_aoi.tif"
+        with rasterio.open(local_path, "w", **profile) as dst:
+            dst.write(arrays[url], 1)
+        tile_paths.append(local_path)
+
+    log_fn(f"  Fetched {len(tiles)}/{len(tile_names)} tile window(s) "
+           f"× {strips_per_tile} strip(s)")
+    return sorted(tile_paths)
+
+
+def _download_full_tiles(tile_names, dem_tiles_dir, log_fn):
+    """Legacy path — download entire 1° tiles with urllib (fallback only)."""
+    n_threads = _max_connections()
 
     def _dl(tile_name):
-        url = (
-            f"https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/"
-            f"{DEM_RESOLUTION}/TIFF/current/{tile_name}/"
-            f"USGS_{DEM_RESOLUTION}_{tile_name}.tif"
-        )
+        url = _tile_url(tile_name)
         local_path = dem_tiles_dir / f"USGS_{DEM_RESOLUTION}_{tile_name}.tif"
 
         # ── Layer 1: validate cache before reuse ───────────────────────────
@@ -182,7 +292,7 @@ def _download_3dep_tiles(aoi_gdf, dem_res_m, dem_tiles_dir, log_fn):
         return local_path
 
     tile_paths = []
-    with ThreadPoolExecutor(max_workers=N_THREADS) as executor:
+    with ThreadPoolExecutor(max_workers=n_threads) as executor:
         futures = {executor.submit(_dl, tn): tn for tn in tile_names}
         done, total = 0, len(futures)
         for future in as_completed(futures):
@@ -196,6 +306,25 @@ def _download_3dep_tiles(aoi_gdf, dem_res_m, dem_tiles_dir, log_fn):
     if not tile_paths:
         raise RuntimeError("No DEM tiles downloaded successfully.")
     return tile_paths
+
+
+def _download_3dep_tiles(aoi_gdf, dem_res_m, dem_tiles_dir, log_fn):
+    minx, miny, maxx, maxy = _bounds_to_wgs84(aoi_gdf)
+    log_fn(f"AOI bounds EPSG:4326: ({minx:.5f}, {miny:.5f}, {maxx:.5f}, {maxy:.5f})")
+
+    tile_names = _tile_names_for_bounds(minx, miny, maxx, maxy)
+    log_fn(f"Tiles needed ({len(tile_names)}): {tile_names}")
+
+    if not tile_names:
+        raise RuntimeError("No 3DEP tiles intersect the AOI.")
+
+    try:
+        return _fetch_tile_windows(tile_names, (minx, miny, maxx, maxy),
+                                   dem_tiles_dir, log_fn)
+    except Exception as exc:
+        log_fn(f"  Windowed COG read failed ({exc}) — "
+               f"falling back to full-tile download…")
+        return _download_full_tiles(tile_names, dem_tiles_dir, log_fn)
 
 
 def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
@@ -792,6 +921,19 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                             pass
                     continue   # retry
                 raise           # non-tile error or retries exhausted
+
+        # AOI-window tifs are per-run intermediates — remove them once the
+        # clip succeeds (full tiles from the fallback stay cached).
+        for _tp in tile_paths:
+            if _tp.name.endswith("_aoi.tif"):
+                try:
+                    _tp.unlink()
+                except Exception:
+                    pass
+        try:
+            dem_tiles_dir.rmdir()
+        except OSError:
+            pass
 
     if skip_ascii:
         log_fn("Skipping ASCII export (standalone mode — only GeoTIFF needed).")
