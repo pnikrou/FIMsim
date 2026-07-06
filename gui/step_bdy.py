@@ -478,6 +478,9 @@ class StepBDYWidget(QWidget):
             gap_handling=gap_handling,
             gage_id=cfg.get("gage_id"),
             manual_feature_id=cfg.get("manual_feature_id"),
+            forecast_range=cfg.get("forecast_range", "medium_range"),
+            forecast_date=cfg.get("forecast_date"),
+            forecast_hour=cfg.get("forecast_hour", 0),
         )
         self._worker = Worker(create_bdy, **kw)
         self._worker.message.connect(self._on_message)

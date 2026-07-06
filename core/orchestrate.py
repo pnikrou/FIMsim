@@ -272,6 +272,9 @@ def run_lisflood_bdy_for_all_aois(
                 gap_handling=cfg.get("gap_handling", "interpolate"),
                 gage_id=cfg.get("gage_id"),
                 manual_feature_id=cfg.get("manual_feature_id"),
+                forecast_range=cfg.get("forecast_range", "medium_range"),
+                forecast_date=cfg.get("forecast_date"),
+                forecast_hour=cfg.get("forecast_hour", 0),
             )
 
             feat_ctx = create_bdy(

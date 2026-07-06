@@ -1,9 +1,10 @@
 """Reusable BDY (hydrograph time-series) configuration panel.
 
 Sources:
-  1. NWM Retrospective  — 1979-02-01 → 2020-12-31 (NOAA v2.1)
-  2. USGS Stream Gage   — any gage with instantaneous (15-min) data
-  3. CSV / XLSX file    — user-supplied discharge table
+  1. NWM Retrospective (1979-2023) — NOAA v3.0 reanalysis, pick an event window
+  2. NWM Forecast (2019-now)       — archived operational forecast run
+  3. USGS Stream Gage              — any gage with instantaneous (15-min) data
+  4. CSV / XLSX file               — user-supplied discharge table
 
 Used in step_bdy directly (single AOI) and inside AOIBDYCard (multi-AOI).
 """
@@ -19,7 +20,8 @@ class BDYConfigPanel(QWidget):
     config_changed = pyqtSignal()
 
     # Combo index → internal key
-    _SRC_KEYS = ["", "nwm_retro", "usgs", "csv"]
+    _SRC_KEYS = ["", "nwm_retro", "nwm_forecast", "usgs", "csv"]
+    _IDX_RETRO, _IDX_FORECAST, _IDX_USGS, _IDX_CSV = 1, 2, 3, 4
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,7 +42,8 @@ class BDYConfigPanel(QWidget):
         self._src_combo = QComboBox()
         self._src_combo.addItems([
             "— pick a data source —",
-            "NWM Retrospective  (NOAA — USA only)",
+            "NWM Retrospective (1979-2023)",
+            "NWM Forecast (2019-now)",
             "USGS Stream Gage",
             "I have a discharge CSV / XLSX file",
         ])
@@ -62,7 +65,7 @@ class BDYConfigPanel(QWidget):
         self._usgs_note = usgs_avail
         form.addRow(self._usgs_note)
 
-        # ── NWM feature ID (auto-detect vs manual) ───────────────────────
+        # ── NWM feature ID (auto-detect vs manual) — retro + forecast ─────
         self._fid_lbl = QLabel("Feature ID:")
         fid_row = QHBoxLayout()
         fid_row.setSpacing(10)
@@ -112,11 +115,9 @@ class BDYConfigPanel(QWidget):
         self._csv_note.setStyleSheet("color:#718096; font-size:11px;")
         form.addRow(self._csv_note)
 
-        # ── Event window ──────────────────────────────────────────────────
-        today   = QDateTime(QDate.currentDate(), QTime(0, 0))
+        # ── Event window (retrospective + USGS) ───────────────────────────
         retro_default_end = QDateTime.fromString("2020-12-01 00:00",
                                                   "yyyy-MM-dd HH:mm")
-
         self._start_lbl = QLabel("Event start:")
         self._start_date = QDateTimeEdit()
         self._start_date.setDisplayFormat("yyyy-MM-dd  HH:mm")
@@ -133,14 +134,41 @@ class BDYConfigPanel(QWidget):
         self._end_date.setDateTime(retro_default_end)
         form.addRow(self._end_lbl, self._end_date)
 
-        # ── Per-source availability notes ─────────────────────────────────
         self._retro_note = QLabel(
-            "★ Available 1979-02-01 → 2020-12-31  |  "
-            "15-min data resampled to chosen interval  |  USA only"
+            "★ NWM v3.0 reanalysis, available 1979-02-01 → 2023-01-31  |  "
+            "resampled to chosen interval  |  USA only"
         )
         self._retro_note.setWordWrap(True)
         self._retro_note.setStyleSheet("color:#718096; font-size:11px;")
         form.addRow(self._retro_note)
+
+        # ── Forecast controls (issue date + range + cycle) ────────────────
+        self._fc_range_lbl = QLabel("Forecast range:")
+        self._fc_range_combo = QComboBox()
+        self._fc_range_combo.addItems(["medium_range", "short_range", "long_range"])
+        form.addRow(self._fc_range_lbl, self._fc_range_combo)
+
+        self._fc_date_lbl = QLabel("Issue date:")
+        self._fc_date = QDateTimeEdit()
+        self._fc_date.setDisplayFormat("yyyy-MM-dd")
+        self._fc_date.setCalendarPopup(True)
+        self._fc_date.setDateTime(
+            QDateTime.fromString("2024-06-01 00:00", "yyyy-MM-dd HH:mm")
+        )
+        form.addRow(self._fc_date_lbl, self._fc_date)
+
+        self._fc_hour_lbl = QLabel("Cycle hour (UTC):")
+        self._fc_hour_combo = QComboBox()
+        self._fc_hour_combo.addItems(["00", "06", "12", "18"])
+        form.addRow(self._fc_hour_lbl, self._fc_hour_combo)
+
+        self._forecast_note = QLabel(
+            "★ Archived NWM operational forecast (2018-09 → today).  A run issued "
+            "on the chosen date/cycle: short ~18 h, medium ~10 days, long ~30 days."
+        )
+        self._forecast_note.setWordWrap(True)
+        self._forecast_note.setStyleSheet("color:#718096; font-size:11px;")
+        form.addRow(self._forecast_note)
 
         # ── Interval ──────────────────────────────────────────────────────
         self._interval_spin = QDoubleSpinBox()
@@ -159,47 +187,55 @@ class BDYConfigPanel(QWidget):
         self._start_date.dateTimeChanged.connect(self._emit_changed)
         self._end_date.dateTimeChanged.connect(self._emit_changed)
         self._interval_spin.valueChanged.connect(self._emit_changed)
+        self._fc_range_combo.currentIndexChanged.connect(self._emit_changed)
+        self._fc_date.dateTimeChanged.connect(self._emit_changed)
+        self._fc_hour_combo.currentIndexChanged.connect(self._emit_changed)
         self._on_source_changed()
 
     # ── visibility ────────────────────────────────────────────────────────────
 
     def _on_source_changed(self, *_):
-        idx        = self._src_combo.currentIndex()
-        is_retro   = (idx == 1)
-        is_usgs    = (idx == 2)
-        is_csv     = (idx == 3)
-        any_picked = (idx >= 1)
-        need_dates = any_picked and not is_csv
-        need_file  = is_csv
-        need_gage  = is_usgs
-        need_fid   = is_retro
+        idx         = self._src_combo.currentIndex()
+        is_retro    = (idx == self._IDX_RETRO)
+        is_forecast = (idx == self._IDX_FORECAST)
+        is_usgs     = (idx == self._IDX_USGS)
+        is_csv      = (idx == self._IDX_CSV)
+        any_picked  = (idx >= 1)
+        need_dates  = is_retro or is_usgs         # event-window sources
+        need_fid    = is_retro or is_forecast     # NWM reach ID
 
-        self._gage_lbl.setVisible(need_gage)
-        self._gage_edit.setVisible(need_gage)
-        self._usgs_note.setVisible(need_gage)
+        self._gage_lbl.setVisible(is_usgs)
+        self._gage_edit.setVisible(is_usgs)
+        self._usgs_note.setVisible(is_usgs)
 
         self._fid_lbl_widget.setVisible(need_fid)
         self._fid_row_widget.setVisible(need_fid)
         if not need_fid:
             self._fid_auto_rb.setChecked(True)
 
-        self._file_lbl.setVisible(need_file)
-        self._file_edit.setVisible(need_file)
-        self._browse_btn.setVisible(need_file)
+        self._file_lbl.setVisible(is_csv)
+        self._file_edit.setVisible(is_csv)
+        self._browse_btn.setVisible(is_csv)
         self._csv_note.setVisible(is_csv)
 
         self._start_lbl.setVisible(need_dates)
         self._start_date.setVisible(need_dates)
         self._end_lbl.setVisible(need_dates)
         self._end_date.setVisible(need_dates)
-
         self._retro_note.setVisible(is_retro)
+
+        # Forecast-only controls
+        for w in (self._fc_range_lbl, self._fc_range_combo, self._fc_date_lbl,
+                  self._fc_date, self._fc_hour_lbl, self._fc_hour_combo,
+                  self._forecast_note):
+            w.setVisible(is_forecast)
 
         self._interval_spin.setVisible(any_picked)
         self._interval_lbl_widget.setVisible(any_picked)
 
+        # Keep the retrospective window inside its coverage.
         if is_retro and self._start_date.dateTime() > QDateTime.fromString(
-            "2020-12-31 23:00", "yyyy-MM-dd HH:mm"
+            "2023-01-31 23:00", "yyyy-MM-dd HH:mm"
         ):
             self._start_date.setDateTime(
                 QDateTime.fromString("2020-11-01 00:00", "yyyy-MM-dd HH:mm")
@@ -228,20 +264,22 @@ class BDYConfigPanel(QWidget):
         idx = self._src_combo.currentIndex()
         if idx == 0:
             return False
-        if idx == 1:            # NWM retro
+        if idx in (self._IDX_RETRO, self._IDX_FORECAST):   # NWM — needs a reach
             if self._fid_manual_rb.isChecked():
                 return bool(self._fid_edit.text().strip())
             return True
-        if idx == 2:            # USGS — needs gage number
+        if idx == self._IDX_USGS:
             return bool(self._gage_edit.text().strip())
-        if idx == 3:            # CSV — needs a file
+        if idx == self._IDX_CSV:
             return bool(self._file_edit.text().strip())
         return False
 
     def source_label(self) -> str:
-        labels = ["—", "NWM Retro", "USGS", "CSV"]
-        idx = self._src_combo.currentIndex()
-        return labels[idx] if idx < len(labels) else "—"
+        labels = {
+            self._IDX_RETRO: "NWM Retro", self._IDX_FORECAST: "NWM Forecast",
+            self._IDX_USGS: "USGS", self._IDX_CSV: "CSV",
+        }
+        return labels.get(self._src_combo.currentIndex(), "—")
 
     def get_config(self) -> dict:
         idx        = self._src_combo.currentIndex()
@@ -259,15 +297,19 @@ class BDYConfigPanel(QWidget):
             "end_dt":            self._end_date.dateTime().toPyDateTime(),
             "interval_hours":    float(self._interval_spin.value()),
             "manual_feature_id": manual_fid,
+            "forecast_range":    self._fc_range_combo.currentText(),
+            "forecast_date":     self._fc_date.dateTime().toString("yyyy-MM-dd"),
+            "forecast_hour":     int(self._fc_hour_combo.currentText()),
         }
 
     def set_config(self, cfg: dict):
         if not cfg:
             return
         src_idx = {
-            "nwm_retro": 1, "nwm": 1,      # legacy "nwm" → retro
-            "usgs": 2,
-            "csv": 3,
+            "nwm_retro": self._IDX_RETRO, "nwm": self._IDX_RETRO,  # legacy → retro
+            "nwm_forecast": self._IDX_FORECAST,
+            "usgs": self._IDX_USGS,
+            "csv": self._IDX_CSV,
         }.get(cfg.get("bdy_source", ""), 0)
         self._src_combo.setCurrentIndex(src_idx)
         self._gage_edit.setText(cfg.get("gage_id", ""))
@@ -297,3 +339,10 @@ class BDYConfigPanel(QWidget):
             self._interval_spin.setValue(float(cfg.get("interval_hours", 1.0)))
         except Exception:
             pass
+        if cfg.get("forecast_range"):
+            self._fc_range_combo.setCurrentText(cfg["forecast_range"])
+        if cfg.get("forecast_date"):
+            self._fc_date.setDateTime(
+                QDateTime.fromString(str(cfg["forecast_date"]), "yyyy-MM-dd"))
+        if cfg.get("forecast_hour") is not None:
+            self._fc_hour_combo.setCurrentText(f"{int(cfg['forecast_hour']):02d}")

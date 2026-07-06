@@ -449,6 +449,9 @@ def create_bdy(ctx_path, ctx: dict,
                gap_handling: str = "interpolate",  # "interpolate" | "as_is"
                gage_id: str = None,                # USGS source only
                manual_feature_id: str = None,      # NWM: override auto-detected reach ID
+               forecast_range: str = "medium_range",   # nwm_forecast: short/medium/long
+               forecast_date: str = None,              # nwm_forecast: issue date YYYY-MM-DD
+               forecast_hour: int = 0,                 # nwm_forecast: cycle hour (UTC)
                log_fn=print):
     """Create the <AOI>.bdy file.  Returns updated ctx."""
 
@@ -745,11 +748,37 @@ def create_bdy(ctx_path, ctx: dict,
         start_ts = pd.Timestamp(start_dt)
         end_ts   = pd.Timestamp(end_dt)
         if bdy_source == "nwm_forecast":
-            df_flow = _get_nwm_forecast(
-                upstream_reach_id, start_ts, end_ts, interval_hours, log_fn
-            )
-            src_label = "NWM Forecast"
+            # Archived NWM operational forecast (2018-09 → now) — a run issued
+            # at forecast_date / cycle hour that extends forward.  Its own time
+            # span becomes the event window.
+            from core.nwm_forecast import get_nwm_forecast_series
+            if not forecast_date:
+                raise ValueError(
+                    "A forecast issue date is required for the NWM Forecast source.")
+            fdf = get_nwm_forecast_series(
+                upstream_reach_id, forecast_date,
+                forecast_range=forecast_range or "medium_range",
+                cycle_hour=int(forecast_hour or 0), log_fn=log_fn)
+            fser = pd.Series(
+                fdf["discharge_cms"].astype(float).values,
+                index=pd.DatetimeIndex(fdf["datetime"]))
+            f_start = pd.Timestamp(fser.index.min())
+            f_end   = pd.Timestamp(fser.index.max())
+            df_flow = _resample_to_interval(fser, f_start, f_end, interval_hours)
+            # The forecast run defines the event window.
+            start_dt = f_start.to_pydatetime()
+            end_dt   = f_end.to_pydatetime()
+            _rng = (forecast_range or "medium_range").replace("_", " ")
+            src_label = (f"NWM {_rng} forecast "
+                         f"({pd.Timestamp(forecast_date).date()})")
         elif bdy_source == "nwm_retro":
+            if start_ts < _RETRO_START or end_ts > _RETRO_END:
+                raise RuntimeError(
+                    f"NWM Retrospective only covers {_RETRO_START.date()} to "
+                    f"{_RETRO_END.date()}.  Your window "
+                    f"{start_ts.date()} → {end_ts.date()} is outside that range — "
+                    "this data is not available for this time.\n"
+                    "Use the 'NWM Forecast (2019–now)' source for more recent dates.")
             df_flow = _get_nwm_retrospective(
                 upstream_reach_id, start_ts, end_ts, interval_hours, log_fn
             )
