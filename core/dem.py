@@ -11,7 +11,9 @@ from rasterio.io import MemoryFile
 from rasterio.mask import mask
 from rasterio.merge import merge
 from rasterio.features import geometry_mask
-from rasterio.transform import array_bounds, from_bounds as transform_from_bounds
+from rasterio.transform import (
+    array_bounds, from_bounds as transform_from_bounds, from_origin,
+)
 from rasterio.warp import reproject, Resampling
 from shapely.geometry import Polygon
 
@@ -294,17 +296,21 @@ def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
             "repair/simplify before re-running."
         )
 
-    # Build the output grid from the exact AOI bounds in the destination CRS.
-    # calculate_default_transform() would derive the extent from the reprojected
-    # source-raster corners (which are snapped to the source pixel grid), so
-    # the output always ends up slightly larger than the AOI.  Using
-    # transform_from_bounds() with the AOI's own bounding box guarantees:
-    #   output raster extent == shapefile bounding box (exactly).
+    # Build the output grid with EXACTLY square cells of dem_res_m.
+    #
+    # We start from the AOI's bounding box in the destination CRS, but anchor
+    # the grid at the top-left corner and give every pixel a fixed size of
+    # dem_res_m (via from_origin) — so the output resolution is exactly
+    # (dem_res_m, dem_res_m), e.g. 10.0 × 10.0 m, not something like
+    # (9.999, 10.002).  width/height use ceil so the grid still covers the whole
+    # AOI (the far edge may extend up to <1 cell past the bbox; those cells are
+    # trimmed to nodata by the polygon mask below).  Exact square cells matter
+    # for LISFLOOD-FP / TRITON, which assume a single cellsize.
     aoi_in_dst = aoi_gdf.to_crs(dst_crs)
     ax1, ay1, ax2, ay2 = aoi_in_dst.total_bounds   # xmin, ymin, xmax, ymax
-    width  = max(1, int(round((ax2 - ax1) / dem_res_m)))
-    height = max(1, int(round((ay2 - ay1) / dem_res_m)))
-    transform = transform_from_bounds(ax1, ay1, ax2, ay2, width, height)
+    width  = max(1, int(math.ceil((ax2 - ax1) / dem_res_m - 1e-9)))
+    height = max(1, int(math.ceil((ay2 - ay1) / dem_res_m - 1e-9)))
+    transform = from_origin(ax1, ay2, dem_res_m, dem_res_m)  # west, north, xres, yres
     if width < 1 or height < 1:
         raise RuntimeError(
             f"Could not compute a valid output grid for the DEM "
