@@ -232,7 +232,10 @@ def _download_usgs_discharge(
             f"&startDT={start_str}&endDT={end_str}&format=json"
         )
         try:
-            resp = requests.get(url, timeout=120)
+            # A User-Agent avoids USGS occasionally throttling anonymous scripts.
+            resp = requests.get(
+                url, timeout=120,
+                headers={"User-Agent": "FIMsim/1.0 (streamflow download)"})
             resp.raise_for_status()
             data = resp.json()
 
@@ -241,28 +244,37 @@ def _download_usgs_discharge(
                 log_fn(f"  No time series returned for gage {site}")
                 continue
 
-            values = ts_list[0].get("values", [{}])[0].get("value", [])
-            if not values:
-                log_fn(f"  Empty value list for gage {site}")
-                continue
-
+            # Collect readings across ALL time series AND ALL value blocks —
+            # some gages expose more than one 00060 series and the first can be
+            # empty, which previously made valid data look like "no data".
+            # Skip USGS no-data sentinels (-999999) and non-numeric values.
             rows = []
-            for v in values:
-                try:
-                    q_cfs = float(v["value"])
-                    rows.append({
-                        "datetime":       pd.Timestamp(v["dateTime"]),
-                        "streamflow_m3s": round(q_cfs * 0.0283168, 6),
-                    })
-                except (ValueError, KeyError):
-                    continue
+            for ts in ts_list:
+                for block in ts.get("values", []) or []:
+                    for v in block.get("value", []) or []:
+                        try:
+                            q_cfs = float(v.get("value"))
+                        except (TypeError, ValueError):
+                            continue
+                        if q_cfs <= -999998:          # USGS no-data sentinel
+                            continue
+                        dt = v.get("dateTime")
+                        if not dt:
+                            continue
+                        rows.append({
+                            "datetime":       pd.Timestamp(dt),
+                            "streamflow_m3s": round(q_cfs * 0.0283168, 6),
+                        })
 
             if not rows:
-                log_fn(f"  No valid readings for gage {site}")
+                log_fn(f"  No valid discharge readings for gage {site} "
+                       f"({start_str} → {end_str}).")
                 continue
 
             df = pd.DataFrame(rows).set_index("datetime")
             df.index = pd.to_datetime(df.index, utc=True)
+            # Multiple series can overlap — drop duplicate timestamps + sort.
+            df = df[~df.index.duplicated(keep="first")].sort_index()
 
             # Resample to requested interval (mean within each window)
             df = df.resample(resample_rule).mean().dropna()
