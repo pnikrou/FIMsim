@@ -202,7 +202,7 @@ def _download_usgs_discharge(
     The IV service returns 15-minute data; the result is resampled to
     *interval_hours* (mean of sub-interval values).
 
-    Saves one CSV per gage:  datetime, streamflow_m3s
+    Saves one CSV per gage:  datetime, time_hours, discharge_cms
     Returns list of saved file paths.
     """
     import requests
@@ -295,7 +295,11 @@ def _download_usgs_discharge(
             df_out = df.reset_index()
             df_out["time_hours"] = (df_out["datetime"] - df_out["datetime"].iloc[0]).dt.total_seconds() / 3600.0
             df_out = df_out.rename(columns={"streamflow_m3s": "discharge_cms"})
-            df_out[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
+            # Keep the absolute `datetime` column too — the BDY builder and the
+            # TRITON hydrograph step timestamp the discharge from it (relative
+            # time_hours alone would be misaligned when the gage's record starts
+            # after the requested start).
+            df_out[["datetime", "time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
             log_fn(f"  ✓ Saved {out_csv.name} ({len(df)} rows @ {resample_rule})")
             saved.append(str(out_csv))
 
