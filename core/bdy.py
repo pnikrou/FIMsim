@@ -115,9 +115,15 @@ def check_csv_gaps(csv_path, interval_hours):
     }
 
 
-# NWM v2.1 retrospective covers exactly this range
+# NWM v3.0 retrospective covers exactly this range (1979 → Feb 2023).
 _RETRO_START = pd.Timestamp("1979-02-01")
-_RETRO_END   = pd.Timestamp("2020-12-31")
+_RETRO_END   = pd.Timestamp("2023-01-31")
+# Read the zarr over plain HTTPS (fsspec http backend) instead of s3:// — the
+# anonymous-S3 client is broken by a botocore/aiobotocore/s3fs version clash in
+# this env, and HTTPS avoids that stack entirely.
+_RETRO_ZARR_URL = (
+    "https://noaa-nwm-retrospective-3-0-pds.s3.amazonaws.com/CONUS/zarr/chrtout.zarr"
+)
 
 
 def _resample_to_interval(ser, start_ts, end_ts, interval_hours):
@@ -186,10 +192,9 @@ def _check_flow_coverage(df_flow, start_dt, end_dt, interval_hours, source_name,
 
 
 def _get_nwm_retrospective(feature_id, start_ts, end_ts, interval_hours, log_fn):
-    """Pull discharge from the NWM v2.1 retrospective Zarr store."""
-    url = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"
-    log_fn("Opening NWM retrospective Zarr store (NOAA v2.1) …")
-    ds = xr.open_zarr(url, consolidated=True, storage_options={"anon": True})
+    """Pull discharge from the NWM v3.0 retrospective Zarr store (1979–2023)."""
+    log_fn("Opening NWM retrospective Zarr store (NOAA v3.0, 1979–2023) …")
+    ds = xr.open_zarr(_RETRO_ZARR_URL, consolidated=True)
 
     feature_id = int(feature_id)
     log_fn(f"Extracting streamflow for feature_id={feature_id} …")
