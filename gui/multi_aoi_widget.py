@@ -969,12 +969,16 @@ class MultiAOIWidget(QWidget):
             if len(feature.usgs_gages) > 8:
                 gages_str += f"<br>&nbsp;&nbsp;… and {len(feature.usgs_gages) - 8} more"
 
+        crs_str = feature.source_crs_label or feature.working_crs_label or "—"
+        if (feature.source_crs_epsg and feature.working_crs_epsg
+                and feature.source_crs_epsg != feature.working_crs_epsg
+                and feature.working_crs_label):
+            crs_str += f" &nbsp;→&nbsp; outputs in {feature.working_crs_label}"
         html = (
             f"<b>{feature.name}</b>  "
             f"<span style='color:#888;'>(from {Path(feature.source_file).name})</span><br>"
             f"<b>Area:</b> {feature.area_km2:.2f} km²<br>"
-            f"<b>Centroid:</b> {feature.centroid_lon:.4f}°, "
-            f"{feature.centroid_lat:.4f}°<br>"
+            f"<b>CRS:</b> {crs_str}<br>"
             f"<b>State:</b> {feature.state_name or '—'} "
             f"({feature.state_abbr or '—'})<br>"
             f"<b>HUC6:</b> {huc6_str}  &nbsp;|&nbsp;  "

@@ -65,6 +65,9 @@ class AOIFeatureInfo:
     # input shapefile's CRS.
     working_crs_epsg: Optional[int] = None
     working_crs_label: Optional[str] = None
+    # The AOI shapefile's own CRS (what the user's file is stored in).
+    source_crs_epsg: Optional[int] = None
+    source_crs_label: Optional[str] = None
 
 
 # Columns to check for a usable feature name, in priority order
@@ -181,6 +184,24 @@ def inspect_features(aoi_path, selected_indices=None, log_fn=print) -> List[AOIF
                 wcrs_epsg = wgs84_utm_epsg_from_lonlat(centroid_lon, centroid_lat)
         wcrs_label = working_crs_label(int(wcrs_epsg))
 
+        # The AOI shapefile's OWN CRS (what the user's file is stored in),
+        # for the AOI report.  DEM / LULC / Manning are produced in this CRS
+        # whenever it is projected + metric.
+        source_crs_epsg = None
+        source_crs_label = None
+        if src_crs is not None:
+            try:
+                source_crs_epsg = src_crs.to_epsg()
+            except Exception:
+                source_crs_epsg = None
+            try:
+                _nm = src_crs.name
+            except Exception:
+                _nm = str(src_crs)
+            source_crs_label = (
+                f"{_nm} (EPSG:{source_crs_epsg})" if source_crs_epsg else _nm
+            )
+
         info = AOIFeatureInfo(
             source_file=str(aoi_path),
             feature_index=idx,
@@ -195,6 +216,8 @@ def inspect_features(aoi_path, selected_indices=None, log_fn=print) -> List[AOIF
             folder_path=None,
             working_crs_epsg=int(wcrs_epsg),
             working_crs_label=wcrs_label,
+            source_crs_epsg=(int(source_crs_epsg) if source_crs_epsg else None),
+            source_crs_label=source_crs_label,
         )
         features.append(info)
 
