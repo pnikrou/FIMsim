@@ -131,3 +131,103 @@ def get_nwm_forecast_series(feature_id, forecast_date, forecast_range="medium_ra
           .sort_values("datetime").reset_index(drop=True))
     log_fn(f"✓ NWM {ftype} forecast: {len(df)} step(s) for reach {feature_id}.")
     return df
+
+
+def get_nwm_forecast_multi(feature_ids, forecast_date, forecast_range="medium_range",
+                           cycle_hour=0, out_csv=None, log_fn=print):
+    """Fetch a forecast trajectory for MANY reaches at once.
+
+    Downloads each channel_rt file once and extracts all requested feature_ids
+    (efficient for the Streamflow standalone mode).  Returns a wide DataFrame
+    with 'datetime' + one column per feature_id; writes it to out_csv if given.
+    """
+    import requests
+    import netCDF4 as nc
+
+    feature_ids = [int(f) for f in feature_ids]
+    date_obj = pd.Timestamp(forecast_date).to_pydatetime().replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    if date_obj < ARCHIVE_START:
+        raise RuntimeError(
+            f"NWM operational forecast data is only available from "
+            f"{ARCHIVE_START.date()} onward.  Forecast date {date_obj.date()} "
+            "is before that — no data available for this time.")
+    if date_obj.date() > datetime.utcnow().date():
+        raise RuntimeError(
+            f"Forecast date {date_obj.date()} is in the future — "
+            "no NWM data available yet for this time.")
+
+    cycle_hour = int(cycle_hour)
+    date_str = date_obj.strftime("%Y%m%d")
+    ftype, var_tag, fhours = _spec(forecast_range, date_obj)
+    base = f"{_GCS}/nwm.{date_str}/{ftype}"
+    issue = datetime(date_obj.year, date_obj.month, date_obj.day, cycle_hour)
+
+    log_fn(f"Fetching NWM {ftype} forecast issued {date_obj.date()} "
+           f"t{cycle_hour:02d}z for {len(feature_ids)} reach(es) …")
+
+    idx_map = None
+    records = {fid: [] for fid in feature_ids}
+    times = []
+    tmp = tempfile.mkdtemp(prefix="nwm_fc_")
+    try:
+        for f in fhours:
+            fname = f"nwm.t{cycle_hour:02d}z.{ftype}.{var_tag}.f{f:03d}.conus.nc"
+            url = f"{base}/{fname}"
+            fpath = os.path.join(tmp, fname)
+            try:
+                resp = requests.get(url, timeout=120)
+                if resp.status_code == 404:
+                    continue
+                resp.raise_for_status()
+                with open(fpath, "wb") as fp:
+                    fp.write(resp.content)
+                ds = nc.Dataset(fpath)
+                try:
+                    if idx_map is None:
+                        fids_arr = np.asarray(ds.variables["feature_id"][:])
+                        idx_map = {}
+                        for fid in feature_ids:
+                            w = np.where(fids_arr == fid)[0]
+                            if len(w):
+                                idx_map[fid] = int(w[0])
+                        if not idx_map:
+                            raise RuntimeError(
+                                "None of the requested feature IDs are in the "
+                                "NWM network.")
+                    q = ds.variables["streamflow"][:]
+                    times.append(issue + timedelta(hours=int(f)))
+                    for fid, ix in idx_map.items():
+                        records[fid].append(float(q[ix]))
+                finally:
+                    ds.close()
+                if len(times) % 10 == 0:
+                    log_fn(f"  … {len(times)} forecast step(s) fetched")
+            except requests.RequestException:
+                continue
+            finally:
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    pass
+    finally:
+        try:
+            os.rmdir(tmp)
+        except OSError:
+            pass
+
+    if not times:
+        raise RuntimeError(
+            f"No NWM {ftype} forecast files were found for {date_obj.date()} "
+            f"cycle t{cycle_hour:02d}z.  Try a different cycle hour (0/6/12/18) "
+            "or another date.")
+
+    df = pd.DataFrame({"datetime": times})
+    for fid in idx_map:
+        df[str(fid)] = records[fid]
+    df = df.sort_values("datetime").reset_index(drop=True)
+    if out_csv:
+        df.to_csv(out_csv, index=False)
+    log_fn(f"✓ NWM {ftype} forecast: {len(df)} step(s) for "
+           f"{len(idx_map)} reach(es).")
+    return df

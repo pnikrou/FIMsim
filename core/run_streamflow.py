@@ -191,17 +191,21 @@ def run_streamflow_mode(
 
             else:  # nwm_forecast
                 combined_csv = out_dir / f"nwm_forecast_combined.csv"
+                fdate = cfg.get("forecast_date")
+                if not fdate:
+                    log_fn("  No forecast issue date provided — skipping NWM forecast.")
+                    continue
+                frange = cfg.get("forecast_range", "medium_range")
+                fhour  = int(cfg.get("forecast_hour", 0))
                 log_fn(
-                    f"Downloading NWM forecast for {len(feature_ids)} "
-                    f"feature ID(s) …"
+                    f"Downloading NWM {frange} forecast (issued {fdate}) for "
+                    f"{len(feature_ids)} feature ID(s) …"
                 )
                 try:
-                    download_nwm_forecast(
-                        feature_ids=feature_ids,
-                        start_dt=start_dt,
-                        end_dt=end_dt,
-                        out_csv=combined_csv,
-                        log_fn=log_fn,
+                    from core.nwm_forecast import get_nwm_forecast_multi
+                    get_nwm_forecast_multi(
+                        feature_ids, fdate, forecast_range=frange,
+                        cycle_hour=fhour, out_csv=combined_csv, log_fn=log_fn,
                     )
                 except Exception as exc:
                     log_fn(f"  NWM forecast download failed: {exc}")
@@ -212,6 +216,14 @@ def run_streamflow_mode(
                 except Exception as exc:
                     log_fn(f"  Error reading combined NWM forecast CSV: {exc}")
                     df_wide = None
+                # The forecast run defines its own time span — use it for the
+                # coverage check so we don't warn about the (unused) event window.
+                if df_wide is not None and "datetime" in df_wide.columns and len(df_wide):
+                    _dts = pd.to_datetime(df_wide["datetime"], errors="coerce").dropna()
+                    fc_start = _dts.min() if len(_dts) else start_dt
+                    fc_end   = _dts.max() if len(_dts) else end_dt
+                else:
+                    fc_start, fc_end = start_dt, end_dt
 
                 if df_wide is not None:
                     for fid in feature_ids:
@@ -228,7 +240,7 @@ def run_streamflow_mode(
                             except Exception:
                                 peak = None
                             # Coverage check
-                            cov_warns = _check_coverage(df_single, "datetime", start_dt, end_dt,
+                            cov_warns = _check_coverage(df_single, "datetime", fc_start, fc_end,
                                             interval_hours, f"NWM Forecast feature {fid}", log_fn)
                             all_warnings.extend(
                                 f"NWM Forecast {fid}: {w}" for w in cov_warns

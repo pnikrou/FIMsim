@@ -98,7 +98,7 @@ class ModeStreamflowWidget(QWidget):
         retro_outer.setSpacing(6)
 
         retro_hdr = QHBoxLayout()
-        self._retro_chk = QCheckBox("NWM Retrospective  (NOAA — USA only)")
+        self._retro_chk = QCheckBox("NWM Retrospective (1979-2023)")
         self._retro_chk.setChecked(False)
         self._retro_chk.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self._retro_chk.toggled.connect(self._on_retro_toggled)
@@ -150,8 +150,8 @@ class ModeStreamflowWidget(QWidget):
         rf.addLayout(dt_row)
 
         cov_note = QLabel(
-            "★ Available 1979-02-01 → 2020-12-31  |  "
-            "15-min data resampled to chosen interval  |  USA only"
+            "★ NWM v3.0 reanalysis, available 1979-02-01 → 2023-01-31  |  "
+            "resampled to chosen interval  |  USA only"
         )
         cov_note.setWordWrap(True)
         cov_note.setStyleSheet("color:#718096; font-size:11px;")
@@ -179,9 +179,7 @@ class ModeStreamflowWidget(QWidget):
         fore_outer.setSpacing(6)
 
         fore_hdr = QHBoxLayout()
-        self._fore_chk = QCheckBox(
-            "NWM Forecast  (NOAA — USA only, ~10-day horizon)"
-        )
+        self._fore_chk = QCheckBox("NWM Forecast (2019-now)")
         self._fore_chk.setChecked(False)
         self._fore_chk.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self._fore_chk.toggled.connect(self._on_fore_toggled)
@@ -210,28 +208,31 @@ class ModeStreamflowWidget(QWidget):
         ff.addWidget(fore_csv_note)
 
         fore_cov_note = QLabel(
-            "★ NWM operational forecast running since 2016  |  "
-            "Rolling ~10-day window from current date  |  "
-            "Updated every 6 hours  |  USA only  |  No historical archive"
+            "★ Archived NWM operational forecast (2018-09 → today).  A run issued "
+            "on the chosen date/cycle: short ~18 h, medium ~10 days, long ~30 days."
         )
         fore_cov_note.setWordWrap(True)
         fore_cov_note.setStyleSheet("color:#718096; font-size:11px;")
         ff.addWidget(fore_cov_note)
 
         fore_dt_row = QHBoxLayout()
-        fore_dt_row.addWidget(QLabel("Start date:"))
+        fore_dt_row.addWidget(QLabel("Range:"))
+        self._fore_range = QComboBox()
+        self._fore_range.addItems(["medium_range", "short_range", "long_range"])
+        fore_dt_row.addWidget(self._fore_range)
+        fore_dt_row.addSpacing(12)
+        fore_dt_row.addWidget(QLabel("Issue date:"))
         self._fore_start = QDateTimeEdit()
-        self._fore_start.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._fore_start.setDisplayFormat("yyyy-MM-dd")
         self._fore_start.setCalendarPopup(True)
-        self._fore_start.setDateTime(QDateTime.currentDateTime())
+        self._fore_start.setDateTime(
+            QDateTime.fromString("2024-06-01 00:00", "yyyy-MM-dd HH:mm"))
         fore_dt_row.addWidget(self._fore_start)
         fore_dt_row.addSpacing(12)
-        fore_dt_row.addWidget(QLabel("End date:"))
-        self._fore_end = QDateTimeEdit()
-        self._fore_end.setDisplayFormat("yyyy-MM-dd HH:mm")
-        self._fore_end.setCalendarPopup(True)
-        self._fore_end.setDateTime(QDateTime.currentDateTime().addDays(7))
-        fore_dt_row.addWidget(self._fore_end)
+        fore_dt_row.addWidget(QLabel("Cycle (UTC):"))
+        self._fore_hour = QComboBox()
+        self._fore_hour.addItems(["00", "06", "12", "18"])
+        fore_dt_row.addWidget(self._fore_hour)
         fore_dt_row.addStretch()
         ff.addLayout(fore_dt_row)
 
@@ -466,8 +467,6 @@ class ModeStreamflowWidget(QWidget):
         if self._fore_chk.isChecked():
             if not self._fore_ids.text().strip():
                 return "NWM Forecast: Feature ID(s) field is empty."
-            if self._fore_start.dateTime() >= self._fore_end.dateTime():
-                return "NWM Forecast: End date must be after start date."
 
         if self._usgs_chk.isChecked():
             if not self._usgs_ids.text().strip():
@@ -530,8 +529,11 @@ class ModeStreamflowWidget(QWidget):
             configs.append({
                 "source": "nwm_forecast",
                 "ids": self._fore_ids.text().strip(),
+                "forecast_range": self._fore_range.currentText(),
+                "forecast_date": self._fore_start.dateTime().toString("yyyy-MM-dd"),
+                "forecast_hour": int(self._fore_hour.currentText()),
                 "start_dt": self._fore_start.dateTime().toPyDateTime(),
-                "end_dt": self._fore_end.dateTime().toPyDateTime(),
+                "end_dt": self._fore_start.dateTime().addDays(10).toPyDateTime(),
                 "interval_hours": 1.0,
             })
 

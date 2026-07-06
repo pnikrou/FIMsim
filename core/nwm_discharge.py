@@ -18,8 +18,12 @@ import xarray as xr
 
 
 RETRO_START = pd.Timestamp("1979-02-01")
-RETRO_END   = pd.Timestamp("2020-12-31")
-RETRO_URL   = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"
+RETRO_END   = pd.Timestamp("2023-01-31")
+# NWM v3.0 retrospective read over plain HTTPS (fsspec http) — the anonymous-S3
+# client is broken by a botocore/aiobotocore/s3fs version clash in this env.
+RETRO_URL   = (
+    "https://noaa-nwm-retrospective-3-0-pds.s3.amazonaws.com/CONUS/zarr/chrtout.zarr"
+)
 FORECAST_BUCKET = "noaa-nwm-pds"
 
 
@@ -93,12 +97,14 @@ def download_nwm_retrospective(
     start_ts, end_ts = _validate_event_window(start_dt, end_dt)
     if start_ts < RETRO_START or end_ts > RETRO_END:
         raise ValueError(
-            f"NWM v2.1 retrospective only covers {RETRO_START.date()} to "
-            f"{RETRO_END.date()}.  Your window: {start_ts.date()} → {end_ts.date()}."
+            f"NWM Retrospective only covers {RETRO_START.date()} to "
+            f"{RETRO_END.date()}.  Your window {start_ts.date()} → {end_ts.date()} "
+            "is outside that range — this data is not available for this time.  "
+            "Use the NWM Forecast (2019–now) source for more recent dates."
         )
 
-    log_fn(f"Opening NWM retrospective Zarr store … ({len(fids)} feature_id(s))")
-    ds = xr.open_zarr(RETRO_URL, consolidated=True, storage_options={"anon": True})
+    log_fn(f"Opening NWM v3.0 retrospective Zarr store … ({len(fids)} feature_id(s))")
+    ds = xr.open_zarr(RETRO_URL, consolidated=True)
 
     fids_in_store = set(int(x) for x in ds["feature_id"].values)
     missing = [f for f in fids if f not in fids_in_store]
