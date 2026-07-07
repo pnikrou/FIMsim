@@ -72,7 +72,20 @@ def _build_main_river(flowlines_clip):
     main_order = int(summary.iloc[0]["stream_order"])
     main_total_length_m = float(summary.iloc[0]["total_length_m"])
 
-    main_segments = top[top["river_name"] == main_river_name].copy()
+    # Use the highest stream order only to IDENTIFY the main river, then take
+    # ALL of that river's segments within the AOI — every stream order, not just
+    # the top one.  Stream order increases downstream, so the reach where the
+    # river ENTERS the domain is lower-order; keeping only the top order would
+    # start the line mid-domain (at the confluence where it becomes highest
+    # order) and place the upstream inflow there instead of at the AOI boundary
+    # where the river actually enters.
+    #
+    # Only do this for a NAMED river — for "Unnamed" we keep the top-order
+    # segments, otherwise we'd sweep in every unrelated unnamed channel.
+    if main_river_name and main_river_name != "Unnamed":
+        main_segments = gdf[gdf["river_name"] == main_river_name].copy()
+    else:
+        main_segments = top[top["river_name"] == main_river_name].copy()
     unioned = (main_segments.geometry.union_all() if hasattr(main_segments.geometry, 'union_all')
                else main_segments.geometry.unary_union)
     merged_geom = unioned if isinstance(unioned, LineString) else linemerge(unioned)
