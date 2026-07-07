@@ -57,35 +57,38 @@ def _build_main_river(flowlines_clip):
     gdf["geom_len"] = gdf.geometry.length
     gdf["river_name"] = gdf["GNIS_NAME"].apply(_safe_name) if "GNIS_NAME" in gdf.columns else "Unnamed"
 
-    max_order = gdf["StreamOrde"].max()
-    top = gdf[gdf["StreamOrde"] == max_order].copy()
-
-    summary = (
-        top.groupby("river_name", dropna=False)
+    # ── Pick the main river by COVERAGE of the study area, not stream order ──
+    # The highest-order reach can clip only a corner of the domain while a
+    # longer (often lower-order) river spans the whole AOI — that longer river
+    # is the one that should carry the single inflow→outflow so the domain is
+    # actually used.  So choose the river (by name) with the greatest total
+    # flowline length inside the AOI; ties broken by stream order.
+    per_river = (
+        gdf.groupby("river_name", dropna=False)
         .agg(stream_order=("StreamOrde", "max"), segment_count=("river_name", "size"),
              total_length_m=("geom_len", "sum"))
         .reset_index()
-        .sort_values(["stream_order", "total_length_m"], ascending=[False, False])
     )
+    named = per_river[per_river["river_name"] != "Unnamed"]
+    pool = named if not named.empty else per_river
+    summary = pool.sort_values(
+        ["total_length_m", "stream_order"], ascending=[False, False]
+    ).reset_index(drop=True)
 
     main_river_name = summary.iloc[0]["river_name"]
     main_order = int(summary.iloc[0]["stream_order"])
     main_total_length_m = float(summary.iloc[0]["total_length_m"])
 
-    # Use the highest stream order only to IDENTIFY the main river, then take
-    # ALL of that river's segments within the AOI — every stream order, not just
-    # the top one.  Stream order increases downstream, so the reach where the
-    # river ENTERS the domain is lower-order; keeping only the top order would
-    # start the line mid-domain (at the confluence where it becomes highest
-    # order) and place the upstream inflow there instead of at the AOI boundary
-    # where the river actually enters.
-    #
-    # Only do this for a NAMED river — for "Unnamed" we keep the top-order
-    # segments, otherwise we'd sweep in every unrelated unnamed channel.
+    # Take ALL segments of the chosen river (every stream order) so the line
+    # spans the full extent and the upstream inflow sits at the AOI boundary.
+    # For "Unnamed" (no named rivers at all) keep only the top-order segments,
+    # otherwise we'd sweep in every unrelated unnamed channel.
     if main_river_name and main_river_name != "Unnamed":
         main_segments = gdf[gdf["river_name"] == main_river_name].copy()
     else:
-        main_segments = top[top["river_name"] == main_river_name].copy()
+        max_order = gdf["StreamOrde"].max()
+        main_segments = gdf[gdf["StreamOrde"] == max_order].copy()
+        main_order = int(max_order)
     unioned = (main_segments.geometry.union_all() if hasattr(main_segments.geometry, 'union_all')
                else main_segments.geometry.unary_union)
     merged_geom = unioned if isinstance(unioned, LineString) else linemerge(unioned)
