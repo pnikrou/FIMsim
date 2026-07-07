@@ -157,9 +157,12 @@ class BDYConfigPanel(QWidget):
         )
         form.addRow(self._fc_date_lbl, self._fc_date)
 
-        self._fc_hour_lbl = QLabel("Cycle hour (UTC):")
+        self._fc_hour_lbl = QLabel("Cycle (UTC):")
         self._fc_hour_combo = QComboBox()
-        self._fc_hour_combo.addItems(["00", "06", "12", "18"])
+        self._fc_hour_combo.addItems(["Auto", "00", "06", "12", "18"])
+        self._fc_hour_combo.setToolTip(
+            "Which daily NWM run to use.  'Auto' picks the first cycle that has "
+            "data (00 → 06 → 12 → 18) — usually leave it on Auto.")
         form.addRow(self._fc_hour_lbl, self._fc_hour_combo)
 
         self._forecast_note = QLabel(
@@ -299,7 +302,8 @@ class BDYConfigPanel(QWidget):
             "manual_feature_id": manual_fid,
             "forecast_range":    self._fc_range_combo.currentText(),
             "forecast_date":     self._fc_date.dateTime().toString("yyyy-MM-dd"),
-            "forecast_hour":     int(self._fc_hour_combo.currentText()),
+            "forecast_hour":     (None if self._fc_hour_combo.currentText() == "Auto"
+                                  else int(self._fc_hour_combo.currentText())),
         }
 
     def set_config(self, cfg: dict):
@@ -344,5 +348,5 @@ class BDYConfigPanel(QWidget):
         if cfg.get("forecast_date"):
             self._fc_date.setDateTime(
                 QDateTime.fromString(str(cfg["forecast_date"]), "yyyy-MM-dd"))
-        if cfg.get("forecast_hour") is not None:
-            self._fc_hour_combo.setCurrentText(f"{int(cfg['forecast_hour']):02d}")
+        fh = cfg.get("forecast_hour")
+        self._fc_hour_combo.setCurrentText("Auto" if fh is None else f"{int(fh):02d}")

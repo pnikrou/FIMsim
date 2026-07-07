@@ -231,7 +231,9 @@ class ModeStreamflowWidget(QWidget):
         fore_dt_row.addSpacing(12)
         fore_dt_row.addWidget(QLabel("Cycle (UTC):"))
         self._fore_hour = QComboBox()
-        self._fore_hour.addItems(["00", "06", "12", "18"])
+        self._fore_hour.addItems(["Auto", "00", "06", "12", "18"])
+        self._fore_hour.setToolTip(
+            "'Auto' picks the first cycle with data (00 → 06 → 12 → 18).")
         fore_dt_row.addWidget(self._fore_hour)
         fore_dt_row.addStretch()
         ff.addLayout(fore_dt_row)
@@ -531,7 +533,8 @@ class ModeStreamflowWidget(QWidget):
                 "ids": self._fore_ids.text().strip(),
                 "forecast_range": self._fore_range.currentText(),
                 "forecast_date": self._fore_start.dateTime().toString("yyyy-MM-dd"),
-                "forecast_hour": int(self._fore_hour.currentText()),
+                "forecast_hour": (None if self._fore_hour.currentText() == "Auto"
+                                  else int(self._fore_hour.currentText())),
                 "start_dt": self._fore_start.dateTime().toPyDateTime(),
                 "end_dt": self._fore_start.dateTime().addDays(10).toPyDateTime(),
                 "interval_hours": 1.0,

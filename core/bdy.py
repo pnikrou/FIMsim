@@ -758,7 +758,7 @@ def create_bdy(ctx_path, ctx: dict,
             fdf = get_nwm_forecast_series(
                 upstream_reach_id, forecast_date,
                 forecast_range=forecast_range or "medium_range",
-                cycle_hour=int(forecast_hour or 0), log_fn=log_fn)
+                cycle_hour=forecast_hour, log_fn=log_fn)
             fser = pd.Series(
                 fdf["discharge_cms"].astype(float).values,
                 index=pd.DatetimeIndex(fdf["datetime"]))

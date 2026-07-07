@@ -412,7 +412,7 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
         fdf = get_nwm_forecast_series(
             nwm_reach_id, forecast_date,
             forecast_range=forecast_range or "medium_range",
-            cycle_hour=int(forecast_hour or 0), log_fn=log_fn)
+            cycle_hour=forecast_hour, log_fn=log_fn)
         fser = pd.Series(fdf["discharge_cms"].astype(float).values,
                          index=pd.DatetimeIndex(fdf["datetime"]))
         df_flow = _resample_to_interval(

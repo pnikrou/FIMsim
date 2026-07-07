@@ -196,7 +196,7 @@ def run_streamflow_mode(
                     log_fn("  No forecast issue date provided — skipping NWM forecast.")
                     continue
                 frange = cfg.get("forecast_range", "medium_range")
-                fhour  = int(cfg.get("forecast_hour", 0))
+                fhour  = cfg.get("forecast_hour")   # None → auto-pick cycle
                 log_fn(
                     f"Downloading NWM {frange} forecast (issued {fdate}) for "
                     f"{len(feature_ids)} feature ID(s) …"
