@@ -8,8 +8,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QPixmap
 
-from gui.help_util import open_manual, show_about
-
 # Logo lives in <repo>/assets/fimsim_logo.png (this file is in <repo>/gui/).
 _LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "fimsim_logo.png"
 
@@ -91,31 +89,6 @@ class ModelSelectorWidget(QWidget):
         sub.setStyleSheet("color:#718096; font-size:12px; border:none; margin-bottom:4px;")
         root.addWidget(sub)
 
-        # ── About / Help buttons ──────────────────────────────────────────────
-        help_row = QHBoxLayout()
-        help_row.setSpacing(10)
-        help_row.addStretch(1)
-        _help_btn_css = (
-            "QPushButton { padding:6px 18px; font-size:12px; font-weight:bold; "
-            "color:#2b6cb0; background:#ebf8ff; border:1px solid #90cdf4; "
-            "border-radius:6px; } "
-            "QPushButton:hover { background:#bee3f8; }"
-        )
-        about_btn = QPushButton("ℹ  About")
-        about_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        about_btn.setStyleSheet(_help_btn_css)
-        about_btn.clicked.connect(self._on_about_clicked)
-        help_row.addWidget(about_btn)
-
-        manual_btn = QPushButton("📖  User Manual")
-        manual_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        manual_btn.setStyleSheet(_help_btn_css)
-        manual_btn.clicked.connect(self._on_help_clicked)
-        help_row.addWidget(manual_btn)
-
-        help_row.addStretch(1)
-        root.addLayout(help_row)
-
         # Divider
         line = QFrame(); line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color:#e2e8f0; margin:14px 0 20px 0;")
@@ -171,14 +144,6 @@ class ModelSelectorWidget(QWidget):
         root.addWidget(self._sub_panel)
 
         root.addStretch(1)
-
-    # ── About / Help ──────────────────────────────────────────────────────────
-
-    def _on_about_clicked(self):
-        show_about(self)
-
-    def _on_help_clicked(self):
-        open_manual(None, parent=self)
 
     # ── Category card (the big clickable tiles at the top) ────────────────────
 
