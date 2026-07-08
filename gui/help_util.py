@@ -72,7 +72,7 @@ def show_about(parent=None) -> None:
     """Show the About dialog (University of Alabama · SDML · FIM ecosystem)."""
     dlg = QDialog(parent)
     dlg.setWindowTitle("About FIMsim")
-    dlg.setMinimumWidth(460)
+    dlg.setMinimumWidth(540)
 
     root = QVBoxLayout(dlg)
     root.setContentsMargins(28, 24, 28, 20)
@@ -100,29 +100,41 @@ def show_about(parent=None) -> None:
     root.addWidget(sub)
 
     body = QLabel(
-        "<div style='text-align:center; line-height:1.5;'>"
-        "FIMsim prepares model-ready input packages for 2-D flood inundation "
-        "models (LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM)."
+        "<div style='line-height:1.5;'>"
+        "FIMsim is part of the <b>CIROH Flood Inundation Mapping Ecosystem</b> "
+        "&mdash; a web-based tool that makes hydraulic flood modeling more "
+        "accessible, fast, and user-friendly. It lets users rapidly prepare "
+        "model-ready input data and run flood simulations <b>without</b> "
+        "installing complex modeling software, configuring technical computing "
+        "environments, or owning high-performance hardware such as GPUs. Through "
+        "an automated, cloud-enabled workflow it handles both data preparation "
+        "and model execution, generating flood inundation maps for "
+        "regional-scale study areas in the United States."
         "<br><br>"
-        "Developed at the <b>University of Alabama</b>,<br>"
+        f"&#128279; <a href='{FIM_ECOSYSTEM_URL}'>Learn more about the CIROH "
+        "FIM Ecosystem</a>"
+        "<br><br>"
+        "FIMsim serves two purposes: <b>(1)</b> automated preparation of "
+        "individual hydraulic model inputs &mdash; terrain, land cover, river "
+        "networks, and streamflow time series; and <b>(2)</b> end-to-end "
+        "configuration and cloud execution of complete flood simulations for "
+        "<b>LISFLOOD-FP</b> and <b>TRITON</b>. Users only define a study area; "
+        "FIMsim downloads, processes, and formats everything automatically. "
+        "Standalone desktop installers for macOS and Windows are also available "
+        "&mdash; no Python installation and no technical configuration required."
+        "<br><br>"
+        "Developed at the <b>University of Alabama</b>, "
         "<b>Surface Dynamics Modeling Lab (SDML)</b>."
-        "<br><br>"
-        "FIMsim is part of the <b>FIM ecosystem</b>.<br>"
-        f"<a href='{FIM_ECOSYSTEM_URL}'>Visit the FIM Ecosystem page</a>"
         "</div>"
     )
     body.setWordWrap(True)
     body.setTextFormat(Qt.TextFormat.RichText)
     body.setOpenExternalLinks(True)
-    body.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    body.setAlignment(Qt.AlignmentFlag.AlignLeft)
     root.addWidget(body)
 
     btn_row = QHBoxLayout()
     btn_row.addStretch(1)
-
-    manual_btn = QPushButton("Open User Manual")
-    manual_btn.clicked.connect(lambda: open_manual(None, parent=dlg))
-    btn_row.addWidget(manual_btn)
 
     close_btn = QPushButton("Close")
     close_btn.clicked.connect(dlg.accept)
