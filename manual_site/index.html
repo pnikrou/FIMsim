@@ -74,14 +74,15 @@
         <h2>Manual Structure</h2>
         <p>
           FIMsim is organized into two parts. <strong>Part 1</strong> prepares
-          individual, model-independent input datasets. <strong>Part 2</strong>
-          takes those inputs and builds a complete, model-ready package for a
-          2-D flood simulation. The framework below shows how the two parts fit
-          together and which files each model produces.
+          individual, model-independent input datasets (DEM, LULC &amp;
+          Manning's n, Flowline, Streamflow Data). <strong>Part 2</strong> takes
+          those inputs and builds a complete, model-ready package for a 2-D
+          flood mapping model. The framework below shows how the two parts fit
+          together.
         </p>
         <figure class="figure">
           <img src="assets/workflow.png"
-               alt="FIMsim framework: Part 1 prepares independent hydraulic model inputs (DEM, LULC and Manning, Flowline, Streamflow Data); Part 2 builds and cloud-runs the flood mapping models LISFLOOD-FP and TRITON.">
+               alt="FIMsim framework: Part 1 prepares independent hydraulic model inputs (DEM, LULC and Manning, Flowline, Streamflow Data); Part 2 covers the flood mapping models LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM.">
           <figcaption>The FIMsim framework — Part 1 (independent inputs) and Part 2 (flood mapping models).</figcaption>
         </figure>
         <div class="part-accordion">
