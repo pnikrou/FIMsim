@@ -169,11 +169,19 @@ class MainWindow(QMainWindow):
         clear_btn.setFixedWidth(80)
         clear_btn.clicked.connect(self._log_panel.clear)
 
+        # Help button — opens the user manual at the current mode's section.
+        self._help_btn = QPushButton("❔  Help")
+        self._help_btn.setFixedWidth(90)
+        self._help_btn.setToolTip("Open the user manual for this mode in your browser")
+        self._help_btn.clicked.connect(self._on_help_clicked)
+        self._help_btn.setVisible(False)
+
         bottom.addWidget(self._back_btn)
         bottom.addWidget(self._prev_btn)
         bottom.addWidget(self._next_btn)
         bottom.addWidget(clear_btn)
         bottom.addStretch()
+        bottom.addWidget(self._help_btn)
         root.addLayout(bottom)
 
         # Connect tab-change for each workflow (after buttons exist)
@@ -374,6 +382,7 @@ class MainWindow(QMainWindow):
         self._back_btn.setVisible(True)   # show for all modes
         self._prev_btn.setVisible(True)
         self._next_btn.setVisible(True)
+        self._help_btn.setVisible(True)   # mode-specific manual section
         if not is_tab_mode:
             widget = self._standalone_widget(mode)
             if widget:
@@ -406,6 +415,7 @@ class MainWindow(QMainWindow):
         self._back_btn.setVisible(False)
         self._prev_btn.setVisible(False)
         self._next_btn.setVisible(False)
+        self._help_btn.setVisible(False)
         self._update_nav()
 
     # ── Mode reset ───────────────────────────────────────────────────────────
@@ -660,6 +670,13 @@ class MainWindow(QMainWindow):
                     f"All steps complete! {model.upper()} input files are ready.")
             self._update_nav()
         return _slot
+
+    # ── Help ─────────────────────────────────────────────────────────────────
+
+    def _on_help_clicked(self):
+        """Open the user manual at the section for the active mode."""
+        from gui.help_util import open_manual
+        open_manual(self._active_model, parent=self)
 
     # ── Logging ──────────────────────────────────────────────────────────────
 
