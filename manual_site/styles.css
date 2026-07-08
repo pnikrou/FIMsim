@@ -428,6 +428,54 @@ th {
   color: var(--muted);
 }
 
+.note {
+  margin: 18px 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--brand);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.note p {
+  margin: 0;
+}
+
+.note a {
+  color: var(--brand-dark);
+  font-weight: bold;
+}
+
+.aoi-checklist {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 18px 0;
+}
+
+.aoi-checklist article {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.aoi-checklist article:last-child {
+  border-bottom: none;
+}
+
+.aoi-checklist article:nth-child(even) {
+  background: #ffffff;
+}
+
+.aoi-checklist h3 {
+  margin: 0 0 6px;
+  color: var(--brand-dark);
+}
+
+.aoi-checklist p {
+  margin: 0;
+}
+
 .hidden-topic {
   display: none !important;
 }

@@ -33,6 +33,7 @@
           <a href="#overview">Overview</a>
           <a href="#manual-structure">Manual Structure</a>
           <a href="#installation">Installation</a>
+          <a href="#aoi-prep">Preparing the AOI</a>
         </details>
 
         <details>
@@ -119,9 +120,9 @@
                 <p>Prepares raster terrain, friction, boundary, hydrograph, and configuration files for TRITON runs.</p>
               </article>
               <article>
-                <span class="status-badge pending">Reserved</span>
+                <span class="status-badge ready">Ready</span>
                 <h3>OWP HAND-FIM</h3>
-                <p>Manual section reserved for the OWP HAND-FIM flood mapping workflow.</p>
+                <p>Generates OWP HAND flood inundation maps from AOI files or HUC8 IDs using the three-step FIMserv workflow.</p>
               </article>
               <article>
                 <span class="status-badge pending">Reserved</span>
@@ -153,8 +154,121 @@ conda activate FIMsim
 python main.py</code></pre>
       </section>
 
+      <section class="topic-section" id="aoi-prep">
+        <h2>Preparing the AOI</h2>
+        <p>
+          The Area of Interest (AOI) is the single most important input in
+          FIMsim. It is the polygon that defines the model domain, and its
+          edges become the outer boundary of the flood simulation. Almost every
+          mode &mdash; DEM, LULC, Flowline, LISFLOOD-FP, TRITON, and HAND-FIM
+          &mdash; is clipped to this polygon, so the shape you draw here decides
+          the quality of every later step. Prepare the AOI carefully before you
+          start the workflow.
+        </p>
+
+        <h3 id="aoi-what">What the AOI Is</h3>
+        <ul>
+          <li>A polygon shapefile (<code>.shp</code>) or GeoPackage (<code>.gpkg</code>).</li>
+          <li>It may contain one polygon or several polygons; you choose which features to process.</li>
+          <li>Each selected polygon becomes one model domain with its own output folder.</li>
+          <li>The DEM, LULC/Manning, and flowlines are all cut to the polygon outline.</li>
+        </ul>
+
+        <h3 id="aoi-edges">Why the Edges Matter for Boundary Conditions</h3>
+        <p>
+          Both LISFLOOD-FP and TRITON need to know <strong>where water enters
+          and where water leaves</strong> the domain. FIMsim finds those
+          locations automatically at the points where the river crosses the AOI
+          boundary:
+        </p>
+        <ul>
+          <li>
+            <strong>Upstream / inflow</strong> is placed where the river
+            <em>enters</em> the domain through an edge. This becomes the QVAR
+            inflow in LISFLOOD-FP (<code>BC.bci</code>) and the source point in
+            TRITON (<code>.src</code>).
+          </li>
+          <li>
+            <strong>Downstream / outflow</strong> is placed where the river
+            <em>exits</em> the domain through an edge. This becomes the
+            downstream boundary in LISFLOOD-FP (FREE / HFIX) and the external
+            boundary in TRITON (<code>.extbc</code>).
+          </li>
+        </ul>
+        <p>
+          Because these boundary points are derived from the AOI edges, an
+          inaccurate edge produces an inaccurate boundary condition. If the
+          river only clips a corner, runs parallel to an edge, or exits through
+          a ragged edge, the inflow and outflow can land in the wrong place and
+          the simulation will not represent the real flow path.
+        </p>
+
+        <h3 id="aoi-guidelines">How to Draw an Accurate AOI</h3>
+        <div class="aoi-checklist">
+          <article>
+            <h3>Let the river cross the edges cleanly</h3>
+            <p>
+              Draw the domain so the main river enters through one edge and
+              leaves through another, ideally crossing each edge close to
+              perpendicular. This gives a well-defined inflow and outflow cell.
+            </p>
+          </article>
+          <article>
+            <h3>Keep the river away from corners</h3>
+            <p>
+              Avoid a layout where the river only cuts across a corner of the
+              polygon. A corner crossing leaves most of the domain unused and
+              makes the boundary point ambiguous.
+            </p>
+          </article>
+          <article>
+            <h3>Cover the full study reach</h3>
+            <p>
+              The polygon should span the whole reach you want to model,
+              including the floodplain on both banks, so the inundation is not
+              cut off by the domain edge. When no single high-order river spans
+              the domain, FIMsim uses the longest river that covers the study
+              area for the inflow / outflow.
+            </p>
+          </article>
+          <article>
+            <h3>Use one clean, closed polygon per domain</h3>
+            <p>
+              Prefer a single, simple, closed polygon per domain rather than
+              many small or overlapping parts. Simple edges make the boundary
+              cells unambiguous and keep the DEM and friction grids clean.
+            </p>
+          </article>
+          <article>
+            <h3>Match a sensible resolution</h3>
+            <p>
+              Keep the domain size reasonable for your target cell size (for
+              example 10 m). A very large domain at a fine cell size produces
+              very large grids and long run times.
+            </p>
+          </article>
+        </div>
+
+        <div class="note">
+          <p>
+            <strong>Tip:</strong> after you run Flowline Mode or the BCI / BC
+            step, open the AOI preview and confirm the upstream and downstream
+            markers sit on the edges where the river truly enters and leaves. If
+            they do not, adjust the AOI polygon and re-run &mdash; it is much
+            easier to fix the boundary here than after the model is built.
+          </p>
+        </div>
+      </section>
+
       <section class="topic-section" id="dem-mode">
         <h2>DEM Mode</h2>
+        <div class="note">
+          <p>
+            Before you start, make sure your AOI is ready. See
+            <a href="#aoi-prep">Preparing the AOI</a> for how the polygon and
+            its edges should be drawn.
+          </p>
+        </div>
         <p>
           DEM Mode downloads and processes Digital Elevation Models for one or
           more Areas of Interest using USGS 3DEP data, including
@@ -214,6 +328,13 @@ python main.py</code></pre>
 
       <section class="topic-section" id="lulc-mode">
         <h2>LULC &amp; Manning's n Mode</h2>
+        <div class="note">
+          <p>
+            Before you start, make sure your AOI is ready. See
+            <a href="#aoi-prep">Preparing the AOI</a> for how the polygon and
+            its edges should be drawn.
+          </p>
+        </div>
         <p>
           LULC Mode downloads land use / land cover data and derives Manning's n
           hydraulic roughness coefficients for each AOI.
@@ -266,6 +387,14 @@ python main.py</code></pre>
 
       <section class="topic-section" id="flowline-mode">
         <h2>Flowline Mode</h2>
+        <div class="note">
+          <p>
+            Before you start, make sure your AOI is ready. See
+            <a href="#aoi-prep">Preparing the AOI</a> &mdash; the river must
+            cross the AOI edges cleanly so the upstream and downstream markers
+            land in the right place.
+          </p>
+        </div>
         <p>
           Flowline Mode downloads and processes river network data for one or
           more Areas of Interest using NHD flowlines. It can save the main river,
@@ -465,9 +594,9 @@ python main.py</code></pre>
         <p>
           Flood Mapping Models convert prepared terrain, roughness, boundary,
           and discharge inputs into complete model-ready folders. Four model
-          options are included in this part. LISFLOOD-FP and TRITON are
-          documented first, while OWP HAND-FIM and ARC-Curve2Flood are reserved
-          for their full workflow documentation.
+          options are included in this part. LISFLOOD-FP, TRITON, and OWP
+          HAND-FIM are documented below. ARC-Curve2Flood is reserved for its
+          full workflow documentation.
         </p>
         <div class="model-grid">
           <article>
@@ -481,9 +610,9 @@ python main.py</code></pre>
             <p>Prepares raster terrain, friction, boundary, hydrograph, and configuration files for TRITON runs.</p>
           </article>
           <article>
-            <span class="status-badge pending">Reserved</span>
+            <span class="status-badge ready">Ready</span>
             <h3>OWP HAND-FIM</h3>
-            <p>Manual section reserved for the OWP HAND-FIM flood mapping workflow.</p>
+            <p>Generates OWP HAND flood inundation maps from AOI files or HUC8 IDs using the three-step FIMserv workflow.</p>
           </article>
           <article>
             <span class="status-badge pending">Reserved</span>
@@ -495,6 +624,14 @@ python main.py</code></pre>
 
       <section class="topic-section" id="lisflood-model">
         <h2>LISFLOOD-FP</h2>
+        <div class="note">
+          <p>
+            The AOI edges become this model's boundary. Before you start, see
+            <a href="#aoi-prep">Preparing the AOI</a> &mdash; it explains why the
+            river must cross the edges cleanly so the BCI upstream inflow and
+            downstream outflow are placed correctly.
+          </p>
+        </div>
         <p>
           The LISFLOOD-FP module prepares the input folder needed to run a
           LISFLOOD-FP flood simulation. It combines the same source datasets
@@ -644,6 +781,15 @@ python main.py</code></pre>
 
       <section class="topic-section" id="triton-model">
         <h2>TRITON</h2>
+        <div class="note">
+          <p>
+            The AOI edges become this model's boundary. Before you start, see
+            <a href="#aoi-prep">Preparing the AOI</a> &mdash; it explains why the
+            river must cross the edges cleanly so the source inflow
+            (<code>.src</code>) and external boundary (<code>.extbc</code>) are
+            placed correctly.
+          </p>
+        </div>
         <p>
           The TRITON module follows the same overall structure as the
           LISFLOOD-FP module, but writes TRITON-specific files. It prepares the
@@ -797,12 +943,152 @@ python main.py</code></pre>
 
       <section class="topic-section" id="fimserv-model">
         <h2>OWP HAND-FIM</h2>
+        <div class="note">
+          <p>
+            When you run from an AOI file, make sure it is ready first. See
+            <a href="#aoi-prep">Preparing the AOI</a>. (This module can also run
+            directly from HUC8 IDs, in which case no AOI polygon is needed.)
+          </p>
+        </div>
         <p>
-          This section is reserved for the OWP HAND-FIM flood mapping workflow.
-          It appears in the manual structure so the Flood Mapping Models part
-          has four model options, but the full step-by-step documentation has
-          not been added yet.
+          The OWP HAND-FIM module uses the FIMserv workflow to generate flood
+          inundation maps from National Water Model discharge and OWP HAND
+          rasters. The current workflow has three steps: Project, AOI, and FIM.
+          The FIM step combines streamflow download, HAND raster download, and
+          flood map generation in one run.
         </p>
+
+        <h3 id="fimserv-layout">Application Layout</h3>
+        <p>
+          The module is organized as a three-tab wizard. It can be run from AOI
+          polygons or directly from HUC8 IDs. When multiple AOIs or HUC8 IDs are
+          confirmed, the FIM tab creates one settings card for each item.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Purpose</th>
+              <th>Main action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. Project</td>
+              <td>Create or open a project workspace.</td>
+              <td>Choose the project folder used for HUC8 folders and outputs.</td>
+            </tr>
+            <tr>
+              <td>2. AOI</td>
+              <td>Define the run area using an AOI file or HUC8 IDs.</td>
+              <td>Confirm AOIs or HUC8 IDs and create the per-item setup.</td>
+            </tr>
+            <tr>
+              <td>3. FIM</td>
+              <td>Fetch discharge, download OWP HAND rasters, and generate flood maps.</td>
+              <td>Click Generate FIM for all.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="fimserv-workflow">Step-by-Step Guide</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>What to do</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. Project</td>
+              <td>Select a base directory and project name, or open an existing project.</td>
+              <td>The project stores confirmed HUC8 folders, downloaded data, discharge files, and generated FIM outputs.</td>
+            </tr>
+            <tr>
+              <td>2. AOI file</td>
+              <td>Choose AOI file as the input type, then load a shapefile or GeoPackage and confirm the selected AOI features.</td>
+              <td>The app resolves the HUC8 area covered by each AOI and prepares cards for the FIM step.</td>
+            </tr>
+            <tr>
+              <td>2. HUC8 IDs</td>
+              <td>Choose HUC8 IDs as the input type, type IDs directly or browse to a CSV, then click Add to confirmed HUC8.</td>
+              <td>CSV input can contain one HUC8 ID per line. IDs are zero-padded automatically.</td>
+            </tr>
+            <tr>
+              <td>3. FIM settings</td>
+              <td>For each AOI or HUC8 card, choose the discharge source and date settings.</td>
+              <td>Use Apply current card's settings to all when several cards should use the same streamflow settings.</td>
+            </tr>
+            <tr>
+              <td>3. Generate FIM</td>
+              <td>Optionally check Also produce a water-depth map, then click Generate FIM for all.</td>
+              <td>The app processes each card in order and shows progress as completed AOIs out of the total.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="fimserv-streamflow">FIM Streamflow Options</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>How it is used</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>NWM Retrospective range</td>
+              <td>Downloads discharge for a start and end date, then identifies the hydrograph and available event timesteps.</td>
+              <td>Use this when generating a historical event map.</td>
+            </tr>
+            <tr>
+              <td>Specific retrospective times</td>
+              <td>Uses selected event times to generate one FIM for each chosen time.</td>
+              <td>Useful after reviewing available retrospective timesteps.</td>
+            </tr>
+            <tr>
+              <td>NWM Forecast</td>
+              <td>Uses the latest forecast run or a selected forecast date and hour.</td>
+              <td>Forecast range and sorting options are set on each FIM card.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="fimserv-outputs">Output Files</h3>
+        <p>
+          FIMserv writes outputs under <code>output/flood_&lt;huc8&gt;</code> in
+          the active project or AOI folder. When an AOI file is used, the final
+          products can also be clipped to the AOI boundary.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Output</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Flood extent raster</td>
+              <td>Wet/dry inundation output. The preview labels wet cells as 1 and dry cells as 0.</td>
+            </tr>
+            <tr>
+              <td>Water-depth raster</td>
+              <td>Optional depth product. Depth is converted from millimetres to metres before mosaic or clipping.</td>
+            </tr>
+            <tr>
+              <td>Mosaicked outputs</td>
+              <td>Created when multiple HUC8s are used for one AOI or run.</td>
+            </tr>
+            <tr>
+              <td>Clipped outputs</td>
+              <td>Created when an AOI boundary is provided and clipping is enabled by the workflow.</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section class="topic-section" id="arc-model">
