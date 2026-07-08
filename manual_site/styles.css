@@ -476,6 +476,26 @@ th {
   margin: 0;
 }
 
+.figure {
+  margin: 8px 0 22px;
+  text-align: center;
+}
+
+.figure img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.figure figcaption {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .hidden-topic {
   display: none !important;
 }
