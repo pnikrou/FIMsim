@@ -207,6 +207,40 @@ def _perpendicular_segment(cx, cy, flow_dx, flow_dy, half_width):
     return x1, y1, x2, y2
 
 
+def _snap_segment_to_edge(x1, y1, x2, y2, dem_bounds, cell_size):
+    """Snap an external-BC segment onto the CELL-CENTER line of the nearest DEM
+    edge.  TRITON external boundaries must sit on the outermost row/column cell
+    centers (inset half a cell), NOT on the raster's outer border.
+
+        west_x  = xll + cs/2                east_x  = xll + ncols*cs - cs/2
+        south_y = yll + cs/2                north_y = yll + nrows*cs - cs/2
+
+    where rasterio bounds give left=xll, bottom=yll, right=xll+ncols*cs,
+    top=yll+nrows*cs.  Returns (nx1, ny1, nx2, ny2, edge) with edge in N/S/E/W;
+    the constant edge coordinate is identical for both endpoints and the
+    along-edge coordinates are clamped inside the domain.
+    """
+    left, bottom, right, top = dem_bounds
+    hc = cell_size / 2.0
+    west_x, east_x = left + hc, right - hc
+    south_y, north_y = bottom + hc, top - hc
+
+    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    dists = {"W": abs(mx - left), "E": abs(right - mx),
+             "S": abs(my - bottom), "N": abs(top - my)}
+    edge = min(dists, key=dists.get)
+
+    if edge in ("S", "N"):
+        ey = south_y if edge == "S" else north_y
+        nx1 = min(max(x1, west_x), east_x)
+        nx2 = min(max(x2, west_x), east_x)
+        return nx1, ey, nx2, ey, edge
+    ex = west_x if edge == "W" else east_x
+    ny1 = min(max(y1, south_y), north_y)
+    ny2 = min(max(y2, south_y), north_y)
+    return ex, ny1, ex, ny2, edge
+
+
 # ── NHD detection exposed as a helper ─────────────────────────────────────────
 
 def detect_main_river(
@@ -247,6 +281,8 @@ def detect_main_river(
 
     with rasterio.open(dem_tif_path) as src:
         dem_cell_size = float(abs(src.res[0]))
+        _b = src.bounds
+        dem_bounds = (float(_b.left), float(_b.bottom), float(_b.right), float(_b.top))
 
     aoi_centroid = _union_geometry(aoi_gdf).centroid
 
@@ -331,8 +367,13 @@ def detect_main_river(
         float(downstream_pt.x), float(downstream_pt.y),
         flow_dx, flow_dy, seg_half_width
     )
+    # Snap the external boundary onto the nearest DEM edge's CELL-CENTER line
+    # (TRITON expects the outermost row/column cell centers, inset half a cell).
+    dn_x1, dn_y1, dn_x2, dn_y2, dn_edge = _snap_segment_to_edge(
+        dn_x1, dn_y1, dn_x2, dn_y2, dem_bounds, dem_cell_size)
     log_fn(
-        f"Suggested downstream segment: ({dn_x1:.2f}, {dn_y1:.2f}) → ({dn_x2:.2f}, {dn_y2:.2f})"
+        f"Downstream boundary on {dn_edge} edge cell centers: "
+        f"({dn_x1:.3f}, {dn_y1:.3f}) → ({dn_x2:.3f}, {dn_y2:.3f})"
     )
 
     return {
