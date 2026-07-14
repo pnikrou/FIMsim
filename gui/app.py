@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
             ("4. Land Cover",       landcover),
             ("5. Flowline",         flowline),
             ("6. Streamflow",       streamflow),
-            ("7. Config",           config),
+            ("7. Run",              config),
         ]
         widgets = [w for _, w in step_list]
 

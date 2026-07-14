@@ -84,19 +84,68 @@ def write_arc_manning_file(src_manning_txt, out_path, log_fn=print) -> str:
     return str(out_path)
 
 
-def _copy_shapefile(src_shp, dst_shp, log_fn=print) -> str:
-    """Copy a shapefile and all sidecars, renaming the stem to dst."""
+def _write_stream_shapefile(src_shp, dst_shp, log_fn=print) -> str:
+    """Write the ARC/Curve2Flood stream shapefile with normalized columns.
+
+    Curve2Flood hardcodes the reach-id column name ``LINKNO`` (TDX-Hydro
+    convention) and optionally uses ``StrmOrder`` (top-width weighting) and a
+    downstream-link column.  NHD flowlines carry ``comid``/``streamorde``/
+    ``tocomid`` instead — so we load the vector and add the expected columns.
+    """
+    import geopandas as gpd
+
     src_shp = Path(src_shp)
     dst_shp = Path(dst_shp)
     dst_shp.parent.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    for sib in src_shp.parent.glob(src_shp.stem + ".*"):
-        target = dst_shp.with_suffix(sib.suffix)
-        shutil.copy2(sib, target)
-        copied += 1
-    if copied == 0:
-        raise RuntimeError(f"No shapefile sidecars found for {src_shp}")
-    log_fn(f"  ✓ Stream shapefile -> {dst_shp.name} ({copied} files)")
+
+    gdf = gpd.read_file(src_shp)
+    lower = {c.lower(): c for c in gdf.columns}
+
+    # LINKNO = the reach id (COMID). Required by Curve2Flood.
+    id_col = next((lower[k] for k in
+                   ("linkno", "comid", "featureid", "feature_id", "nhdplusid")
+                   if k in lower), None)
+    if id_col is None:
+        raise RuntimeError(
+            f"No reach-id column (COMID/LINKNO) in {src_shp.name} — "
+            f"columns: {list(gdf.columns)}")
+    # ARC's Process_ARC_Geospatial_Data is called with id_field="COMID" —
+    # rename the source id column to exactly that (avoids the shapefile
+    # driver laundering a case-insensitive duplicate to COMID_1), then add
+    # LINKNO for Curve2Flood.
+    if id_col != "COMID":
+        gdf = gdf.rename(columns={id_col: "COMID"})
+    gdf["COMID"]  = gdf["COMID"].astype(float).astype(int)
+    gdf["LINKNO"] = gdf["COMID"]
+
+    # StrmOrder = stream order (optional, improves top-width weighting).
+    order_col = next((lower[k] for k in
+                      ("strmorder", "streamorde", "stream_order", "order")
+                      if k in lower), None)
+    if order_col is not None:
+        gdf["StrmOrder"] = (
+            gdf[order_col].fillna(1).astype(float).astype(int).clip(lower=1))
+    else:
+        gdf["StrmOrder"] = 1
+
+    # DSLINKNO = downstream reach id (optional).
+    ds_col = next((lower[k] for k in ("dslinkno", "tocomid", "to_comid", "ds_id")
+                   if k in lower), None)
+    has_ds = ds_col is not None
+    if has_ds:
+        gdf["DSLINKNO"] = (
+            gdf[ds_col].fillna(-1).astype(float).astype(int))
+
+    # Drop any stale files, then write.
+    for sib in dst_shp.parent.glob(dst_shp.stem + ".*"):
+        try:
+            sib.unlink()
+        except Exception:
+            pass
+    gdf.to_file(dst_shp, driver="ESRI Shapefile")
+    log_fn(f"  ✓ Stream shapefile -> {dst_shp.name} "
+           f"({len(gdf)} reaches; LINKNO, StrmOrder"
+           f"{', DSLINKNO' if has_ds else ''})")
     return str(dst_shp)
 
 
@@ -140,10 +189,10 @@ def assemble_arc_main_directory(arc_dir, *, dem_tif, lulc_tif, mannings_txt,
     else:
         missing.append("Manning table (step 4)")
 
-    # Stream shapefile
+    # Stream shapefile (normalized: LINKNO / StrmOrder / DSLINKNO)
     if flowline_shp and Path(flowline_shp).exists():
         d = main / "StrmShp" / "StreamShapefile.shp"
-        dest["strmshp"] = _copy_shapefile(flowline_shp, d, log_fn)
+        dest["strmshp"] = _write_stream_shapefile(flowline_shp, d, log_fn)
     else:
         missing.append("stream shapefile (step 5)")
 
@@ -195,6 +244,10 @@ def write_curve2flood_input(main_dir, *, mapper="Curve2Flood-Kernel Weighted",
         ("mapper",            mapper),
         ("Set_Depth",         set_depth),
         ("Make_Output_GPKG",  "True" if make_gpkg else "False"),
+        # Column names in StreamShapefile.shp (normalized by
+        # _write_stream_shapefile; Curve2Flood ignores missing ones).
+        ("StrmOrder_Field",       "StrmOrder"),
+        ("Downstream_Link_Field", "DSLINKNO"),
     ]
     if out_vel:
         kv.append(("OutVEL", main / "FloodMap" / "Curve2Flood_VEL.tif"))

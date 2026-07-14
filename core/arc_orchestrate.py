@@ -271,3 +271,227 @@ def run_arc_manning_for_all_aois(
         pass
 
     return ctx
+
+
+# ── Flowline ───────────────────────────────────────────────────────────────────
+
+def run_arc_flowline_for_all_aois(ctx_path: str, ctx: dict, log_fn=print) -> dict:
+    """Download NHD flowlines + save a flowline.shp for every confirmed ARC AOI.
+
+    No per-AOI options — the download is driven by each AOI's geometry.  Emits
+    ``▶ Flowline [N/M]`` / ``✓ Flowline [N/M] finished`` log lines.  Each AOI's
+    existing per-AOI workflow_context.json (DEM + Manning keys) is preserved.
+    """
+    from core.arc_flowline import prepare_arc_flowline
+
+    aoi_features = ctx.get("aoi_features", [])
+    if not aoi_features:
+        return prepare_arc_flowline(ctx_path=ctx_path, ctx=ctx, log_fn=log_fn)
+
+    n = len(aoi_features)
+    summary = []
+    for i, feat in enumerate(aoi_features, 1):
+        try:
+            log_fn(f"▶ Flowline [{i}/{n}]: '{feat['name']}' ...")
+            folder = feat["folder_path"]
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            arc_dir = _arc_model_dir(folder)
+
+            feat_ctx_path = str(Path(folder) / "workflow_context.json")
+            # Start from the saved per-AOI context so DEM / Manning keys survive.
+            feat_ctx = {}
+            if Path(feat_ctx_path).exists():
+                try:
+                    with open(feat_ctx_path, "r", encoding="utf-8") as fr:
+                        feat_ctx = json.load(fr)
+                except Exception:
+                    feat_ctx = {}
+            feat_ctx["aoi_path"]          = feat["source_file"]
+            feat_ctx["aoi_name"]          = feat["folder_name"]
+            feat_ctx["aoi_feature_index"] = feat["feature_index"]
+            feat_ctx["project_dir"]       = folder
+            feat_ctx["arc_dir"]           = arc_dir
+
+            feat_ctx = prepare_arc_flowline(
+                ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn)
+
+            summary.append({
+                "name":     feat["name"],
+                "folder":   folder,
+                "flowline": feat_ctx.get("arc_flowline_path"),
+                "count":    feat_ctx.get("arc_flowline_count"),
+            })
+            log_fn(f"✓ Flowline [{i}/{n}] finished: '{feat['name']}'")
+
+        except Exception as _exc:
+            import traceback
+            log_fn(f"✗ Flowline [{i}/{n}] ERROR for '{feat['name']}': {_exc}")
+            log_fn(traceback.format_exc())
+            summary.append({
+                "name":   feat.get("name", f"AOI {i}"),
+                "failed": True,
+                "error":  str(_exc),
+            })
+
+    # Rewire parent ctx to the first AOI.
+    f0 = aoi_features[0]
+    ctx["aoi_path"] = f0["source_file"]
+    ctx["aoi_name"] = f0["folder_name"]
+    ctx["arc_dir"]  = _arc_model_dir(f0["folder_path"])
+    ctx["arc_flowline_per_aoi"] = summary
+    try:
+        with open(ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+    return ctx
+
+
+# ── Step 6: Flow file (NWM base/max per reach) ────────────────────────────────
+
+def _load_feat_ctx(folder: str) -> tuple:
+    """Return (feat_ctx_path, feat_ctx_dict) for one AOI folder."""
+    feat_ctx_path = str(Path(folder) / "workflow_context.json")
+    feat_ctx = {}
+    if Path(feat_ctx_path).exists():
+        try:
+            with open(feat_ctx_path, "r", encoding="utf-8") as fr:
+                feat_ctx = json.load(fr)
+        except Exception:
+            feat_ctx = {}
+    return feat_ctx_path, feat_ctx
+
+
+def _save_feat_ctx(feat_ctx_path: str, feat_ctx: dict):
+    try:
+        with open(feat_ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(feat_ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+
+
+def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
+                                  flow_cfg: dict = None, log_fn=print) -> dict:
+    """Build the ARC flow file (COMID,base,max via NWM) for every AOI.
+
+    ``flow_cfg`` holds the shared settings from the step-6 panel:
+    source ("nwm_retro"|"nwm_forecast"), start_dt/end_dt, forecast_date/
+    forecast_range/forecast_hour, base_percentile.
+    """
+    from core.arc_flowfile import build_arc_flow_file
+
+    cfg = dict(flow_cfg or {})
+    aoi_features = ctx.get("aoi_features", [])
+
+    def _one(feat_ctx_path, feat_ctx, arc_dir):
+        flowline = feat_ctx.get("arc_flowline_path")
+        if not flowline or not Path(flowline).exists():
+            raise RuntimeError("No flowline for this AOI — run step 5 first.")
+        res = build_arc_flow_file(
+            flowline, Path(arc_dir) / "flow.csv", log_fn=log_fn, **cfg)
+        feat_ctx["arc_flow_csv"]      = res["flow_csv"]
+        feat_ctx["arc_flow_reaches"]  = res["n_reaches"]
+        feat_ctx["arc_flow_source"]   = cfg.get("source", "nwm_retro")
+        _save_feat_ctx(feat_ctx_path, feat_ctx)
+        return res
+
+    if not aoi_features:
+        arc_dir = ctx.get("arc_dir") or str(
+            Path(ctx.get("project_dir", ".")) / "arc-files")
+        res = _one(ctx_path, ctx, arc_dir)
+        ctx.update({"arc_flow_csv": res["flow_csv"],
+                    "arc_flow_reaches": res["n_reaches"]})
+        return ctx
+
+    n = len(aoi_features)
+    summary = []
+    for i, feat in enumerate(aoi_features, 1):
+        try:
+            log_fn(f"▶ Flow file [{i}/{n}]: '{feat['name']}' ...")
+            folder = feat["folder_path"]
+            arc_dir = _arc_model_dir(folder)
+            feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
+            res = _one(feat_ctx_path, feat_ctx, arc_dir)
+            summary.append({"name": feat["name"], "folder": folder,
+                            "flow_csv": res["flow_csv"],
+                            "reaches": res["n_reaches"]})
+            log_fn(f"✓ Flow file [{i}/{n}] finished: '{feat['name']}'")
+        except Exception as _exc:
+            import traceback
+            log_fn(f"✗ Flow file [{i}/{n}] ERROR for '{feat['name']}': {_exc}")
+            log_fn(traceback.format_exc())
+            summary.append({"name": feat.get("name", f"AOI {i}"),
+                            "failed": True, "error": str(_exc)})
+
+    ctx["arc_flowfile_per_aoi"] = summary
+    try:
+        with open(ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+    return ctx
+
+
+# ── Step 7: Run ARC + Curve2Flood ─────────────────────────────────────────────
+
+def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
+                                     run_cfg: dict = None, log_fn=print) -> dict:
+    """Assemble the ARC Main_Directory and run ARC -> Curve2Flood per AOI.
+
+    ``run_cfg``: mapper, set_depth, make_gpkg, bathy_use_banks,
+    use_land_cover_to_find_banks (shared across AOIs).
+    """
+    from core.arc_run import run_arc_curve2flood
+
+    cfg = dict(run_cfg or {})
+    aoi_features = ctx.get("aoi_features", [])
+
+    def _one(feat_ctx_path, feat_ctx, arc_dir):
+        res = run_arc_curve2flood(
+            arc_dir,
+            dem_tif=feat_ctx.get("dem_tif_path"),
+            lulc_tif=feat_ctx.get("arc_lulc_tif_path"),
+            mannings_txt=feat_ctx.get("arc_mannings_n_path"),
+            flowline_shp=feat_ctx.get("arc_flowline_path"),
+            flow_csv=feat_ctx.get("arc_flow_csv"),
+            log_fn=log_fn, **cfg)
+        feat_ctx["arc_flood_map"]  = res.get("flood_map")
+        feat_ctx["arc_curve_file"] = res.get("curve_file")
+        _save_feat_ctx(feat_ctx_path, feat_ctx)
+        return res
+
+    if not aoi_features:
+        arc_dir = ctx.get("arc_dir") or str(
+            Path(ctx.get("project_dir", ".")) / "arc-files")
+        res = _one(ctx_path, ctx, arc_dir)
+        ctx.update({"arc_flood_map": res.get("flood_map"),
+                    "arc_curve_file": res.get("curve_file")})
+        return ctx
+
+    n = len(aoi_features)
+    summary = []
+    for i, feat in enumerate(aoi_features, 1):
+        try:
+            log_fn(f"▶ ARC-Curve2Flood [{i}/{n}]: '{feat['name']}' ...")
+            folder = feat["folder_path"]
+            arc_dir = _arc_model_dir(folder)
+            feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
+            res = _one(feat_ctx_path, feat_ctx, arc_dir)
+            summary.append({"name": feat["name"], "folder": folder,
+                            "flood_map": res.get("flood_map"),
+                            "curve_file": res.get("curve_file")})
+            log_fn(f"✓ ARC-Curve2Flood [{i}/{n}] finished: '{feat['name']}'")
+        except Exception as _exc:
+            import traceback
+            log_fn(f"✗ ARC-Curve2Flood [{i}/{n}] ERROR for '{feat['name']}': {_exc}")
+            log_fn(traceback.format_exc())
+            summary.append({"name": feat.get("name", f"AOI {i}"),
+                            "failed": True, "error": str(_exc)})
+
+    ctx["arc_run_per_aoi"] = summary
+    try:
+        with open(ctx_path, "w", encoding="utf-8") as wf:
+            json.dump(ctx, wf, indent=2, default=str)
+    except Exception:
+        pass
+    return ctx
