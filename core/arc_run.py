@@ -149,3 +149,123 @@ def assemble_arc_main_directory(arc_dir, *, dem_tif, lulc_tif, mannings_txt,
 
     dest["missing"] = missing
     return dest
+
+
+# ── Curve2Flood input file + the flow to simulate ─────────────────────────────
+
+def write_comid_q_file(flow_csv, out_path, log_fn=print) -> str:
+    """Write the COMID_Flow_File Curve2Flood simulates (COMID, Q = max flow).
+
+    Curve2Flood reads column 0 as the reach id and column 1+ as flow event(s);
+    we map each reach's peak (the 'max' column of the ARC flow file) to Q.
+    """
+    import pandas as pd
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.read_csv(flow_csv)
+    q = df[["COMID", "max"]].rename(columns={"max": "Q"})
+    q.to_csv(out_path, index=False)
+    log_fn(f"  ✓ Flow-to-map -> {out_path.name} ({len(q)} reaches)")
+    return str(out_path)
+
+
+def write_curve2flood_input(main_dir, *, mapper="Curve2Flood-Kernel Weighted",
+                            set_depth=0.0, make_gpkg=True, out_vel=False,
+                            comid_q_file=None, out_path=None, log_fn=print) -> str:
+    """Write the Curve2Flood key-value input .txt referencing ARC's outputs."""
+    main = Path(main_dir)
+    if out_path is None:
+        out_path = main / "ARC_InputFiles" / "Curve2Flood_Input_File.txt"
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    flood_tif = main / "FloodMap" / "Curve2Flood_FIM.tif"
+    (main / "FloodMap").mkdir(parents=True, exist_ok=True)
+
+    kv = [
+        ("DEM_File",          main / "DEM" / "DEM.tif"),
+        ("Stream_File",       main / "STRM" / "STRM_Raster.tif"),      # ARC-made
+        ("StrmShp_File",      main / "StrmShp" / "StreamShapefile.shp"),
+        ("LU_Raster_SameRes", main / "LAND" / "LAND_Raster.tif"),      # ARC-made
+        ("LU_Manning_n",      main / "LAND" / "AR_Manning_n_for_NLCD_MED.txt"),
+        ("Print_VDT_Database", main / "VDT" / "VDT_Database.txt"),     # ARC output
+        ("Print_Curve_File",  main / "VDT" / "CurveFile.csv"),         # ARC output
+        ("COMID_Flow_File",   comid_q_file or (main / "FlowData" / "comid_q.csv")),
+        ("OutFLD",            flood_tif),
+        ("mapper",            mapper),
+        ("Set_Depth",         set_depth),
+        ("Make_Output_GPKG",  "True" if make_gpkg else "False"),
+    ]
+    if out_vel:
+        kv.append(("OutVEL", main / "FloodMap" / "Curve2Flood_VEL.tif"))
+
+    lines = [f"{k}\t{v}" for k, v in kv]
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    log_fn(f"  ✓ Curve2Flood input -> {out_path.name}")
+    return str(out_path)
+
+
+# ── Full per-AOI run: ARC geospatial -> ARC rating curves -> Curve2Flood ───────
+
+def run_arc_curve2flood(arc_dir, *, dem_tif, lulc_tif, mannings_txt, flowline_shp,
+                        flow_csv, mapper="Curve2Flood-Kernel Weighted",
+                        set_depth=0.0, make_gpkg=True, bathy_use_banks=False,
+                        use_land_cover_to_find_banks=True, log_fn=print) -> dict:
+    """Assemble the Main_Directory and run ARC + Curve2Flood for one AOI.
+
+    Returns ``{"flood_map", "curve_file", "main_directory"}`` on success.
+    Raises with a clear message if a required input or ARC output is missing.
+    """
+    from arc import Process_ARC_Geospatial_Data, Arc
+    from curve2flood import Curve2Flood_MainFunction
+
+    # 1) lay out the inputs ARC expects
+    dest = assemble_arc_main_directory(
+        arc_dir, dem_tif=dem_tif, lulc_tif=lulc_tif, mannings_txt=mannings_txt,
+        flowline_shp=flowline_shp, log_fn=log_fn)
+    if dest["missing"]:
+        raise RuntimeError("Missing ARC inputs: " + "; ".join(dest["missing"]))
+    if not flow_csv or not Path(flow_csv).exists():
+        raise RuntimeError("Missing flow file (step 6) — run the Streamflow step.")
+
+    main = Path(dest["main_directory"])
+
+    # 2) ARC geospatial prep — rasterizes streams, aligns land, writes the ARC
+    #    input file (id/max/base column names come from our flow.csv).
+    log_fn("Running ARC geospatial preprocessing …")
+    Process_ARC_Geospatial_Data(
+        str(main), "COMID", "max", "base", str(flow_csv),
+        bathy_use_banks, use_land_cover_to_find_banks)
+
+    arc_input = main / "ARC_InputFiles" / "ARC_Input_File.txt"
+    if not arc_input.exists():
+        raise RuntimeError(
+            f"ARC did not write its input file at {arc_input} — check the log above.")
+
+    # 3) ARC — build the rating curves (VDT database + CurveFile.csv)
+    log_fn("Running ARC (building rating curves) …")
+    Arc(mifn=str(arc_input)).run()
+    curve_file = main / "VDT" / "CurveFile.csv"
+    if not curve_file.exists():
+        raise RuntimeError(
+            f"ARC finished but no CurveFile.csv at {curve_file} — cannot map flooding.")
+
+    # 4) Curve2Flood — turn curves + the flow-to-map into a flood raster
+    comid_q = write_comid_q_file(flow_csv, main / "FlowData" / "comid_q.csv", log_fn)
+    c2f_input = write_curve2flood_input(
+        main, mapper=mapper, set_depth=set_depth, make_gpkg=make_gpkg,
+        comid_q_file=comid_q, log_fn=log_fn)
+    log_fn("Running Curve2Flood (mapping flood inundation) …")
+    Curve2Flood_MainFunction(input_file=str(c2f_input))
+
+    flood_map = main / "FloodMap" / "Curve2Flood_FIM.tif"
+    result = {
+        "main_directory": str(main),
+        "curve_file":     str(curve_file),
+        "flood_map":      str(flood_map) if flood_map.exists() else None,
+    }
+    if flood_map.exists():
+        log_fn(f"✓ Flood map -> {flood_map}")
+    else:
+        log_fn("⚠ Curve2Flood finished but no flood raster was found — check the log.")
+    return result
