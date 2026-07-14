@@ -137,9 +137,9 @@
                 <p>Generates OWP HAND flood inundation maps from AOI files or HUC8 IDs using the three-step FIMserv workflow.</p>
               </article>
               <article>
-                <span class="status-badge pending">Reserved</span>
+                <span class="status-badge ready">Ready</span>
                 <h3>ARC-Curve2Flood</h3>
-                <p>Manual section reserved for the ARC-Curve2Flood flood mapping workflow.</p>
+                <p>Builds a rating curve per stream reach (ARC) and runs Curve2Flood in-app to produce the flood inundation raster.</p>
               </article>
             </div>
           </details>
@@ -585,10 +585,9 @@
         <h2>Part 2: Flood Mapping Models</h2>
         <p>
           Flood Mapping Models convert prepared terrain, roughness, boundary,
-          and discharge inputs into complete model-ready folders. Four model
-          options are included in this part. LISFLOOD-FP, TRITON, and OWP
-          HAND-FIM are documented below. ARC-Curve2Flood is reserved for its
-          full workflow documentation.
+          and discharge inputs into complete model-ready folders — and, for
+          ARC-Curve2Flood and OWP HAND-FIM, run the simulation directly. All
+          four models are documented below.
         </p>
         <div class="model-grid">
           <article>
@@ -607,9 +606,9 @@
             <p>Generates OWP HAND flood inundation maps from AOI files or HUC8 IDs using the three-step FIMserv workflow.</p>
           </article>
           <article>
-            <span class="status-badge pending">Reserved</span>
+            <span class="status-badge ready">Ready</span>
             <h3>ARC-Curve2Flood</h3>
-            <p>Manual section reserved for the ARC-Curve2Flood flood mapping workflow.</p>
+            <p>Builds a rating curve per stream reach (ARC) and runs Curve2Flood in-app to produce the flood inundation raster.</p>
           </article>
         </div>
       </section>
@@ -1085,12 +1084,160 @@
 
       <section class="topic-section" id="arc-model">
         <h2>ARC-Curve2Flood</h2>
+        <div class="note">
+          <p>
+            The AOI defines this model's domain. Before you start, see
+            <a href="#aoi-prep">Preparing the AOI</a> &mdash; the stream network
+            and every raster are clipped to the AOI polygon.
+          </p>
+        </div>
         <p>
-          This section is reserved for the ARC-Curve2Flood flood mapping
-          workflow. It appears in the manual structure so this part has four
-          model options, but the full step-by-step documentation has not been
-          added yet.
+          The ARC-Curve2Flood module prepares and <strong>runs</strong> a rapid,
+          raster-based flood simulation. ARC (Automated Rating Curve) builds a
+          synthetic rating curve for every stream reach in the domain, and
+          Curve2Flood maps the chosen peak discharge into a flood inundation
+          raster. Unlike the LISFLOOD-FP and TRITON modules, which prepare
+          input packages to run elsewhere, this module executes the full
+          pipeline inside FIMsim and delivers the flood map directly.
         </p>
+
+        <h3 id="arc-layout">Application Layout</h3>
+        <p>
+          The workflow is organized into seven tabs. Steps 1&ndash;4 mirror the
+          other flood models (project, AOI, terrain, roughness); steps 5&ndash;7
+          are ARC-specific: the stream network, the per-reach flow file, and
+          the run itself.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Tab</th>
+              <th>Purpose</th>
+              <th>Main output</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Project</td>
+              <td>Create or open an ARC-Curve2Flood preparation project.</td>
+              <td>Project workspace</td>
+            </tr>
+            <tr>
+              <td>AOI</td>
+              <td>Load AOI polygons and create AOI-specific folders.</td>
+              <td>AOI folders</td>
+            </tr>
+            <tr>
+              <td>DEM</td>
+              <td>Download USGS 3DEP terrain or import a local DEM (GeoTIFF).</td>
+              <td>dem.tif</td>
+            </tr>
+            <tr>
+              <td>Land Cover</td>
+              <td>Download NLCD / Sentinel-2 land cover and set Manning's n per class.</td>
+              <td>lulc.tif + mannings_n.txt</td>
+            </tr>
+            <tr>
+              <td>Flowline</td>
+              <td>Download the NHD stream network clipped to the AOI (every reach, with its COMID).</td>
+              <td>flowline.shp</td>
+            </tr>
+            <tr>
+              <td>Streamflow</td>
+              <td>Build the per-reach flow file from NWM discharge (baseflow + peak per COMID).</td>
+              <td>flow.csv</td>
+            </tr>
+            <tr>
+              <td>Run</td>
+              <td>Assemble the inputs and run ARC + Curve2Flood.</td>
+              <td>Flood inundation raster</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="arc-workflow">Step-by-Step Guide</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>What to do</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. Project</td>
+              <td>Select a base directory and project name, or open an existing project.</td>
+              <td>Each AOI gets its own folder with an <code>arc-files</code> subfolder.</td>
+            </tr>
+            <tr>
+              <td>2. AOI</td>
+              <td>Load the AOI shapefile, select the polygons to process, and confirm the AOIs.</td>
+              <td>One AOI or many &mdash; every later step loops over each confirmed AOI.</td>
+            </tr>
+            <tr>
+              <td>3. DEM</td>
+              <td>Download terrain data or use a local DEM, choosing the cell size.</td>
+              <td>The DEM stays a GeoTIFF &mdash; ARC works on rasters directly.</td>
+            </tr>
+            <tr>
+              <td>4. Land Cover</td>
+              <td>Download NLCD or Sentinel-2 land cover; edit the Manning's n table if needed.</td>
+              <td>ARC uses the land-cover raster plus the Manning table to assign channel and floodplain roughness.</td>
+            </tr>
+            <tr>
+              <td>5. Flowline</td>
+              <td>Click Download flowlines. The whole clipped NHD network is saved, not just the main river.</td>
+              <td>ARC builds a rating curve for <em>every</em> reach; each reach's COMID links it to NWM streamflow.</td>
+            </tr>
+            <tr>
+              <td>6. Streamflow</td>
+              <td>Choose NWM Retrospective (1979&ndash;2023) with an event window, or NWM Forecast (2019&ndash;now), then click Build flow file.</td>
+              <td>For each reach, the discharge series is reduced to a baseflow (low percentile) and a peak flow &mdash; the flood that will be mapped.</td>
+            </tr>
+            <tr>
+              <td>7. Run</td>
+              <td>Pick a flood mapper and click Run ARC-Curve2Flood.</td>
+              <td>Mappers: Kernel Weighted (default), FLDPLNpy, or Multi-Point Interpolation. The run can take several minutes per AOI.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="arc-outputs">Output Files</h3>
+        <p>
+          For each AOI, everything is written inside
+          <code>&lt;AOI&gt;/arc-files/</code>. The key products:
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>FloodMap/Curve2Flood_FIM.tif</td>
+              <td>The flood inundation raster &mdash; the final product. Open it in QGIS / ArcGIS.</td>
+            </tr>
+            <tr>
+              <td>VDT/CurveFile.csv</td>
+              <td>ARC's synthetic rating curves (depth / top-width / velocity vs discharge per reach).</td>
+            </tr>
+            <tr>
+              <td>flow.csv</td>
+              <td>Per-reach flow file (COMID, baseflow, peak) built from NWM.</td>
+            </tr>
+            <tr>
+              <td>StrmShp/StreamShapefile.shp</td>
+              <td>The stream network used by both tools, with reach IDs and stream order.</td>
+            </tr>
+            <tr>
+              <td>ARC_InputFiles/</td>
+              <td>The generated ARC and Curve2Flood input files (for reproducing runs outside FIMsim).</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
     </main>
   </div>
