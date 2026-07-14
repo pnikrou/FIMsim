@@ -39,6 +39,14 @@ dependencies:
   - pygeoutils
   - async-retriever
 
+  # ARC-Curve2Flood backend (ARC-Curve2Flood mode) — runs ARC + Curve2Flood in-app.
+  # gdal gives the osgeo Python bindings these tools import; conda-forge keeps it
+  # matched to the same GDAL as rasterio (no C-library conflict).
+  - gdal
+  - numba
+  - fastparquet
+  - geojson
+
   # HTTP / networking
   - requests
   - certifi
@@ -50,3 +58,7 @@ dependencies:
       - pyqt6==6.7.1   # pip-only — conda's Qt6 would conflict with this
       - fimserve        # OWP HAND-FIM backend (HAND-FIM mode)
       - "zarr>=3.0.1"  # fimserve's kerchunk dep requires zarr 3.x; pin to prevent legacy-resolver downgrade
+      # ARC-Curve2Flood — GitHub-only (not on PyPI). --no-deps not needed here
+      # because the conda block above already provides gdal/numba/etc.
+      - "git+https://github.com/MikeFHS/automated-rating-curve.git"   # ARC (import arc)
+      - "git+https://github.com/MikeFHS/Curve2Flood.git"             # Curve2Flood (import curve2flood)
