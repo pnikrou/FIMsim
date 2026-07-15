@@ -84,13 +84,18 @@ def write_arc_manning_file(src_manning_txt, out_path, log_fn=print) -> str:
     return str(out_path)
 
 
-def _write_stream_shapefile(src_shp, dst_shp, log_fn=print) -> str:
+def _write_stream_shapefile(src_shp, dst_shp, dem_crs=None, log_fn=print) -> str:
     """Write the ARC/Curve2Flood stream shapefile with normalized columns.
 
     Curve2Flood hardcodes the reach-id column name ``LINKNO`` (TDX-Hydro
     convention) and optionally uses ``StrmOrder`` (top-width weighting) and a
     downstream-link column.  NHD flowlines carry ``comid``/``streamorde``/
     ``tocomid`` instead — so we load the vector and add the expected columns.
+
+    ``dem_crs``: ARC rasterizes the streams directly onto the DEM grid with NO
+    reprojection (gdal.Rasterize with the DEM's outputBounds), so the
+    shapefile MUST be written in the DEM's CRS or the stream raster comes out
+    empty.
     """
     import geopandas as gpd
 
@@ -99,6 +104,16 @@ def _write_stream_shapefile(src_shp, dst_shp, log_fn=print) -> str:
     dst_shp.parent.mkdir(parents=True, exist_ok=True)
 
     gdf = gpd.read_file(src_shp)
+
+    if dem_crs is not None and gdf.crs is not None:
+        try:
+            same = gdf.crs.equals(dem_crs)
+        except Exception:
+            same = str(gdf.crs) == str(dem_crs)
+        if not same:
+            gdf = gdf.to_crs(dem_crs)
+            log_fn(f"  Reprojected streams -> DEM CRS ({dem_crs})")
+
     lower = {c.lower(): c for c in gdf.columns}
 
     # LINKNO = the reach id (COMID). Required by Curve2Flood.
@@ -189,10 +204,20 @@ def assemble_arc_main_directory(arc_dir, *, dem_tif, lulc_tif, mannings_txt,
     else:
         missing.append("Manning table (step 4)")
 
-    # Stream shapefile (normalized: LINKNO / StrmOrder / DSLINKNO)
+    # Stream shapefile (normalized columns, reprojected to the DEM CRS —
+    # ARC rasterizes with no reprojection of its own).
     if flowline_shp and Path(flowline_shp).exists():
+        dem_crs = None
+        if dest.get("dem"):
+            try:
+                import rasterio
+                with rasterio.open(dest["dem"]) as _d:
+                    dem_crs = _d.crs
+            except Exception:
+                dem_crs = None
         d = main / "StrmShp" / "StreamShapefile.shp"
-        dest["strmshp"] = _write_stream_shapefile(flowline_shp, d, log_fn)
+        dest["strmshp"] = _write_stream_shapefile(
+            flowline_shp, d, dem_crs=dem_crs, log_fn=log_fn)
     else:
         missing.append("stream shapefile (step 5)")
 

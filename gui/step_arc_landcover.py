@@ -15,10 +15,10 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QPlainTextEdit,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QFont
 
 from core.arc_manning import prepare_arc_manning
 from core.arc_orchestrate import run_arc_manning_for_all_aois
@@ -192,7 +192,8 @@ class StepArcLandCoverWidget(QWidget):
         pv.setContentsMargins(6, 8, 6, 6)
 
         self._preview_placeholder = QLabel(
-            "<i>Click an AOI above to preview its LULC map and class breakdown.</i>"
+            "<i>Click an AOI above to preview its LULC map and the Manning's n "
+            "table ARC will use.</i>"
         )
         self._preview_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_placeholder.setStyleSheet(
@@ -204,34 +205,7 @@ class StepArcLandCoverWidget(QWidget):
         two_col = QHBoxLayout()
         two_col.setSpacing(10)
 
-        tbl_col = QVBoxLayout()
-        tbl_hdr = QLabel("<b>Land Cover Breakdown</b>")
-        tbl_hdr.setStyleSheet("color:#22543d; font-size:10px;")
-        tbl_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tbl_col.addWidget(tbl_hdr)
-
-        self._lulc_table = QTableWidget(0, 4)
-        self._lulc_table.setHorizontalHeaderLabels(
-            ["Code", "Type", "Area (km²)", "% area"]
-        )
-        self._lulc_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._lulc_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self._lulc_table.setAlternatingRowColors(True)
-        self._lulc_table.verticalHeader().setVisible(False)
-        self._lulc_table.verticalHeader().setDefaultSectionSize(20)
-        self._lulc_table.setStyleSheet(
-            "QTableWidget { font-size: 10px; }"
-            "QHeaderView::section { font-size: 10px; padding: 2px; }"
-        )
-        h = self._lulc_table.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self._lulc_table.setMinimumWidth(220)
-        tbl_col.addWidget(self._lulc_table, 1)
-        two_col.addLayout(tbl_col, 2)
-
+        # Left: LULC map
         lulc_col = QVBoxLayout()
         lulc_col.setContentsMargins(0, 0, 0, 0)
         self._lulc_title_lbl = QLabel("<b>LULC Map</b>")
@@ -241,6 +215,22 @@ class StepArcLandCoverWidget(QWidget):
         self._lulc_canvas = RasterPreviewCanvas(self, width=7, height=4.5)
         lulc_col.addWidget(self._lulc_canvas, 1)
         two_col.addLayout(lulc_col, 5)
+
+        # Right: the Manning's n text table ARC receives (no raster map is
+        # needed — ARC combines the LULC raster with this lookup table).
+        txt_col = QVBoxLayout()
+        txt_hdr = QLabel("<b>Manning's n table (ARC input)</b>")
+        txt_hdr.setStyleSheet("color:#22543d; font-size:10px;")
+        txt_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        txt_col.addWidget(txt_hdr)
+        self._manning_view = QPlainTextEdit()
+        self._manning_view.setReadOnly(True)
+        self._manning_view.setFont(QFont("Courier", 10))
+        self._manning_view.setStyleSheet(
+            "QPlainTextEdit { background:#fbfdff; border:1px solid #cbd5e0; }")
+        self._manning_view.setMinimumWidth(220)
+        txt_col.addWidget(self._manning_view, 1)
+        two_col.addLayout(txt_col, 3)
 
         self._active_row = QWidget()
         self._active_row.setLayout(two_col)
@@ -630,107 +620,39 @@ class StepArcLandCoverWidget(QWidget):
             lulc_path, title=f"LULC — {name}",
             cmap="tab20", colorbar_label="LULC class",
         )
-        self._populate_lulc_table(entry)
+        self._populate_manning_view(entry)
         self._preview_placeholder.setVisible(False)
         self._active_row.setVisible(True)
 
-    # ── LULC class breakdown table ────────────────────────────────────────────
+    # ── Manning's n table view ─────────────────────────────────────────────────
 
-    @staticmethod
-    def _lulc_class_lookup(lulc_source: str):
-        from core.nlcd import NLCD_MANNING, SENTINEL2_MANNING
-        if lulc_source in ("download_esri", "download"):
-            return {k: v[0] for k, v in SENTINEL2_MANNING.items()}
-        if lulc_source == "download_nlcd":
-            return {k: v[0] for k, v in NLCD_MANNING.items()}
-        return {**{k: v[0] for k, v in SENTINEL2_MANNING.items()},
-                **{k: v[0] for k, v in NLCD_MANNING.items()}}
-
-    def _populate_lulc_table(self, entry: dict):
-        self._lulc_table.setRowCount(0)
-        lulc_path = entry.get("lulc_tif")
-        if not lulc_path or not Path(lulc_path).exists():
-            self._lulc_table.setRowCount(1)
-            it = QTableWidgetItem("(LULC raster not available — Fixed n mode)")
-            it.setForeground(QColor("#888"))
-            self._lulc_table.setSpan(0, 0, 1, 4)
-            self._lulc_table.setItem(0, 0, it)
+    def _populate_manning_view(self, entry: dict):
+        """Show the Manning's n lookup table for this AOI — the text input
+        ARC combines with the LULC raster (no Manning raster map is needed)."""
+        n_path = entry.get("mannings_n_path")
+        if not n_path or not Path(n_path).exists():
+            self._manning_view.setPlainText(
+                "(mannings_n.txt not found — run this step first.)")
             return
         try:
-            import rasterio
-            import numpy as np
-            with rasterio.open(lulc_path) as src:
-                arr = src.read(1)
-                nodata = src.nodata
-                tx = src.transform
-                pixel_area_m2 = abs(tx.a * tx.e)
-                if src.crs is not None and src.crs.is_geographic:
-                    cy = (src.bounds.bottom + src.bounds.top) / 2.0
-                    import math
-                    pixel_area_m2 = (
-                        abs(tx.a) * 111_320.0 * abs(tx.e) * 111_320.0
-                        * math.cos(math.radians(cy))
-                    )
-        except Exception as ex:
-            self._lulc_table.setRowCount(1)
-            it = QTableWidgetItem(f"(Could not read LULC: {ex})")
-            it.setForeground(QColor("#c53030"))
-            self._lulc_table.setSpan(0, 0, 1, 4)
-            self._lulc_table.setItem(0, 0, it)
-            return
-
-        flat = arr.ravel()
-        if nodata is not None:
-            flat = flat[flat != nodata]
-        if flat.dtype.kind == "f":
-            import numpy as np
-            flat = flat[~np.isnan(flat)].astype(np.int64)
-        import numpy as np
-        codes, counts = np.unique(flat, return_counts=True)
-        if codes.size == 0:
-            self._lulc_table.setRowCount(1)
-            it = QTableWidgetItem("(No valid pixels in LULC raster.)")
-            it.setForeground(QColor("#888"))
-            self._lulc_table.setSpan(0, 0, 1, 4)
-            self._lulc_table.setItem(0, 0, it)
-            return
-
-        order = np.argsort(-counts)
-        codes = codes[order]
-        counts = counts[order]
-        total_pixels = int(counts.sum())
-        names = self._lulc_class_lookup(entry.get("lulc_source") or "")
-
-        self._lulc_table.setRowCount(len(codes) + 1)
-        for r, (code, cnt) in enumerate(zip(codes, counts)):
-            label = names.get(int(code), f"Class {int(code)}")
-            area_km2 = float(cnt) * pixel_area_m2 / 1e6
-            pct = 100.0 * cnt / total_pixels
-            for col, (val, align) in enumerate([
-                (str(int(code)), Qt.AlignmentFlag.AlignCenter),
-                (label,          Qt.AlignmentFlag.AlignLeft),
-                (f"{area_km2:.3f}", Qt.AlignmentFlag.AlignRight),
-                (f"{pct:.1f}%",  Qt.AlignmentFlag.AlignRight),
-            ]):
-                it = QTableWidgetItem(val)
-                it.setTextAlignment(
-                    align | Qt.AlignmentFlag.AlignVCenter
-                )
-                self._lulc_table.setItem(r, col, it)
-
-        total_area_km2 = float(total_pixels) * pixel_area_m2 / 1e6
-        last = len(codes)
-        for col, (text, align) in enumerate([
-            ("", Qt.AlignmentFlag.AlignLeft),
-            ("Total", Qt.AlignmentFlag.AlignLeft),
-            (f"{total_area_km2:.3f}", Qt.AlignmentFlag.AlignRight),
-            ("100.0%", Qt.AlignmentFlag.AlignRight),
-        ]):
-            it = QTableWidgetItem(text)
-            it.setBackground(QColor("#edf2f7"))
-            f = it.font(); f.setBold(True); it.setFont(f)
-            it.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
-            self._lulc_table.setItem(last, col, it)
+            from core.arc_run import _read_fimsim_manning, NLCD_DESCRIPTIONS
+            rows = _read_fimsim_manning(Path(n_path))
+        except Exception:
+            rows = []
+        if rows:
+            lines = [f"{'LC_ID':<7}{'Description':<24}Manning_n"]
+            for code, n_val in sorted(rows, key=lambda kv: kv[0]):
+                desc = NLCD_DESCRIPTIONS.get(code, f"Class_{code}")
+                lines.append(f"{code:<7}{desc:<24}{n_val:.3f}")
+            lines.append("")
+            lines.append(f"({len(rows)} classes — {Path(n_path).name})")
+            self._manning_view.setPlainText("\n".join(lines))
+        else:
+            # Fallback: show the raw file contents.
+            try:
+                self._manning_view.setPlainText(Path(n_path).read_text())
+            except Exception as ex:
+                self._manning_view.setPlainText(f"(Could not read {n_path}: {ex})")
 
     def _on_done(self, ctx):
         self._error_lbl.setVisible(False)

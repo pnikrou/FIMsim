@@ -15,12 +15,39 @@ from core.context import save_context
 from core.aoi_info import lookup_nhd_flowlines_clipped
 
 
-def prepare_arc_flowline(ctx_path, ctx: dict, log_fn=print, **_opts) -> dict:
-    """Download + save the AOI's NHD flowlines as a shapefile.
+_ID_CANDIDATES = ("comid", "linkno", "featureid", "feature_id", "nhdplusid")
 
-    Reads ``aoi_path`` / ``aoi_feature_index`` / ``arc_dir`` from ctx, writes
-    ``arc_flowline_path`` (+ ``arc_flowline_count``) back into ctx, and returns
-    the updated ctx.  Raises on failure so the caller can report it per AOI.
+
+def _load_user_flowline(user_path, log_fn=print):
+    """Read a user-provided stream vector and verify it carries a reach id."""
+    import geopandas as gpd
+
+    if not user_path or not Path(user_path).exists():
+        raise RuntimeError(
+            "No user flowline file selected — browse to a stream shapefile / "
+            "GeoPackage first.")
+    log_fn(f"Reading user flowline: {Path(user_path).name}")
+    gdf = gpd.read_file(user_path)
+    if gdf.empty:
+        raise RuntimeError(f"{Path(user_path).name} contains no features.")
+    lower = {c.lower() for c in gdf.columns}
+    if not any(k in lower for k in _ID_CANDIDATES):
+        raise RuntimeError(
+            f"{Path(user_path).name} has no reach-id column "
+            "(COMID / LINKNO / feature_id) — ARC needs one to link "
+            f"streamflow to reaches. Columns: {list(gdf.columns)}")
+    return gdf
+
+
+def prepare_arc_flowline(ctx_path, ctx: dict, source: str = "nhd",
+                         user_path=None, log_fn=print, **_opts) -> dict:
+    """Save the AOI's stream network as ARC's flowline shapefile.
+
+    ``source``: "nhd" downloads the NHD network clipped to the AOI;
+    "user" imports the user's own stream vector (``user_path``).
+    Writes ``arc_flowline_path`` (+ ``arc_flowline_count``) back into ctx and
+    returns the updated ctx.  Raises on failure so the caller can report it
+    per AOI.
     """
     aoi_path = ctx.get("aoi_path")
     if not aoi_path:
@@ -31,8 +58,11 @@ def prepare_arc_flowline(ctx_path, ctx: dict, log_fn=print, **_opts) -> dict:
         Path(ctx.get("project_dir", ".")) / "arc-files")
     Path(arc_dir).mkdir(parents=True, exist_ok=True)
 
-    log_fn("Downloading NHD flowlines for the AOI …")
-    clipped, _main = lookup_nhd_flowlines_clipped(aoi_path, fidx, log_fn=log_fn)
+    if source == "user":
+        clipped = _load_user_flowline(user_path, log_fn)
+    else:
+        log_fn("Downloading NHD flowlines for the AOI …")
+        clipped, _main = lookup_nhd_flowlines_clipped(aoi_path, fidx, log_fn=log_fn)
     if clipped is None or clipped.empty:
         raise RuntimeError(
             "No NHD flowlines were found for this AOI (check the AOI extent / "
@@ -64,8 +94,9 @@ def prepare_arc_flowline(ctx_path, ctx: dict, log_fn=print, **_opts) -> dict:
     from core.flowline_mode import _save_shapefile
     saved = _save_shapefile(clipped, out, log_fn)
 
-    ctx["arc_flowline_path"]  = str(saved)
-    ctx["arc_flowline_count"] = int(len(clipped))
+    ctx["arc_flowline_path"]   = str(saved)
+    ctx["arc_flowline_count"]  = int(len(clipped))
+    ctx["arc_flowline_source"] = source
     log_fn(f"✓ Saved {len(clipped)} flowline reach(es) → {Path(saved).name}")
 
     if ctx_path:

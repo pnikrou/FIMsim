@@ -275,10 +275,13 @@ def run_arc_manning_for_all_aois(
 
 # ── Flowline ───────────────────────────────────────────────────────────────────
 
-def run_arc_flowline_for_all_aois(ctx_path: str, ctx: dict, log_fn=print) -> dict:
-    """Download NHD flowlines + save a flowline.shp for every confirmed ARC AOI.
+def run_arc_flowline_for_all_aois(ctx_path: str, ctx: dict,
+                                  per_aoi_configs: list = None,
+                                  log_fn=print) -> dict:
+    """Save the ARC flowline shapefile for every confirmed ARC AOI.
 
-    No per-AOI options — the download is driven by each AOI's geometry.  Emits
+    ``per_aoi_configs`` (optional): one dict per AOI with the card settings —
+    ``{"source": "nhd"|"user", "user_path": str|None}``.  Emits
     ``▶ Flowline [N/M]`` / ``✓ Flowline [N/M] finished`` log lines.  Each AOI's
     existing per-AOI workflow_context.json (DEM + Manning keys) is preserved.
     """
@@ -286,9 +289,15 @@ def run_arc_flowline_for_all_aois(ctx_path: str, ctx: dict, log_fn=print) -> dic
 
     aoi_features = ctx.get("aoi_features", [])
     if not aoi_features:
-        return prepare_arc_flowline(ctx_path=ctx_path, ctx=ctx, log_fn=log_fn)
+        cfg = (per_aoi_configs or [{}])[0] or {}
+        return prepare_arc_flowline(ctx_path=ctx_path, ctx=ctx, log_fn=log_fn, **cfg)
 
     n = len(aoi_features)
+    if per_aoi_configs is not None and len(per_aoi_configs) != n:
+        raise RuntimeError(
+            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+            f"there are {n} AOIs.")
+
     summary = []
     for i, feat in enumerate(aoi_features, 1):
         try:
@@ -312,14 +321,18 @@ def run_arc_flowline_for_all_aois(ctx_path: str, ctx: dict, log_fn=print) -> dic
             feat_ctx["project_dir"]       = folder
             feat_ctx["arc_dir"]           = arc_dir
 
+            cfg = (per_aoi_configs[i - 1] if per_aoi_configs else {}) or {}
             feat_ctx = prepare_arc_flowline(
-                ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn)
+                ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn, **cfg)
 
             summary.append({
-                "name":     feat["name"],
-                "folder":   folder,
-                "flowline": feat_ctx.get("arc_flowline_path"),
-                "count":    feat_ctx.get("arc_flowline_count"),
+                "name":          feat["name"],
+                "folder":        folder,
+                "flowline":      feat_ctx.get("arc_flowline_path"),
+                "count":         feat_ctx.get("arc_flowline_count"),
+                "source":        feat_ctx.get("arc_flowline_source", "nhd"),
+                "source_file":   feat["source_file"],
+                "feature_index": feat["feature_index"],
             })
             log_fn(f"✓ Flowline [{i}/{n}] finished: '{feat['name']}'")
 
