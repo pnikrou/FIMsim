@@ -534,7 +534,7 @@ class StepArcLandCoverWidget(QWidget):
             self._active_row.setVisible(False)
             self._preview_placeholder.setVisible(True)
             self._lulc_canvas.clear()
-            self._lulc_table.setRowCount(0)
+            self._manning_view.clear()
 
     def _build_results(self, ctx):
         self._clear_results()

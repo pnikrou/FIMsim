@@ -20,6 +20,27 @@ from gui.app import MainWindow
 
 
 def main():
+    # Global exception hook: PyQt6 calls qFatal() (a hard abort — the macOS
+    # "python quit unexpectedly" dialog) when a Python exception escapes a Qt
+    # slot while sys.excepthook is still the default.  Install our own hook so
+    # any such bug prints a traceback and appears in the log panel instead of
+    # killing the whole application.
+    import traceback
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        sys.stderr.write(text)
+        win = getattr(_excepthook, "window", None)
+        if win is not None:
+            try:
+                win._append_log("UNEXPECTED ERROR (work continues; please report):")
+                for line in text.rstrip().splitlines():
+                    win._append_log(f"  {line}")
+            except Exception:
+                pass
+
+    sys.excepthook = _excepthook
+
     # High-DPI support
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -29,6 +50,7 @@ def main():
     app.setOrganizationName("YourLab")
 
     window = MainWindow()
+    _excepthook.window = window
     window.show()
     sys.exit(app.exec())
 
