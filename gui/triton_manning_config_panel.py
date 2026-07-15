@@ -169,7 +169,10 @@ class ManningConfigPanel(QWidget):
         self._year_combo.blockSignals(True)
         self._year_combo.clear()
         if src == "nlcd":
-            self._year_combo.addItems(["2021", "2019", "2016"])
+            # Every NLCD epoch the MRLC WMS serves (core.nlcd._NLCD_LAYERS).
+            self._year_combo.addItems(
+                ["2021", "2019", "2016", "2013", "2011",
+                 "2008", "2006", "2004", "2001"])
             self._table.set_table_data(NLCD_MANNING)
         elif src == "esri":
             for yr in range(2017, 2025):

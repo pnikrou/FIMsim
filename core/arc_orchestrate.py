@@ -467,6 +467,7 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
             mannings_txt=feat_ctx.get("arc_mannings_n_path"),
             flowline_shp=feat_ctx.get("arc_flowline_path"),
             flow_csv=feat_ctx.get("arc_flow_csv"),
+            lulc_source=feat_ctx.get("lulc_source"),
             log_fn=log_fn, **cfg)
         feat_ctx["arc_flood_map"]  = res.get("flood_map")
         feat_ctx["arc_curve_file"] = res.get("curve_file")

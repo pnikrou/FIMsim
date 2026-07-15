@@ -21,22 +21,41 @@ import shutil
 from pathlib import Path
 
 
-# NLCD land-cover code -> short description, matching ARC's baseline Manning
-# file (arc.process_geospatial_data.Create_BaseLine_Manning_n_File).  ARC keys
+# Land-cover code -> layer-name description for ARC's Manning file.  ARC keys
 # on the code (column 0) and the n value (column 2); the description (column 1)
-# is required to be a non-empty, tab-free token.
-NLCD_DESCRIPTIONS = {
-    11: "Water",              12: "Perennial_Ice_Snow",
-    21: "Dev_Open_Space",     22: "Dev_Low_Intesity",
-    23: "Dev_Med_Intensity",  24: "Dev_High_Intensity",
-    31: "Barren_Land",        41: "Decid_Forest",
-    42: "Evergreen_Forest",   43: "Mixed_Forest",
-    51: "Dwarf_Scrub",        52: "Shrub",
-    71: "Grass_Herb",         72: "Sedge_Herb",
-    73: "Lichens",            74: "Moss",
-    81: "Pasture_Hay",        82: "Cultivated_Crops",
-    90: "Woody_Wetlands",     95: "Emergent_Herb_Wet",
-}
+# is required to be a non-empty, tab-free token, so real layer names are
+# sanitized (spaces / commas / slashes -> underscores).  Names come from the
+# same tables the Land Cover step shows (core.nlcd).
+
+
+def _sanitize_desc(name: str) -> str:
+    out = []
+    for ch in str(name):
+        out.append(ch if ch.isalnum() else "_")
+    token = "".join(out)
+    while "__" in token:
+        token = token.replace("__", "_")
+    return token.strip("_") or "Class"
+
+
+def manning_descriptions(lulc_source=None) -> dict:
+    """Return {code: layer_name} for the Manning table, by LULC source.
+
+    ``lulc_source``: "download_nlcd" -> NLCD names; "download" / "download_esri"
+    -> ESRI Sentinel-2 names; anything else -> merged (Sentinel-2 for codes
+    1-10, NLCD for 11+, which do not otherwise overlap).
+    """
+    from core.nlcd import NLCD_MANNING, SENTINEL2_MANNING
+
+    nlcd = {code: _sanitize_desc(vals[0]) for code, vals in NLCD_MANNING.items()}
+    s2   = {code: _sanitize_desc(vals[0]) for code, vals in SENTINEL2_MANNING.items()}
+    if lulc_source == "download_nlcd":
+        return nlcd
+    if lulc_source in ("download", "download_esri"):
+        return s2
+    merged = dict(s2)
+    merged.update(nlcd)     # NLCD wins on the only overlap (code 11)
+    return merged
 
 
 def _read_fimsim_manning(src_path: Path) -> list:
@@ -58,15 +77,17 @@ def _read_fimsim_manning(src_path: Path) -> list:
     return rows
 
 
-def write_arc_manning_file(src_manning_txt, out_path, log_fn=print) -> str:
+def write_arc_manning_file(src_manning_txt, out_path, lulc_source=None,
+                           log_fn=print) -> str:
     """Reformat FIMsim's Manning table into ARC's tab-separated 3-column form.
 
         LC_ID<TAB>Description<TAB>Manning_n
-        11    Water            0.030
+        11    Open_Water            0.030
         ...
 
     ARC's read_manning_table splits on whitespace/tab and uses column 0 (code)
-    and column 2 (n); column 1 must be a single tab-free token.
+    and column 2 (n); column 1 must be a single tab-free token — the layer
+    name for the class (picked by ``lulc_source``: NLCD vs Sentinel-2 names).
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,9 +96,10 @@ def write_arc_manning_file(src_manning_txt, out_path, log_fn=print) -> str:
         raise RuntimeError(
             f"No Manning classes read from {src_manning_txt}; run the "
             "Land Cover step first.")
+    names = manning_descriptions(lulc_source)
     lines = ["LC_ID\tDescription\tManning_n"]
     for code, n_val in sorted(rows, key=lambda kv: kv[0]):
-        desc = NLCD_DESCRIPTIONS.get(code, f"Class_{code}")
+        desc = names.get(code, f"Class_{code}")
         lines.append(f"{code}\t{desc}\t{n_val:.3f}")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log_fn(f"  ✓ Manning table -> {out_path.name} ({len(rows)} classes, ARC tab format)")
@@ -165,7 +187,8 @@ def _write_stream_shapefile(src_shp, dst_shp, dem_crs=None, log_fn=print) -> str
 
 
 def assemble_arc_main_directory(arc_dir, *, dem_tif, lulc_tif, mannings_txt,
-                                flowline_shp, log_fn=print) -> dict:
+                                flowline_shp, lulc_source=None,
+                                log_fn=print) -> dict:
     """Populate <arc_dir> with the layout Process_ARC_Geospatial_Data expects.
 
     Returns a dict of the destination paths plus a ``missing`` list of any
@@ -200,7 +223,8 @@ def assemble_arc_main_directory(arc_dir, *, dem_tif, lulc_tif, mannings_txt,
     # Manning table (reformatted to ARC tab format)
     if mannings_txt and Path(mannings_txt).exists():
         d = main / "LAND" / "AR_Manning_n_for_NLCD_MED.txt"
-        dest["manning"] = write_arc_manning_file(mannings_txt, d, log_fn)
+        dest["manning"] = write_arc_manning_file(
+            mannings_txt, d, lulc_source=lulc_source, log_fn=log_fn)
     else:
         missing.append("Manning table (step 4)")
 
@@ -288,7 +312,8 @@ def write_curve2flood_input(main_dir, *, mapper="Curve2Flood-Kernel Weighted",
 def run_arc_curve2flood(arc_dir, *, dem_tif, lulc_tif, mannings_txt, flowline_shp,
                         flow_csv, mapper="Curve2Flood-Kernel Weighted",
                         set_depth=0.0, make_gpkg=True, bathy_use_banks=False,
-                        use_land_cover_to_find_banks=True, log_fn=print) -> dict:
+                        use_land_cover_to_find_banks=True, lulc_source=None,
+                        log_fn=print) -> dict:
     """Assemble the Main_Directory and run ARC + Curve2Flood for one AOI.
 
     Returns ``{"flood_map", "curve_file", "main_directory"}`` on success.
@@ -300,7 +325,7 @@ def run_arc_curve2flood(arc_dir, *, dem_tif, lulc_tif, mannings_txt, flowline_sh
     # 1) lay out the inputs ARC expects
     dest = assemble_arc_main_directory(
         arc_dir, dem_tif=dem_tif, lulc_tif=lulc_tif, mannings_txt=mannings_txt,
-        flowline_shp=flowline_shp, log_fn=log_fn)
+        flowline_shp=flowline_shp, lulc_source=lulc_source, log_fn=log_fn)
     if dest["missing"]:
         raise RuntimeError("Missing ARC inputs: " + "; ".join(dest["missing"]))
     if not flow_csv or not Path(flow_csv).exists():

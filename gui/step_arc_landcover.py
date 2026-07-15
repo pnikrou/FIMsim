@@ -635,15 +635,16 @@ class StepArcLandCoverWidget(QWidget):
                 "(mannings_n.txt not found — run this step first.)")
             return
         try:
-            from core.arc_run import _read_fimsim_manning, NLCD_DESCRIPTIONS
+            from core.arc_run import _read_fimsim_manning, manning_descriptions
             rows = _read_fimsim_manning(Path(n_path))
+            names = manning_descriptions(entry.get("lulc_source"))
         except Exception:
-            rows = []
+            rows, names = [], {}
         if rows:
-            lines = [f"{'LC_ID':<7}{'Description':<24}Manning_n"]
+            lines = [f"{'LC_ID':<7}{'Description':<28}Manning_n"]
             for code, n_val in sorted(rows, key=lambda kv: kv[0]):
-                desc = NLCD_DESCRIPTIONS.get(code, f"Class_{code}")
-                lines.append(f"{code:<7}{desc:<24}{n_val:.3f}")
+                desc = names.get(code, f"Class_{code}")
+                lines.append(f"{code:<7}{desc:<28}{n_val:.3f}")
             lines.append("")
             lines.append(f"({len(rows)} classes — {Path(n_path).name})")
             self._manning_view.setPlainText("\n".join(lines))
