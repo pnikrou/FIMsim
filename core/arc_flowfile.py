@@ -11,8 +11,11 @@ NWM's ``feature_id`` is the NHDPlus v2 COMID, so every reach in the flowline
 maps 1:1 to an NWM series.  We pull NWM discharge for all reaches over the
 chosen window and reduce each reach to:
 
-    base = a low-flow percentile (baseflow / channel-forming discharge)
-    max  = the peak discharge (the flood to map)
+    base = a percentile of the series (default 50 = the median — ARC's own
+           streamflow tool uses the median of the retrospective record as
+           baseflow)
+    max  = the peak discharge (the flood to map; ARC's tool likewise uses
+           the record maximum)
 
 GEOGLOWS is intentionally not supported here — NWM only.
 """
@@ -79,7 +82,7 @@ def build_arc_flow_file(
     forecast_date=None,
     forecast_range: str = "medium_range",
     forecast_hour=None,
-    base_percentile: float = 10.0,
+    base_percentile: float = 50.0,
     interval_hours: float = 1.0,
     log_fn=print,
 ) -> dict:

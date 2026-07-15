@@ -384,19 +384,20 @@ def _save_feat_ctx(feat_ctx_path: str, feat_ctx: dict):
 
 
 def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
+                                  per_aoi_configs: list = None,
                                   flow_cfg: dict = None, log_fn=print) -> dict:
     """Build the ARC flow file (COMID,base,max via NWM) for every AOI.
 
-    ``flow_cfg`` holds the shared settings from the step-6 panel:
-    source ("nwm_retro"|"nwm_forecast"), start_dt/end_dt, forecast_date/
-    forecast_range/forecast_hour, base_percentile.
+    ``per_aoi_configs``: one settings dict per AOI (source "nwm_retro" |
+    "nwm_forecast", start_dt/end_dt, forecast_date/forecast_range/
+    forecast_hour, base_percentile) — each AOI can have its own event window.
+    ``flow_cfg`` (legacy) is used for every AOI when per_aoi_configs is None.
     """
     from core.arc_flowfile import build_arc_flow_file
 
-    cfg = dict(flow_cfg or {})
     aoi_features = ctx.get("aoi_features", [])
 
-    def _one(feat_ctx_path, feat_ctx, arc_dir):
+    def _one(feat_ctx_path, feat_ctx, arc_dir, cfg):
         flowline = feat_ctx.get("arc_flowline_path")
         if not flowline or not Path(flowline).exists():
             raise RuntimeError("No flowline for this AOI — run step 5 first.")
@@ -409,14 +410,20 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
         return res
 
     if not aoi_features:
+        cfg = (per_aoi_configs or [flow_cfg or {}])[0] or {}
         arc_dir = ctx.get("arc_dir") or str(
             Path(ctx.get("project_dir", ".")) / "arc-files")
-        res = _one(ctx_path, ctx, arc_dir)
+        res = _one(ctx_path, ctx, arc_dir, cfg)
         ctx.update({"arc_flow_csv": res["flow_csv"],
                     "arc_flow_reaches": res["n_reaches"]})
         return ctx
 
     n = len(aoi_features)
+    if per_aoi_configs is not None and len(per_aoi_configs) != n:
+        raise RuntimeError(
+            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+            f"there are {n} AOIs.")
+
     summary = []
     for i, feat in enumerate(aoi_features, 1):
         try:
@@ -424,10 +431,13 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
             folder = feat["folder_path"]
             arc_dir = _arc_model_dir(folder)
             feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
-            res = _one(feat_ctx_path, feat_ctx, arc_dir)
+            cfg = ((per_aoi_configs[i - 1] if per_aoi_configs else flow_cfg)
+                   or {})
+            res = _one(feat_ctx_path, feat_ctx, arc_dir, cfg)
             summary.append({"name": feat["name"], "folder": folder,
                             "flow_csv": res["flow_csv"],
-                            "reaches": res["n_reaches"]})
+                            "reaches": res["n_reaches"],
+                            "source": cfg.get("source", "nwm_retro")})
             log_fn(f"✓ Flow file [{i}/{n}] finished: '{feat['name']}'")
         except Exception as _exc:
             import traceback
@@ -448,18 +458,19 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
 # ── Step 7: Run ARC + Curve2Flood ─────────────────────────────────────────────
 
 def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
+                                     per_aoi_configs: list = None,
                                      run_cfg: dict = None, log_fn=print) -> dict:
     """Assemble the ARC Main_Directory and run ARC -> Curve2Flood per AOI.
 
-    ``run_cfg``: mapper, set_depth, make_gpkg, bathy_use_banks,
-    use_land_cover_to_find_banks (shared across AOIs).
+    ``per_aoi_configs``: one settings dict per AOI (mapper, make_gpkg,
+    bathy_use_banks, use_land_cover_to_find_banks).  ``run_cfg`` (legacy) is
+    used for every AOI when per_aoi_configs is None.
     """
     from core.arc_run import run_arc_curve2flood
 
-    cfg = dict(run_cfg or {})
     aoi_features = ctx.get("aoi_features", [])
 
-    def _one(feat_ctx_path, feat_ctx, arc_dir):
+    def _one(feat_ctx_path, feat_ctx, arc_dir, cfg):
         res = run_arc_curve2flood(
             arc_dir,
             dem_tif=feat_ctx.get("dem_tif_path"),
@@ -475,14 +486,20 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
         return res
 
     if not aoi_features:
+        cfg = (per_aoi_configs or [run_cfg or {}])[0] or {}
         arc_dir = ctx.get("arc_dir") or str(
             Path(ctx.get("project_dir", ".")) / "arc-files")
-        res = _one(ctx_path, ctx, arc_dir)
+        res = _one(ctx_path, ctx, arc_dir, cfg)
         ctx.update({"arc_flood_map": res.get("flood_map"),
                     "arc_curve_file": res.get("curve_file")})
         return ctx
 
     n = len(aoi_features)
+    if per_aoi_configs is not None and len(per_aoi_configs) != n:
+        raise RuntimeError(
+            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+            f"there are {n} AOIs.")
+
     summary = []
     for i, feat in enumerate(aoi_features, 1):
         try:
@@ -490,7 +507,9 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
             folder = feat["folder_path"]
             arc_dir = _arc_model_dir(folder)
             feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
-            res = _one(feat_ctx_path, feat_ctx, arc_dir)
+            cfg = ((per_aoi_configs[i - 1] if per_aoi_configs else run_cfg)
+                   or {})
+            res = _one(feat_ctx_path, feat_ctx, arc_dir, cfg)
             summary.append({"name": feat["name"], "folder": folder,
                             "flood_map": res.get("flood_map"),
                             "curve_file": res.get("curve_file")})
