@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
-from core.arc_flowline import prepare_arc_flowline
 from core.arc_orchestrate import run_arc_flowline_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
@@ -139,13 +138,12 @@ class StepArcFlowlineWidget(QWidget):
         self._status.setStyleSheet("color:#744210; font-size:12px; font-weight:bold;")
         self._status.setVisible(True)
         set_running(self._run_btn)
-        if n <= 1:
-            self._worker = Worker(
-                prepare_arc_flowline, ctx_path=self._ctx_path, ctx=self._ctx)
-        else:
-            self._worker = Worker(
-                run_arc_flowline_for_all_aois,
-                ctx_path=self._ctx_path, ctx=self._ctx)
+        # Always go through the per-AOI orchestrator (even for one AOI): it
+        # writes arc_flowline_path into the AOI's workflow_context.json,
+        # which is where step 6 (flow file) looks for it.
+        self._worker = Worker(
+            run_arc_flowline_for_all_aois,
+            ctx_path=self._ctx_path, ctx=self._ctx)
         self._worker.message.connect(self._on_message)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)

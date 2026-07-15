@@ -389,10 +389,20 @@ class StepArcLandCoverWidget(QWidget):
             set_ready(self._run_btn)
             self._progress.setVisible(False)
             return
-        kw.update(ctx_path=self._ctx_path, ctx=self._ctx)
         self._status_lbl.setText("Preparing Land Cover & Manning table…")
         self._status_lbl.setVisible(True)
-        self._worker = Worker(prepare_arc_manning, **kw)
+        if self._aoi_features:
+            # Route through the per-AOI orchestrator even for one AOI — it
+            # reads the AOI's workflow_context.json, which holds the
+            # dem_tif_path saved by the DEM step (the parent ctx doesn't).
+            self._worker = Worker(
+                run_arc_manning_for_all_aois,
+                ctx_path=self._ctx_path, ctx=self._ctx,
+                per_aoi_configs=[kw],
+            )
+        else:
+            kw.update(ctx_path=self._ctx_path, ctx=self._ctx)
+            self._worker = Worker(prepare_arc_manning, **kw)
         self._worker.message.connect(self._on_message)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
