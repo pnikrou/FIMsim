@@ -67,16 +67,13 @@ class ArcFlowlineConfigPanel(QWidget):
 
         # Format note — shown ONLY for the user-shapefile option.
         self._note = QLabel(
-            "The file must contain a reach-id attribute named "
+            "★ The file must contain a reach-id attribute named "
             "<b>COMID</b> or <b>LINKNO</b> (a stream-order field is used when "
             "present). Any CRS is fine — it is reprojected to the DEM grid "
             "automatically."
         )
         self._note.setWordWrap(True)
-        self._note.setStyleSheet(
-            "color:#4a5568; font-size:11px; padding:6px 8px; "
-            "background:#f7fafc; border:1px solid #cbd5e0; border-radius:4px;"
-        )
+        self._note.setStyleSheet("color:#718096; font-size:11px;")
         layout.addWidget(self._note)
 
         self._on_src_changed()
