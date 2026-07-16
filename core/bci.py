@@ -125,7 +125,9 @@ def _extend_to_boundary(main_segs, all_clips, aoi_geom, snap_tol=500.0, max_iter
             union = segs.geometry.union_all()
         except Exception:
             union = segs.geometry.unary_union
-        merged = linemerge(union)
+        # linemerge() raises ValueError on a bare LineString — skip it when
+        # the union is already a single line.
+        merged = union if isinstance(union, LineString) else linemerge(union)
         lines = [merged] if isinstance(merged, LineString) else (
             list(merged.geoms) if hasattr(merged, "geoms") else []
         )
