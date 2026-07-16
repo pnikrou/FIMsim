@@ -57,12 +57,11 @@ def _build_main_river(flowlines_clip):
     gdf["geom_len"] = gdf.geometry.length
     gdf["river_name"] = gdf["GNIS_NAME"].apply(_safe_name) if "GNIS_NAME" in gdf.columns else "Unnamed"
 
-    # ── Pick the main river by COVERAGE of the study area, not stream order ──
-    # The highest-order reach can clip only a corner of the domain while a
-    # longer (often lower-order) river spans the whole AOI — that longer river
-    # is the one that should carry the single inflow→outflow so the domain is
-    # actually used.  So choose the river (by name) with the greatest total
-    # flowline length inside the AOI; ties broken by stream order.
+    # ── Pick the main river by stream order first, total length as tiebreaker ──
+    # Stream order is the hydrologically correct primary criterion — a higher-
+    # order river is always "more main" regardless of how much of it falls inside
+    # the AOI boundary (e.g. a major river forming one edge of the domain has
+    # less clipped length than a tributary that crosses the interior).
     per_river = (
         gdf.groupby("river_name", dropna=False)
         .agg(stream_order=("StreamOrde", "max"), segment_count=("river_name", "size"),
@@ -72,7 +71,7 @@ def _build_main_river(flowlines_clip):
     named = per_river[per_river["river_name"] != "Unnamed"]
     pool = named if not named.empty else per_river
     summary = pool.sort_values(
-        ["total_length_m", "stream_order"], ascending=[False, False]
+        ["stream_order", "total_length_m"], ascending=[False, False]
     ).reset_index(drop=True)
 
     main_river_name = summary.iloc[0]["river_name"]
@@ -102,6 +101,87 @@ def _build_main_river(flowlines_clip):
         main_line = max(lines, key=lambda g: g.length)
 
     return main_segments, summary, main_line, main_river_name, main_order, main_total_length_m
+
+
+def _extend_to_boundary(main_segs, all_clips, aoi_geom, snap_tol=500.0, max_iters=40):
+    """Extend main river segments toward the AOI boundary by snapping to connected flowlines.
+
+    After picking the named main-river segments, their merged line may stop
+    in the middle of the domain (the named river ends but a different-named
+    reach continues to the boundary).  This function iteratively adds the
+    nearest unselected flowline whose endpoint is within snap_tol of any
+    current open endpoint (an endpoint that is not already on the AOI
+    boundary), until both ends reach the boundary or no close segment exists.
+    """
+    import pandas as pd
+
+    aoi_boundary = aoi_geom.boundary
+    selected_idx = set(main_segs.index)
+    combined = main_segs.copy()
+
+    def _open_endpoints(segs):
+        """Return Points of merged-line endpoints not touching the AOI boundary."""
+        try:
+            union = segs.geometry.union_all()
+        except Exception:
+            union = segs.geometry.unary_union
+        merged = linemerge(union)
+        lines = [merged] if isinstance(merged, LineString) else (
+            list(merged.geoms) if hasattr(merged, "geoms") else []
+        )
+        open_pts = []
+        for g in lines:
+            if g is None or g.is_empty:
+                continue
+            for coord in [g.coords[0], g.coords[-1]]:
+                pt = Point(coord)
+                if aoi_boundary.distance(pt) > snap_tol * 0.3:
+                    open_pts.append(pt)
+        return open_pts
+
+    for _ in range(max_iters):
+        open_pts = _open_endpoints(combined)
+        if not open_pts:
+            break
+
+        remaining = all_clips[~all_clips.index.isin(selected_idx)]
+        if remaining.empty:
+            break
+
+        # Score each remaining segment endpoint against every open endpoint.
+        # Prefer: closest distance, then highest stream order as tiebreaker.
+        candidates = []
+        for idx, row in remaining.iterrows():
+            g = row.geometry
+            if g is None or g.is_empty:
+                continue
+            if isinstance(g, LineString):
+                ep_coords = [g.coords[0], g.coords[-1]]
+            else:
+                try:
+                    ep_coords = [list(g.geoms[0].coords)[0], list(g.geoms[-1].coords)[-1]]
+                except Exception:
+                    continue
+            order = int(row.get("StreamOrde", 0)) if hasattr(row, "get") else 0
+            for coord in ep_coords:
+                ep = Point(coord)
+                for op in open_pts:
+                    d = op.distance(ep)
+                    candidates.append((d, -order, idx))
+
+        if not candidates:
+            break
+
+        candidates.sort(key=lambda x: (x[0], x[1]))
+        best_d, _, best_idx = candidates[0]
+
+        if best_d > snap_tol:
+            break  # Nothing close enough — stop extending
+
+        combined = pd.concat([combined, all_clips.loc[[best_idx]]])
+        selected_idx.add(best_idx)
+
+    return combined
 
 
 def _mean_end_elevation(line, dem_path, cell_size):
@@ -285,6 +365,20 @@ def create_bci(
             main_total_length_m,
         ) = _build_main_river(flowlines_clip)
         log_fn(f"Main river: {main_river_name}  (stream order {main_order})")
+
+        # Extend main river to the AOI boundary when the named segments stop
+        # in the middle of the domain (e.g. river changes name before exiting).
+        aoi_geom_clip = _union_geometry(aoi_gdf)
+        main_segments = _extend_to_boundary(main_segments, flowlines_clip, aoi_geom_clip)
+        # Re-build the merged line from the (possibly extended) segments
+        _ext_union = (main_segments.geometry.union_all()
+                      if hasattr(main_segments.geometry, "union_all")
+                      else main_segments.geometry.unary_union)
+        _ext_merged = _ext_union if isinstance(_ext_union, LineString) else linemerge(_ext_union)
+        _ext_line = _to_single_linestring(_ext_merged)
+        if _ext_line is not None and not _ext_line.is_empty:
+            main_line = _ext_line
+            log_fn(f"  River extended to boundary — total line length: {main_line.length:.0f} m")
 
         summary.to_csv(project_dir / "main_river_summary.csv", index=False)
         # Remove stale GPKG files before writing — GPKG driver raises if they exist

@@ -43,6 +43,7 @@ from shapely.geometry import Point, LineString, MultiLineString
 from shapely.ops import linemerge
 
 from core.context import save_context
+from core.bci import _extend_to_boundary
 
 
 # ── shared NHD helpers ────────────────────────────────────────────────────────
@@ -318,6 +319,19 @@ def detect_main_river(
         main_total_length_m,
     ) = _build_main_river(flowlines_clip)
     log_fn(f"Main river: {main_river_name}  (stream order {main_order})")
+
+    # Extend main river to the AOI boundary when named segments stop mid-domain
+    aoi_geom_clip = _union_geometry(aoi_gdf)
+    main_segments = _extend_to_boundary(main_segments, flowlines_clip, aoi_geom_clip)
+    _ext_union = (main_segments.geometry.union_all()
+                  if hasattr(main_segments.geometry, "union_all")
+                  else main_segments.geometry.unary_union)
+    _ext_line = _to_single_linestring(
+        _ext_union if isinstance(_ext_union, LineString) else linemerge(_ext_union)
+    )
+    if _ext_line is not None and not _ext_line.is_empty:
+        main_line = _ext_line
+        log_fn(f"  River extended to boundary — total line length: {main_line.length:.0f} m")
 
     if save_diagnostics:
         summary.to_csv(project_dir / "main_river_summary.csv", index=False)
