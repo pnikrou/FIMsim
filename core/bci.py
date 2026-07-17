@@ -59,18 +59,16 @@ def _build_main_river(flowlines_clip):
 
     # ── Pick the main river by stream order first, total length as tiebreaker ──
     # Stream order is the hydrologically correct primary criterion — a higher-
-    # order river is always "more main" regardless of how much of it falls inside
-    # the AOI boundary (e.g. a major river forming one edge of the domain has
-    # less clipped length than a tributary that crosses the interior).
+    # order river is always "more main" regardless of name.  Named rivers are
+    # NOT preferred over unnamed ones: doing so caused lower-order named rivers
+    # (e.g. a tributary) to beat the higher-order unnamed main channel.
     per_river = (
         gdf.groupby("river_name", dropna=False)
         .agg(stream_order=("StreamOrde", "max"), segment_count=("river_name", "size"),
              total_length_m=("geom_len", "sum"))
         .reset_index()
     )
-    named = per_river[per_river["river_name"] != "Unnamed"]
-    pool = named if not named.empty else per_river
-    summary = pool.sort_values(
+    summary = per_river.sort_values(
         ["stream_order", "total_length_m"], ascending=[False, False]
     ).reset_index(drop=True)
 
