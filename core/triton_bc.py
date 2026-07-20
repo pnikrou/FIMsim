@@ -93,11 +93,10 @@ def _build_main_river(flowlines_clip):
         gdf["GNIS_NAME"].apply(_safe_name) if "GNIS_NAME" in gdf.columns else "Unnamed"
     )
 
-    max_order = gdf["StreamOrde"].max()
-    top = gdf[gdf["StreamOrde"] == max_order].copy()
-
+    # Group across ALL orders (not just max) so the domain-spanning criterion
+    # can fall back to a lower-order river that actually crosses the whole AOI.
     summary = (
-        top.groupby("river_name", dropna=False)
+        gdf.groupby("river_name", dropna=False)
         .agg(
             stream_order=("StreamOrde", "max"),
             segment_count=("river_name", "size"),
@@ -105,13 +104,26 @@ def _build_main_river(flowlines_clip):
         )
         .reset_index()
         .sort_values(["stream_order", "total_length_m"], ascending=[False, False])
+        .reset_index(drop=True)
     )
 
-    main_river_name = summary.iloc[0]["river_name"]
-    main_order = int(summary.iloc[0]["stream_order"])
-    main_total_length_m = float(summary.iloc[0]["total_length_m"])
+    # Domain-spanning criterion: prefer the highest-order river that covers
+    # ≥30% of the AOI diagonal; fall back to highest-order if nothing spans.
+    bbox = gdf.total_bounds
+    domain_diag = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    min_span_m   = domain_diag * 0.30
 
-    main_segments = top[top["river_name"] == main_river_name].copy()
+    spanning = summary[summary["total_length_m"] >= min_span_m]
+    chosen = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
+
+    main_river_name     = chosen["river_name"]
+    main_order          = int(chosen["stream_order"])
+    main_total_length_m = float(chosen["total_length_m"])
+
+    if main_river_name and main_river_name != "Unnamed":
+        main_segments = gdf[gdf["river_name"] == main_river_name].copy()
+    else:
+        main_segments = gdf[gdf["StreamOrde"] == main_order].copy()
     _union = (
         main_segments.geometry.union_all()
         if hasattr(main_segments.geometry, "union_all")

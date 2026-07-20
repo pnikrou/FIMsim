@@ -95,11 +95,12 @@ def _build_main_river(flowlines_clip):
     gdf["geom_len"] = gdf.geometry.length
     gdf["river_name"] = gdf["GNIS_NAME"].apply(_safe_name) if "GNIS_NAME" in gdf.columns else "Unnamed"
 
-    # ── Pick the main river by stream order first, total length as tiebreaker ──
-    # Stream order is the hydrologically correct primary criterion — a higher-
-    # order river is always "more main" regardless of name.  Named rivers are
-    # NOT preferred over unnamed ones: doing so caused lower-order named rivers
-    # (e.g. a tributary) to beat the higher-order unnamed main channel.
+    # ── Pick the main river: stream order first, then domain-spanning check ────
+    # Primary criterion: highest stream order + longest total clipped length.
+    # Additional criterion: if the selected river covers less than 30% of the
+    # AOI diagonal (i.e. it only clips a tiny corner of the domain), prefer a
+    # lower-order river that actually spans the domain — the user configured the
+    # AOI to simulate the full extent, not just a small segment of a large river.
     per_river = (
         gdf.groupby("river_name", dropna=False)
         .agg(stream_order=("StreamOrde", "max"), segment_count=("river_name", "size"),
@@ -110,20 +111,28 @@ def _build_main_river(flowlines_clip):
         ["stream_order", "total_length_m"], ascending=[False, False]
     ).reset_index(drop=True)
 
-    main_river_name = summary.iloc[0]["river_name"]
-    main_order = int(summary.iloc[0]["stream_order"])
-    main_total_length_m = float(summary.iloc[0]["total_length_m"])
+    # Domain-spanning criterion
+    bbox = gdf.total_bounds          # (minx, miny, maxx, maxy)
+    domain_diag = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    min_span_m   = domain_diag * 0.30   # must cover ≥30% of domain diagonal
 
-    # Take ALL segments of the chosen river (every stream order) so the line
-    # spans the full extent and the upstream inflow sits at the AOI boundary.
-    # For "Unnamed" (no named rivers at all) keep only the top-order segments,
-    # otherwise we'd sweep in every unrelated unnamed channel.
+    spanning = summary[summary["total_length_m"] >= min_span_m]
+    if not spanning.empty:
+        chosen = spanning.iloc[0]        # highest-order river that spans the domain
+    else:
+        chosen = summary.iloc[0]         # nothing spans — fall back to highest order
+
+    main_river_name   = chosen["river_name"]
+    main_order        = int(chosen["stream_order"])
+    main_total_length_m = float(chosen["total_length_m"])
+
+    # Take ALL segments of the chosen river (every order) so the line spans the
+    # full extent.  For "Unnamed" keep only the chosen order's segments so we
+    # don't sweep in every unrelated unnamed channel.
     if main_river_name and main_river_name != "Unnamed":
         main_segments = gdf[gdf["river_name"] == main_river_name].copy()
     else:
-        max_order = gdf["StreamOrde"].max()
-        main_segments = gdf[gdf["StreamOrde"] == max_order].copy()
-        main_order = int(max_order)
+        main_segments = gdf[gdf["StreamOrde"] == main_order].copy()
     unioned = (main_segments.geometry.union_all() if hasattr(main_segments.geometry, 'union_all')
                else main_segments.geometry.unary_union)
     merged_geom = unioned if isinstance(unioned, LineString) else linemerge(unioned)
