@@ -337,15 +337,24 @@ def detect_main_river(
     if save_diagnostics:
         summary.to_csv(project_dir / "main_river_summary.csv", index=False)
         main_segments.to_file(project_dir / "main_river_segments.gpkg", driver="GPKG")
+        # main_river_line.gpkg saved after extrapolation so map shows complete line.
+
+    # Snap any endpoint still short of the DEM boundary to the nearest edge.
+    main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
+
+    if save_diagnostics:
+        _line_gpkg = project_dir / "main_river_line.gpkg"
+        if _line_gpkg.exists():
+            try:
+                _line_gpkg.unlink()
+            except Exception:
+                pass
         gpd.GeoDataFrame(
             [{"river_name": main_river_name, "stream_order": main_order,
               "total_length_m": main_total_length_m}],
             geometry=[main_line],
             crs=flowlines_clip.crs,
-        ).to_file(project_dir / "main_river_line.gpkg", driver="GPKG")
-
-    # Extrapolate any endpoint still short of the DEM boundary
-    main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
+        ).to_file(_line_gpkg, driver="GPKG")
 
     coords = list(main_line.coords)
     end1, end2 = Point(coords[0]), Point(coords[-1])

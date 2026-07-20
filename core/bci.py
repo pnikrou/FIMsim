@@ -453,7 +453,6 @@ def create_bci(
             log_fn(f"  River extended to boundary — total line length: {main_line.length:.0f} m")
 
         summary.to_csv(project_dir / "main_river_summary.csv", index=False)
-        # Remove stale GPKG files before writing — GPKG driver raises if they exist
         for _gpkg in (
             project_dir / "main_river_segments.gpkg",
             project_dir / "main_river_line.gpkg",
@@ -464,11 +463,8 @@ def create_bci(
                 except Exception:
                     pass
         main_segments.to_file(project_dir / "main_river_segments.gpkg", driver="GPKG")
-        gpd.GeoDataFrame(
-            [{"river_name": main_river_name, "stream_order": main_order,
-              "total_length_m": main_total_length_m}],
-            geometry=[main_line], crs=flowlines_clip.crs,
-        ).to_file(project_dir / "main_river_line.gpkg", driver="GPKG")
+        # main_river_line.gpkg is saved after extrapolation so the preview map
+        # shows the complete line reaching both domain boundaries.
 
         # ── Reproject main_line + AOI centroid to DEM CRS ───────────────
         # The flowlines are in the AOI's CRS (often EPSG:4326).  The DEM is
@@ -499,9 +495,22 @@ def create_bci(
         else:
             aoi_centroid_bci = aoi_centroid
 
-        # If extension left either endpoint short of the DEM boundary, extrapolate
-        # geometrically using the terminal segment direction.
+        # Snap any endpoint still short of the DEM boundary to the nearest edge.
         main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
+
+        # Save the final (complete) river line for the BCI preview map.
+        _line_gpkg = project_dir / "main_river_line.gpkg"
+        if _line_gpkg.exists():
+            try:
+                _line_gpkg.unlink()
+            except Exception:
+                pass
+        _line_crs = dem_crs if _need_reproject else flowlines_clip.crs
+        gpd.GeoDataFrame(
+            [{"river_name": main_river_name, "stream_order": main_order,
+              "total_length_m": main_total_length_m}],
+            geometry=[main_line], crs=_line_crs,
+        ).to_file(_line_gpkg, driver="GPKG")
 
         # Determine upstream/downstream ends from DEM elevation
         coords = list(main_line.coords)
