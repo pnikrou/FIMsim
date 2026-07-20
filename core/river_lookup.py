@@ -79,15 +79,8 @@ def lookup_main_river(
         log_fn(f"Looking up main river for {aoi_path} feature {feature_index}…")
         nhd = NHD("flowline_mr")
         union = _union_geom(feature_4326)
-        try:
-            flowlines = nhd.bygeom(union)
-        except Exception as ex:
-            msg = str(ex)
-            # NHD's bygeom rejects MultiPolygon — fall back to the bbox.
-            if "should be of type" in msg or "MultiPolygon" in msg:
-                flowlines = nhd.bygeom(tuple(union.bounds))
-            else:
-                raise
+        from core.bci import _nhd_bygeom
+        flowlines = _nhd_bygeom(nhd, union)
         if flowlines is None or flowlines.empty:
             _CACHE[key] = None
             return None

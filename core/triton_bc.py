@@ -43,7 +43,7 @@ from shapely.geometry import Point, LineString, MultiLineString
 from shapely.ops import linemerge
 
 from core.context import save_context
-from core.bci import _extend_to_boundary
+from core.bci import _extend_to_boundary, _nhd_bygeom
 
 
 # ── shared NHD helpers ────────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ def detect_main_river(
     aoi_ll  = aoi_gdf.to_crs("EPSG:4326")
     geom_ll = _union_geometry(aoi_ll)
     nhd     = NHD("flowline_mr")
-    flowlines = nhd.bygeom(geom_ll)
+    flowlines = _nhd_bygeom(nhd, geom_ll)
     if flowlines is None or flowlines.empty:
         raise RuntimeError("No NHD flowlines found for this AOI.")
 

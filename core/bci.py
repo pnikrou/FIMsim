@@ -40,6 +40,44 @@ def _to_single_linestring(geom):
     return None
 
 
+def _nhd_bygeom(nhd, geom, max_attempts=3, retry_delay=5.0):
+    """Call nhd.bygeom() with retry on transient 5xx/network errors.
+
+    Falls back to bbox when the service rejects a MultiPolygon geometry.
+    Raises RuntimeError with a friendly message after all attempts are exhausted.
+    """
+    import time
+
+    def _is_transient(msg):
+        return any(k in msg for k in ("504", "503", "502", "Gateway", "Timeout",
+                                       "timed out", "timeout", "Connection", "connection"))
+
+    def _is_multipoly(msg):
+        return "should be of type" in msg or "MultiPolygon" in msg
+
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return nhd.bygeom(geom)
+        except Exception as ex:
+            msg = str(ex)
+            if _is_multipoly(msg):
+                # One-shot fallback — MultiPolygon will always be rejected,
+                # no point retrying.
+                return nhd.bygeom(tuple(geom.bounds))
+            if _is_transient(msg):
+                last_err = ex
+                if attempt < max_attempts:
+                    time.sleep(retry_delay * attempt)
+                continue
+            raise  # unexpected error — propagate immediately
+
+    raise RuntimeError(
+        f"NHD service temporarily unavailable after {max_attempts} attempts "
+        f"(last error: {last_err}). Please try again in a few minutes."
+    )
+
+
 def _sample_dem(dem_path, x, y):
     with rasterio.open(dem_path) as src:
         val = list(src.sample([(x, y)]))[0][0]
@@ -327,15 +365,7 @@ def create_bci(
         geom_ll = _union_geometry(aoi_ll)
 
         nhd = NHD("flowline_mr")
-        try:
-            flowlines = nhd.bygeom(geom_ll)
-        except Exception as ex:
-            msg = str(ex)
-            # NHD's bygeom rejects MultiPolygon — fall back to the bbox.
-            if "should be of type" in msg or "MultiPolygon" in msg:
-                flowlines = nhd.bygeom(tuple(geom_ll.bounds))
-            else:
-                raise
+        flowlines = _nhd_bygeom(nhd, geom_ll)
         if flowlines is None or flowlines.empty:
             raise RuntimeError("No NHD flowlines found for this AOI.")
 
