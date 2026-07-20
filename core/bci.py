@@ -96,34 +96,39 @@ def _build_main_river(flowlines_clip):
     gdf["river_name"] = gdf["GNIS_NAME"].apply(_safe_name) if "GNIS_NAME" in gdf.columns else "Unnamed"
 
     # ── Pick the main river: stream order first, then domain-spanning check ────
-    # Primary criterion: highest stream order + longest total clipped length.
-    # Additional criterion: if the selected river covers less than 30% of the
-    # AOI diagonal (i.e. it only clips a tiny corner of the domain), prefer a
-    # lower-order river that actually spans the domain — the user configured the
-    # AOI to simulate the full extent, not just a small segment of a large river.
-    per_river = (
-        gdf.groupby("river_name", dropna=False)
-        .agg(stream_order=("StreamOrde", "max"), segment_count=("river_name", "size"),
-             total_length_m=("geom_len", "sum"))
+    # We group by (stream_order, river_name) and rank by bounding-box diagonal
+    # (span_m) — NOT by total_length_m.  total_length is misleading for "Unnamed"
+    # because it accumulates every disconnected unnamed tributary, making it
+    # appear to cover the domain even though no single unnamed reach does.
+    # Bounding-box diagonal correctly measures how much geographic extent the
+    # river's segments actually occupy.
+    bbox = gdf.total_bounds               # (minx, miny, maxx, maxy)
+    domain_diag = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    min_span_m   = domain_diag * 0.30    # river must span ≥30% of domain diagonal
+
+    # Build per-(order, name) table with total_length + span_m
+    summary = (
+        gdf.groupby(["StreamOrde", "river_name"], dropna=False)
+        .agg(segment_count=("river_name", "size"), total_length_m=("geom_len", "sum"))
         .reset_index()
+        .rename(columns={"StreamOrde": "stream_order"})
     )
-    summary = per_river.sort_values(
-        ["stream_order", "total_length_m"], ascending=[False, False]
+    # Bounding-box diagonal for each (order, name) group
+    spans = []
+    for _, row in summary.iterrows():
+        mask = (gdf["StreamOrde"] == row["stream_order"]) & (gdf["river_name"] == row["river_name"])
+        b = gdf[mask].geometry.total_bounds
+        spans.append(float(math.hypot(b[2] - b[0], b[3] - b[1])))
+    summary["span_m"] = spans
+    summary = summary.sort_values(
+        ["stream_order", "span_m"], ascending=[False, False]
     ).reset_index(drop=True)
 
-    # Domain-spanning criterion
-    bbox = gdf.total_bounds          # (minx, miny, maxx, maxy)
-    domain_diag = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1])
-    min_span_m   = domain_diag * 0.30   # must cover ≥30% of domain diagonal
+    spanning = summary[summary["span_m"] >= min_span_m]
+    chosen   = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
 
-    spanning = summary[summary["total_length_m"] >= min_span_m]
-    if not spanning.empty:
-        chosen = spanning.iloc[0]        # highest-order river that spans the domain
-    else:
-        chosen = summary.iloc[0]         # nothing spans — fall back to highest order
-
-    main_river_name   = chosen["river_name"]
-    main_order        = int(chosen["stream_order"])
+    main_river_name     = chosen["river_name"]
+    main_order          = int(chosen["stream_order"])
     main_total_length_m = float(chosen["total_length_m"])
 
     # Take ALL segments of the chosen river (every order) so the line spans the

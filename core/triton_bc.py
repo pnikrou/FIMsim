@@ -93,28 +93,34 @@ def _build_main_river(flowlines_clip):
         gdf["GNIS_NAME"].apply(_safe_name) if "GNIS_NAME" in gdf.columns else "Unnamed"
     )
 
-    # Group across ALL orders (not just max) so the domain-spanning criterion
-    # can fall back to a lower-order river that actually crosses the whole AOI.
-    summary = (
-        gdf.groupby("river_name", dropna=False)
-        .agg(
-            stream_order=("StreamOrde", "max"),
-            segment_count=("river_name", "size"),
-            total_length_m=("geom_len", "sum"),
-        )
-        .reset_index()
-        .sort_values(["stream_order", "total_length_m"], ascending=[False, False])
-        .reset_index(drop=True)
-    )
-
-    # Domain-spanning criterion: prefer the highest-order river that covers
-    # ≥30% of the AOI diagonal; fall back to highest-order if nothing spans.
+    # Group by (stream_order, river_name) and rank by bounding-box diagonal
+    # (span_m) — NOT by total_length_m.  total_length is misleading for
+    # "Unnamed" because it accumulates every disconnected unnamed tributary,
+    # making it appear to cover the domain even though no single unnamed reach
+    # does.  Bounding-box diagonal correctly measures how much geographic
+    # extent the river's segments actually occupy.
     bbox = gdf.total_bounds
     domain_diag = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1])
     min_span_m   = domain_diag * 0.30
 
-    spanning = summary[summary["total_length_m"] >= min_span_m]
-    chosen = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
+    summary = (
+        gdf.groupby(["StreamOrde", "river_name"], dropna=False)
+        .agg(segment_count=("river_name", "size"), total_length_m=("geom_len", "sum"))
+        .reset_index()
+        .rename(columns={"StreamOrde": "stream_order"})
+    )
+    spans = []
+    for _, row in summary.iterrows():
+        mask = (gdf["StreamOrde"] == row["stream_order"]) & (gdf["river_name"] == row["river_name"])
+        b = gdf[mask].geometry.total_bounds
+        spans.append(float(math.hypot(b[2] - b[0], b[3] - b[1])))
+    summary["span_m"] = spans
+    summary = summary.sort_values(
+        ["stream_order", "span_m"], ascending=[False, False]
+    ).reset_index(drop=True)
+
+    spanning = summary[summary["span_m"] >= min_span_m]
+    chosen   = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
 
     main_river_name     = chosen["river_name"]
     main_order          = int(chosen["stream_order"])
