@@ -288,6 +288,76 @@ def _edge_boundary_line(dem_path, outlet_pt, downstream_type, value,
     return f"{edge}\t{c1:.3f}\t{c2:.3f}\t{downstream_type}\t{value}"
 
 
+def _extrapolate_to_dem_bounds(line, dem_path, n_avg=5, snap_tol=50.0, log_fn=print):
+    """Extend line endpoints to the DEM bounding box when they don't reach it.
+
+    When NHD flowlines run out before the domain boundary, `_extend_to_boundary`
+    stops with the line still interior.  This function finishes the job by
+    projecting each open endpoint straight to the nearest DEM edge using the
+    terminal segment direction (averaged over the last/first `n_avg` coords).
+    """
+    from shapely.geometry import box as _box
+
+    with rasterio.open(dem_path) as src:
+        b = src.bounds
+    dem_bdry = _box(b.left, b.bottom, b.right, b.top).boundary
+    far_dist = max(b.right - b.left, b.top - b.bottom) * 3.0
+
+    coords = list(line.coords)
+    if len(coords) < 2:
+        return line
+
+    def _extend_tip(tip_coord, ref_coord):
+        """Shoot a ray from tip in the (tip − ref) direction; return intersection."""
+        tip_pt = Point(tip_coord)
+        if dem_bdry.distance(tip_pt) <= snap_tol:
+            return None, 0.0
+
+        gap = dem_bdry.distance(tip_pt)
+        dx = tip_coord[0] - ref_coord[0]
+        dy = tip_coord[1] - ref_coord[1]
+        mag = math.hypot(dx, dy)
+        if mag < 1e-9:
+            return None, gap
+
+        dx, dy = dx / mag, dy / mag
+        far_pt = (tip_coord[0] + dx * far_dist, tip_coord[1] + dy * far_dist)
+        inter = LineString([tip_coord, far_pt]).intersection(dem_bdry)
+
+        if inter.is_empty:
+            return None, gap
+        if inter.geom_type == "Point":
+            return (inter.x, inter.y), gap
+        if hasattr(inter, "geoms"):
+            pts = [p for p in inter.geoms if not p.is_empty]
+            if not pts:
+                return None, gap
+            nearest = min(pts, key=lambda p: tip_pt.distance(p))
+            return (nearest.x, nearest.y), gap
+        return None, gap
+
+    n = min(n_avg, len(coords) - 1)
+
+    # Extend the END point (downstream direction): tip=coords[-1], ref=coords[-n-1]
+    ref_end = coords[max(0, len(coords) - n - 1)]
+    new_end, gap_end = _extend_tip(coords[-1], ref_end)
+
+    # Extend the START point (upstream direction): tip=coords[0], ref=coords[n]
+    # The direction is reversed: we go in the opposite direction of the line.
+    ref_start = coords[min(n, len(coords) - 1)]
+    new_start, gap_start = _extend_tip(coords[0], ref_start)
+
+    new_coords = list(coords)
+    if new_start is not None:
+        new_coords.insert(0, new_start)
+        log_fn(f"  Extrapolated start endpoint to domain boundary ({gap_start:.0f} m gap closed)")
+    if new_end is not None:
+        new_coords.append(new_end)
+        log_fn(f"  Extrapolated end endpoint to domain boundary ({gap_end:.0f} m gap closed)")
+
+    return LineString(new_coords) if (new_start or new_end) else line
+
+
 def _shift_toward(pt, target, distance=100.0):
     dx, dy = target.x - pt.x, target.y - pt.y
     L = math.hypot(dx, dy)
@@ -456,6 +526,10 @@ def create_bci(
             )
         else:
             aoi_centroid_bci = aoi_centroid
+
+        # If extension left either endpoint short of the DEM boundary, extrapolate
+        # geometrically using the terminal segment direction.
+        main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
 
         # Determine upstream/downstream ends from DEM elevation
         coords = list(main_line.coords)

@@ -43,7 +43,7 @@ from shapely.geometry import Point, LineString, MultiLineString
 from shapely.ops import linemerge
 
 from core.context import save_context
-from core.bci import _extend_to_boundary, _nhd_bygeom
+from core.bci import _extend_to_boundary, _nhd_bygeom, _extrapolate_to_dem_bounds
 
 
 # ── shared NHD helpers ────────────────────────────────────────────────────────
@@ -343,6 +343,9 @@ def detect_main_river(
             geometry=[main_line],
             crs=flowlines_clip.crs,
         ).to_file(project_dir / "main_river_line.gpkg", driver="GPKG")
+
+    # Extrapolate any endpoint still short of the DEM boundary
+    main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
 
     coords = list(main_line.coords)
     end1, end2 = Point(coords[0]), Point(coords[-1])
