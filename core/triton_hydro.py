@@ -481,7 +481,12 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
     _write_triton_hyg([ser], t0, interval_hours, hyg_path)
     log_fn(f"{hyg_path.name} written: {hyg_path}")
 
-    helper = project_dir / f"{aoi_name}_hydrograph.csv"
+    if bdy_source in ("nwm_retro", "nwm_forecast") and nwm_reach_id:
+        helper = project_dir / f"NWM_{nwm_reach_id}_hydrograph.csv"
+    elif bdy_source == "usgs" and gage_id:
+        helper = project_dir / f"USGS_{gage_id}_hydrograph.csv"
+    else:
+        helper = project_dir / f"{aoi_name}_hydrograph.csv"
     _save_helper_csv(df_flow, helper)
 
     last_hr = (pd.Timestamp(df_flow["datetime"].iloc[-1]) - t0).total_seconds() / 3600.0
@@ -490,6 +495,8 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
     ctx["triton_hydro_path"]        = str(hyg_path)
     ctx["triton_hydro_helper_csv"]  = str(helper)
     ctx["triton_hydro_source"]      = bdy_source
+    ctx["triton_hydro_reach_id"]    = nwm_reach_id if bdy_source in ("nwm_retro", "nwm_forecast") else None
+    ctx["triton_hydro_gage_id"]     = gage_id if bdy_source == "usgs" else None
     ctx["triton_hyg_written"]       = True
     ctx["num_sources"]              = 1
     ctx["sim_duration"]             = float(last_hr) * 3600.0   # seconds

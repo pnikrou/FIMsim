@@ -348,6 +348,14 @@ class StepTritonHydroWidget(QWidget):
             self._hydro_preview.setVisible(False)
             self._hydro_preview.clear()
 
+    _SRC_DISPLAY = {
+        "nwm_retro":    "NWM Retrospective",
+        "nwm_forecast": "NWM Forecast",
+        "usgs":         "USGS",
+        "csv":          "CSV",
+    }
+    _NWM_SRCS = {"nwm_retro", "nwm_forecast"}
+
     def _build_results(self, ctx):
         self._clear_results()
         per_aoi = ctx.get("triton_hydro_per_aoi", []) or []
@@ -356,39 +364,56 @@ class StepTritonHydroWidget(QWidget):
                 "name":       ctx.get("aoi_name", "AOI"),
                 "helper_csv": ctx.get("triton_hydro_helper_csv"),
                 "source":     ctx.get("triton_hydro_source"),
+                "reach_id":   ctx.get("triton_hydro_reach_id"),
+                "gage_id":    ctx.get("triton_hydro_gage_id"),
             }]
         if not per_aoi:
             return
         for entry in per_aoi:
             name = entry.get("name", "?")
+            row = QWidget()
+            rl = QVBoxLayout(row)
+            rl.setContentsMargins(0, 2, 0, 2)
+            rl.setSpacing(1)
+
             if entry.get("failed"):
-                lbl = QLabel(
-                    f"<b>{name}</b>  —  ⚠ "
-                    f"{str(entry.get('error', 'error')).splitlines()[0]}"
+                err_short = str(entry.get("error", "unknown error")).split("\n")[0]
+                name_lbl = QLabel(f"<b>{name}</b>")
+                name_lbl.setStyleSheet("color:#c53030;")
+                rl.addWidget(name_lbl)
+                err_lbl = QLabel(f"⚠ {err_short}")
+                err_lbl.setWordWrap(True)
+                err_lbl.setStyleSheet("color:#c53030; font-size:11px;")
+                rl.addWidget(err_lbl)
+            else:
+                src = entry.get("source", "")
+                src_display = self._SRC_DISPLAY.get(src, src or "—")
+                reach_id = entry.get("reach_id") or ""
+                gage_id  = entry.get("gage_id") or ""
+
+                btn = QPushButton(f"  {name}")
+                btn.setStyleSheet(
+                    "QPushButton { text-align:left; background:transparent; "
+                    "border:none; color:#2d3748; font-weight:bold; padding:2px; }"
+                    "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
                 )
-                lbl.setStyleSheet("color:#c53030; font-size:11px;")
-                lbl.setWordWrap(True)
-                self._results_inner.addWidget(lbl)
-                continue
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            btn = QPushButton(name)
-            btn.setStyleSheet(
-                "QPushButton { text-align:left; background:transparent; "
-                "border:none; color:#2d3748; font-weight:bold; padding:1px; }"
-                "QPushButton:hover { color:#1a202c; text-decoration:underline; }"
-            )
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _c, e=entry: self._show_hydro_for_aoi(e))
-            row.addWidget(btn)
-            hyg = Path(entry.get("hyg_path") or "").name
-            files_lbl = QLabel(f"{hyg}   ({entry.get('source') or '—'})")
-            files_lbl.setStyleSheet("color:#718096; font-size:11px;")
-            row.addWidget(files_lbl)
-            row.addStretch()
-            line = QWidget()
-            line.setLayout(row)
-            self._results_inner.addWidget(line)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _c, e=entry: self._show_hydro_for_aoi(e))
+                rl.addWidget(btn)
+
+                if reach_id and src in self._NWM_SRCS:
+                    detail_text = f"{src_display}. Feature ID: {reach_id}"
+                elif gage_id and src == "usgs":
+                    detail_text = f"{src_display}. Gage: {gage_id}"
+                else:
+                    detail_text = src_display
+                detail_lbl = QLabel(detail_text)
+                detail_lbl.setStyleSheet(
+                    "color:#718096; font-size:11px; padding-left:4px;"
+                )
+                rl.addWidget(detail_lbl)
+
+            self._results_inner.addWidget(row)
         self._results_gb.setVisible(True)
 
     def _show_hydro_for_aoi(self, entry: dict):

@@ -98,7 +98,7 @@ class TritonBCConfigPanel(QWidget):
         form = QFormLayout(gb)
         self._type_combo = QComboBox()
         self._type_combo.addItems(_BC_LABELS)
-        self._type_combo.setCurrentIndex(0)
+        self._type_combo.setCurrentIndex(2)
         self._type_combo.currentIndexChanged.connect(self._on_type_changed)
         form.addRow("Boundary type:", self._type_combo)
 

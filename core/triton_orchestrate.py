@@ -540,6 +540,8 @@ def run_triton_hydro_for_all_aois(
                 "hyg_path":    feat_ctx.get("triton_hyg_path"),
                 "helper_csv":  feat_ctx.get("triton_hydro_helper_csv"),
                 "source":      feat_ctx.get("triton_hydro_source"),
+                "reach_id":    feat_ctx.get("triton_hydro_reach_id"),
+                "gage_id":     feat_ctx.get("triton_hydro_gage_id"),
                 "sim_duration": feat_ctx.get("sim_duration"),
             })
             log_fn(f"✓ Hydrograph [{i}/{n}] finished: '{feat['name']}'")
