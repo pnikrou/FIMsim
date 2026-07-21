@@ -19,7 +19,7 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
-    QPlainTextEdit,
+    QPlainTextEdit, QSplitter,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -28,6 +28,7 @@ from gui.worker import Worker
 from gui.run_button import set_running, set_ready
 from gui.triton_bc_config_panel import TritonBCConfigPanel
 from gui.aoi_triton_bc_card import AOITritonBCCard
+from gui.bci_preview import BCIPreviewCanvas
 
 
 _BC_STEP_RE = re.compile(r"^▶\s+BC\s+\[(\d+)/(\d+)\]")
@@ -189,23 +190,54 @@ class StepTritonBCWidget(QWidget):
         self._results_gb.setVisible(False)
         layout.addWidget(self._results_gb)
 
-        self._preview_gb = QGroupBox("File preview")
-        pv = QHBoxLayout(self._preview_gb)
-        src_col = QVBoxLayout()
+        self._preview_gb = QGroupBox("BC preview")
+        pv = QVBoxLayout(self._preview_gb)
+        pv.setContentsMargins(4, 4, 4, 4)
+
+        # Horizontal splitter: left = map, right = two text files stacked
+        self._preview_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Left: map canvas
+        self._bc_preview = BCIPreviewCanvas(self, width=6, height=3.5)
+        self._preview_splitter.addWidget(self._bc_preview)
+
+        # Right: vertical splitter with .src (top) + .extbc (bottom)
+        text_host = QWidget()
+        text_layout = QVBoxLayout(text_host)
+        text_layout.setContentsMargins(2, 0, 0, 0)
+        text_layout.setSpacing(4)
+        text_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        src_host = QWidget()
+        src_col = QVBoxLayout(src_host)
+        src_col.setContentsMargins(0, 0, 0, 0)
+        src_col.setSpacing(2)
         src_col.addWidget(QLabel("<b>.src</b>  (inflow points)"))
         self._src_view = QPlainTextEdit()
         self._src_view.setReadOnly(True)
         self._src_view.setStyleSheet("font-family:monospace; font-size:11px;")
         src_col.addWidget(self._src_view)
-        pv.addLayout(src_col, 1)
-        extbc_col = QVBoxLayout()
+        text_splitter.addWidget(src_host)
+
+        extbc_host = QWidget()
+        extbc_col = QVBoxLayout(extbc_host)
+        extbc_col.setContentsMargins(0, 0, 0, 0)
+        extbc_col.setSpacing(2)
         extbc_col.addWidget(QLabel("<b>.extbc</b>  (outflow boundary)"))
         self._extbc_view = QPlainTextEdit()
         self._extbc_view.setReadOnly(True)
         self._extbc_view.setStyleSheet("font-family:monospace; font-size:11px;")
         extbc_col.addWidget(self._extbc_view)
-        pv.addLayout(extbc_col, 1)
-        self._preview_gb.setMinimumHeight(180)
+        text_splitter.addWidget(extbc_host)
+
+        text_splitter.setSizes([120, 120])
+        text_layout.addWidget(text_splitter)
+        self._preview_splitter.addWidget(text_host)
+
+        self._preview_splitter.setSizes([480, 280])
+        pv.addWidget(self._preview_splitter)
+
+        self._preview_gb.setMinimumHeight(280)
         self._preview_gb.setVisible(False)
         layout.addWidget(self._preview_gb)
 
@@ -362,17 +394,27 @@ class StepTritonBCWidget(QWidget):
             self._preview_gb.setVisible(False)
             self._src_view.clear()
             self._extbc_view.clear()
+            self._bc_preview.clear()
 
     def _build_results(self, ctx):
         self._clear_results()
         per_aoi = ctx.get("triton_bc_per_aoi", []) or []
         if not per_aoi:
             if ctx.get("triton_extbc_path"):
+                from pathlib import Path as _Path
+                _folder = ctx.get("project_dir", "")
+                _river  = str(_Path(_folder) / "main_river_line.gpkg")
                 per_aoi = [{
-                    "name":        ctx.get("aoi_name", "AOI"),
-                    "bc_type":     None,
-                    "extbc_path":  ctx.get("triton_extbc_path"),
-                    "src_path":    ctx.get("triton_src_loc_path"),
+                    "name":             ctx.get("aoi_name", "AOI"),
+                    "bc_type":          None,
+                    "extbc_path":       ctx.get("triton_extbc_path"),
+                    "src_path":         ctx.get("triton_src_loc_path"),
+                    "aoi_path":         ctx.get("aoi_path"),
+                    "feature_index":    ctx.get("aoi_feature_index", 0),
+                    "upstream_xy":      (ctx.get("upstream_x"), ctx.get("upstream_y")),
+                    "downstream_xy":    None,
+                    "main_river_path":  _river if _Path(_river).exists() else None,
+                    "working_crs_epsg": ctx.get("working_crs_epsg"),
                 }]
         if not per_aoi:
             return
@@ -420,6 +462,26 @@ class StepTritonBCWidget(QWidget):
                 return f"(could not read: {ex})"
         self._src_view.setPlainText(_load(entry.get("src_path")))
         self._extbc_view.setPlainText(_load(entry.get("extbc_path")))
+
+        # Map: AOI polygon + river + upstream/downstream markers
+        aoi_path = entry.get("aoi_path")
+        if aoi_path and Path(aoi_path).exists():
+            up_xy = entry.get("upstream_xy")
+            dn_xy = entry.get("downstream_xy")
+            crs   = entry.get("working_crs_epsg")
+            points_crs = f"EPSG:{crs}" if crs else None
+            self._bc_preview.show_bci(
+                aoi_path       = aoi_path,
+                feature_index  = entry.get("feature_index", 0),
+                main_river_path= entry.get("main_river_path"),
+                upstream_xy    = up_xy if (up_xy and up_xy[0] is not None) else None,
+                downstream_xy  = dn_xy if (dn_xy and dn_xy[0] is not None) else None,
+                title          = entry.get("name", ""),
+                points_crs     = points_crs,
+            )
+        else:
+            self._bc_preview.clear()
+
         self._preview_gb.setVisible(True)
 
     def _on_done(self, ctx):

@@ -417,6 +417,11 @@ def run_triton_bc_for_all_aois(
                 upstream_reach_id=upstream_reach_id,
                 log_fn=log_fn,
             )
+            dn_mid = (
+                (entry["x1"] + entry["x2"]) / 2.0,
+                (entry["y1"] + entry["y2"]) / 2.0,
+            )
+            river_gpkg = str(Path(folder) / "main_river_line.gpkg")
             summary.append({
                 "name":              feat["name"],
                 "folder":            folder,
@@ -426,6 +431,12 @@ def run_triton_bc_for_all_aois(
                 "num_sources":       feat_ctx.get("num_sources"),
                 "upstream_reach_id": feat_ctx.get("upstream_reach_id"),
                 "main_river_name":   feat_ctx.get("main_river_name"),
+                "aoi_path":          feat["source_file"],
+                "feature_index":     feat["feature_index"],
+                "upstream_xy":       (feat_ctx.get("upstream_x"), feat_ctx.get("upstream_y")),
+                "downstream_xy":     dn_mid,
+                "main_river_path":   river_gpkg if Path(river_gpkg).exists() else None,
+                "working_crs_epsg":  feat.get("working_crs_epsg"),
             })
             log_fn(f"✓ BC [{i}/{n}] finished: '{feat['name']}'")
         except Exception as _aoi_exc:
