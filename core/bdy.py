@@ -714,6 +714,9 @@ def create_bdy(ctx_path, ctx: dict,
         # Normalise columns — file has datetime as index label
         if "datetime" not in df_raw.columns and df_raw.index.name == "datetime":
             df_raw = df_raw.reset_index()
+        # Standardised CSVs use 'time_hours' instead of 'datetime'
+        if "datetime" not in df_raw.columns and "time_hours" in df_raw.columns:
+            df_raw = df_raw.rename(columns={"time_hours": "datetime"})
         q_col = next((c for c in ("streamflow_m3s", "discharge_cms")
                       if c in df_raw.columns), None)
         if q_col is None:
