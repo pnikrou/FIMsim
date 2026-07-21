@@ -42,6 +42,17 @@ from core.context import save_context
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+def _save_helper_csv(df_flow, path):
+    """Save a two-column preview CSV: time_hours (actual timestamps) + discharge_cms."""
+    out = pd.DataFrame({
+        "time_hours":    pd.to_datetime(df_flow["datetime"]).dt.tz_localize(None)
+                         if pd.to_datetime(df_flow["datetime"]).dt.tz is not None
+                         else pd.to_datetime(df_flow["datetime"]),
+        "discharge_cms": df_flow["discharge_cms"].astype(float),
+    })
+    out.to_csv(path, index=False)
+
+
 def _read_user_discharge_table(path):
     """Read a user-supplied discharge table (CSV / XLSX / TXT).
 
@@ -471,7 +482,7 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
     log_fn(f"{hyg_path.name} written: {hyg_path}")
 
     helper = project_dir / f"{aoi_name}_hydrograph.csv"
-    df_flow.to_csv(helper, index=False)
+    _save_helper_csv(df_flow, helper)
 
     last_hr = (pd.Timestamp(df_flow["datetime"].iloc[-1]) - t0).total_seconds() / 3600.0
     ctx["triton_hyg_path"]          = str(hyg_path)
@@ -791,7 +802,9 @@ def _finalize_hyg_from_pending(ctx_path, ctx, hyg_path, log_fn):
     log_fn(f".hyg written: {hyg_path}")
 
     # Helper CSV with all source columns — useful for inspection
-    df_all = pd.DataFrame({"datetime": common_idx})
+    _ts = pd.DatetimeIndex(common_idx)
+    _ts_clean = _ts.tz_localize(None) if _ts.tz is not None else _ts
+    df_all = pd.DataFrame({"time_hours": _ts_clean})
     for i, ser in enumerate(series_list):
         df_all[f"discharge_cms_src{i}"] = ser.values
     helper_csv = Path(ctx["project_dir"]) / f"{ctx.get('project_name', 'triton')}_strmflow_timeseries.csv"

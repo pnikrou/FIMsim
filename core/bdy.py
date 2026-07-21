@@ -17,6 +17,19 @@ def _get_dem_cell_size(dem_tif_path):
         return float(abs(src.res[0]))
 
 
+def _save_helper_csv(df_flow, path):
+    """Save a two-column preview CSV: time_hours (actual timestamps) + discharge_cms."""
+    import pandas as _pd
+    out = _pd.DataFrame({
+        "time_hours":    _pd.to_datetime(df_flow["datetime"]).dt.tz_localize(None)
+                         if hasattr(_pd.to_datetime(df_flow["datetime"]).dt, "tz")
+                            and _pd.to_datetime(df_flow["datetime"]).dt.tz is not None
+                         else _pd.to_datetime(df_flow["datetime"]),
+        "discharge_cms": df_flow["discharge_cms"].astype(float),
+    })
+    out.to_csv(path, index=False)
+
+
 def _read_user_discharge_table(path):
     """Read a user-supplied discharge table (CSV / XLSX / TXT).
 
@@ -546,7 +559,7 @@ def create_bdy(ctx_path, ctx: dict,
         _write_bdy_file(df_flow, bdy_path, series_name, project_name, dem_cell_size)
 
         helper_csv = project_dir / f"{aoi_name}_discharge.csv"
-        df_flow.to_csv(helper_csv, index=False)
+        _save_helper_csv(df_flow, helper_csv)
         ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written (resampled, renamed): {bdy_path}")
         ctx["bdy_source"] = "user_bdy_copy"
@@ -667,7 +680,7 @@ def create_bdy(ctx_path, ctx: dict,
 
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"{aoi_name}_discharge.csv"
-        df_flow.to_csv(helper_csv, index=False)
+        _save_helper_csv(df_flow, helper_csv)
         ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written: {bdy_path}")
         ctx["bdy_source"] = "user_table"
@@ -737,7 +750,7 @@ def create_bdy(ctx_path, ctx: dict,
         ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"USGS_{gage_id}_discharge.csv"
-        df_flow.to_csv(helper_csv, index=False)
+        _save_helper_csv(df_flow, helper_csv)
         ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written from USGS gage {gage_id}: {bdy_path}")
         ctx["bdy_source"] = "USGS"
@@ -806,7 +819,7 @@ def create_bdy(ctx_path, ctx: dict,
         ctx["bdy_warnings"] = _bdy_warns
         _write_bdy_file(df_flow, bdy_path, "upstream1", project_name, dem_cell_size)
         helper_csv = project_dir / f"NWM_{upstream_reach_id}_discharge.csv"
-        df_flow.to_csv(helper_csv, index=False)
+        _save_helper_csv(df_flow, helper_csv)
         ctx["bdy_helper_csv"] = str(helper_csv)
         log_fn(f"BDY written from {src_label}: {bdy_path}")
         ctx["bdy_source"] = src_label

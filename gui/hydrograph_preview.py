@@ -75,31 +75,42 @@ class HydrographPreviewCanvas(FigureCanvas):
             )
             return
 
-        # X-axis: prefer datetime, fall back to time_hours (e.g. NWM retro CSVs)
-        if "datetime" in df.columns:
+        # X-axis: use time_hours (may hold actual timestamps or numeric hours).
+        # Also accept legacy CSVs that have a separate 'datetime' column.
+        if "time_hours" in df.columns:
+            df = df.dropna(subset=["time_hours", q_col])
+            if df.empty:
+                self._render_error("Hydrograph CSV is empty.")
+                return
+            if not pd.api.types.is_numeric_dtype(df["time_hours"]):
+                # time_hours contains datetime strings — parse and display as dates
+                try:
+                    df["time_hours"] = pd.to_datetime(df["time_hours"], errors="coerce")
+                    df = df.dropna(subset=["time_hours"])
+                    auto_fmt_date = True
+                except Exception:
+                    auto_fmt_date = False
+            else:
+                auto_fmt_date = False
+            x_data  = df["time_hours"]
+            x_label = "Time" if auto_fmt_date else "Time (hours)"
+        elif "datetime" in df.columns:
+            # Legacy CSV format
             try:
                 df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
                 df = df.dropna(subset=["datetime"])
             except Exception:
                 pass
             if df.empty:
-                self._render_error("Hydrograph CSV is empty after parsing dates.")
+                self._render_error("Hydrograph CSV is empty.")
                 return
             x_data  = df["datetime"]
             x_label = "Time"
             auto_fmt_date = True
-        elif "time_hours" in df.columns:
-            df = df.dropna(subset=["time_hours", q_col])
-            if df.empty:
-                self._render_error("Hydrograph CSV is empty.")
-                return
-            x_data  = df["time_hours"]
-            x_label = "Time (hours)"
-            auto_fmt_date = False
         else:
             self._render_error(
                 "CSV is missing a time column.\n"
-                "Expected 'datetime' or 'time_hours'."
+                "Expected 'time_hours' or 'datetime'."
             )
             return
 

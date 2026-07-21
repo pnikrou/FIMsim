@@ -305,13 +305,11 @@ def _download_usgs_discharge(
             # Always overwrite — use fixed name so re-runs stay consistent
             out_csv = out_folder / f"usgs_discharge_{site}.csv"
             df_out = df.reset_index()
-            df_out["time_hours"] = (df_out["datetime"] - df_out["datetime"].iloc[0]).dt.total_seconds() / 3600.0
             df_out = df_out.rename(columns={"streamflow_m3s": "discharge_cms"})
-            # Keep the absolute `datetime` column too — the BDY builder and the
-            # TRITON hydrograph step timestamp the discharge from it (relative
-            # time_hours alone would be misaligned when the gage's record starts
-            # after the requested start).
-            df_out[["datetime", "time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
+            # time_hours column holds actual timestamps (not relative hours) so the
+            # preview and downstream BDY/TRITON steps see real event dates.
+            df_out["time_hours"] = pd.to_datetime(df_out["datetime"], utc=True).dt.tz_localize(None)
+            df_out[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
             log_fn(f"  ✓ Saved {out_csv.name} ({len(df)} rows @ {resample_rule})")
             saved.append(str(out_csv))
 
@@ -534,9 +532,8 @@ def run_flowdata_mode(
                         df_nwm = df_all[[col]].reset_index()
                         df_nwm.columns = ["datetime", "discharge_cms"]
                         dt = pd.to_datetime(df_nwm["datetime"], utc=True, errors="coerce")
-                        df_nwm["time_hours"] = (dt - dt.iloc[0]).dt.total_seconds() / 3600.0
-                        df_nwm["datetime"] = dt.dt.tz_localize(None)  # strip tz for clean display
-                        df_nwm[["datetime", "time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
+                        df_nwm["time_hours"] = dt.dt.tz_localize(None)  # actual timestamps
+                        df_nwm[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
                         log_fn(f"  ✓ Saved {out_csv.name}")
                         feat_out["files"][f"nwm_{col}"] = str(out_csv)
                     tmp_csv.unlink(missing_ok=True)
