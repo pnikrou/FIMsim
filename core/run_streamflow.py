@@ -20,12 +20,14 @@ from core.flowline_mode import _download_usgs_discharge, _coerce_gage_ids
 
 
 def _to_time_hours_csv(df: pd.DataFrame, datetime_col: str, flow_col: str, out_path) -> pd.DataFrame:
-    """Convert a datetime+flow DataFrame to time_hours/discharge_cms and save as CSV."""
+    """Convert a datetime+flow DataFrame to datetime/time_hours/discharge_cms and save as CSV."""
     out = df[[datetime_col, flow_col]].copy()
     dt = pd.to_datetime(out[datetime_col], utc=True, errors="coerce")
     out["time_hours"] = (dt - dt.iloc[0]).dt.total_seconds() / 3600.0
     out["discharge_cms"] = out[flow_col].astype(float)
-    out = out[["time_hours", "discharge_cms"]]
+    # Keep datetime so the preview canvas can use it for the x-axis
+    out["datetime"] = dt.dt.tz_localize(None)   # strip tz for clean CSV display
+    out = out[["datetime", "time_hours", "discharge_cms"]]
     out.to_csv(out_path, index=False)
     return out
 

@@ -37,7 +37,15 @@ class HydrographPreviewCanvas(FigureCanvas):
         csv_path: str,
         title: Optional[str] = None,
     ):
-        """Plot ``csv_path`` (columns: ``datetime`` and ``discharge_cms``)."""
+        """Plot a discharge CSV.
+
+        Accepted column layouts (in priority order):
+          1. ``datetime``  + ``discharge_cms`` or ``streamflow_m3s``
+          2. ``time_hours`` + ``discharge_cms`` or ``streamflow_m3s``
+
+        The ``datetime`` column is preferred for the x-axis; if absent,
+        ``time_hours`` is used so NWM/USGS CSVs always render.
+        """
         try:
             import pandas as pd
         except Exception as ex:
@@ -50,32 +58,52 @@ class HydrographPreviewCanvas(FigureCanvas):
             self._render_error(f"Cannot read CSV:\n{ex}")
             return
 
-        # Accept either column name: BDY step uses "discharge_cms",
-        # flowline/flow-data steps use "streamflow_m3s".
+        if df.empty:
+            self._render_error("Hydrograph CSV is empty.")
+            return
+
+        # Discharge column — prefer discharge_cms, fall back to streamflow_m3s
         q_col = None
         for candidate in ("discharge_cms", "streamflow_m3s"):
             if candidate in df.columns:
                 q_col = candidate
                 break
-        if "datetime" not in df.columns or q_col is None:
+        if q_col is None:
             self._render_error(
-                "CSV is missing the expected columns.\n"
-                "Need 'datetime' and either 'discharge_cms' or 'streamflow_m3s'."
+                "CSV is missing a discharge column.\n"
+                "Expected 'discharge_cms' or 'streamflow_m3s'."
             )
             return
 
-        try:
-            df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-            df = df.dropna(subset=["datetime"])
-        except Exception:
-            pass
-
-        if df.empty:
-            self._render_error("Hydrograph CSV is empty.")
+        # X-axis: prefer datetime, fall back to time_hours (e.g. NWM retro CSVs)
+        if "datetime" in df.columns:
+            try:
+                df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+                df = df.dropna(subset=["datetime"])
+            except Exception:
+                pass
+            if df.empty:
+                self._render_error("Hydrograph CSV is empty after parsing dates.")
+                return
+            x_data  = df["datetime"]
+            x_label = "Time"
+            auto_fmt_date = True
+        elif "time_hours" in df.columns:
+            df = df.dropna(subset=["time_hours", q_col])
+            if df.empty:
+                self._render_error("Hydrograph CSV is empty.")
+                return
+            x_data  = df["time_hours"]
+            x_label = "Time (hours)"
+            auto_fmt_date = False
+        else:
+            self._render_error(
+                "CSV is missing a time column.\n"
+                "Expected 'datetime' or 'time_hours'."
+            )
             return
 
-        # 1×3 grid — middle column hosts the plot, side columns absorb
-        # extra width (same trick as the raster + BCI previews).
+        # 1×3 grid — middle column hosts the plot, side columns absorb extra width
         self._fig.clear()
         gs = self._fig.add_gridspec(
             1, 3, width_ratios=[1, 12, 1], wspace=0.0,
@@ -86,22 +114,17 @@ class HydrographPreviewCanvas(FigureCanvas):
             sp.set_frame_on(False)
         ax = self._fig.add_subplot(gs[0, 1])
 
-        ax.plot(
-            df["datetime"], df[q_col],
-            color="#2b6cb0", linewidth=1.6,
-        )
-        ax.fill_between(
-            df["datetime"], df[q_col],
-            color="#bee3f8", alpha=0.6,
-        )
+        ax.plot(x_data, df[q_col], color="#2b6cb0", linewidth=1.6)
+        ax.fill_between(x_data, df[q_col], color="#bee3f8", alpha=0.6)
         ax.set_ylabel("Discharge (m³/s)", fontsize=9)
-        ax.set_xlabel("Time", fontsize=9)
+        ax.set_xlabel(x_label, fontsize=9)
         ax.tick_params(axis="x", labelsize=8, rotation=20)
         ax.tick_params(axis="y", labelsize=8)
         ax.grid(True, linestyle=":", alpha=0.5)
         if title:
             ax.set_title(title, fontsize=10)
-        self._fig.autofmt_xdate()
+        if auto_fmt_date:
+            self._fig.autofmt_xdate()
         self.draw_idle()
 
     def _render_error(self, msg: str):
