@@ -535,7 +535,8 @@ def run_flowdata_mode(
                         df_nwm.columns = ["datetime", "discharge_cms"]
                         dt = pd.to_datetime(df_nwm["datetime"], utc=True, errors="coerce")
                         df_nwm["time_hours"] = (dt - dt.iloc[0]).dt.total_seconds() / 3600.0
-                        df_nwm[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
+                        df_nwm["datetime"] = dt.dt.tz_localize(None)  # strip tz for clean display
+                        df_nwm[["datetime", "time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
                         log_fn(f"  ✓ Saved {out_csv.name}")
                         feat_out["files"][f"nwm_{col}"] = str(out_csv)
                     tmp_csv.unlink(missing_ok=True)
