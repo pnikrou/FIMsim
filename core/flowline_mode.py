@@ -309,6 +309,14 @@ def _download_usgs_discharge(
             # time_hours column holds actual timestamps (not relative hours) so the
             # preview and downstream BDY/TRITON steps see real event dates.
             df_out["time_hours"] = pd.to_datetime(df_out["datetime"], utc=True).dt.tz_localize(None)
+            # Negative discharge is physically impossible — gage malfunction or
+            # rating-curve failure during extreme events (e.g. gage submergence).
+            # Replace with NaN and interpolate so the time series stays smooth.
+            n_neg = (df_out["discharge_cms"] < 0).sum()
+            if n_neg:
+                df_out.loc[df_out["discharge_cms"] < 0, "discharge_cms"] = float("nan")
+                df_out["discharge_cms"] = df_out["discharge_cms"].interpolate(method="linear")
+                log_fn(f"  ⚠ Replaced {n_neg} negative discharge values (gage malfunction) via linear interpolation")
             df_out[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
             log_fn(f"  ✓ Saved {out_csv.name} ({len(df)} rows @ {resample_rule})")
             saved.append(str(out_csv))
@@ -533,6 +541,11 @@ def run_flowdata_mode(
                         df_nwm.columns = ["datetime", "discharge_cms"]
                         dt = pd.to_datetime(df_nwm["datetime"], utc=True, errors="coerce")
                         df_nwm["time_hours"] = dt.dt.tz_localize(None)  # actual timestamps
+                        n_neg = (df_nwm["discharge_cms"] < 0).sum()
+                        if n_neg:
+                            df_nwm.loc[df_nwm["discharge_cms"] < 0, "discharge_cms"] = float("nan")
+                            df_nwm["discharge_cms"] = df_nwm["discharge_cms"].interpolate(method="linear")
+                            log_fn(f"  ⚠ Replaced {n_neg} negative NWM discharge values via linear interpolation")
                         df_nwm[["time_hours", "discharge_cms"]].to_csv(out_csv, index=False)
                         log_fn(f"  ✓ Saved {out_csv.name}")
                         feat_out["files"][f"nwm_{col}"] = str(out_csv)
