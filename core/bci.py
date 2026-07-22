@@ -109,7 +109,7 @@ def _build_main_river(flowlines_clip):
     # Build per-(order, name) table with total_length + span_m
     summary = (
         gdf.groupby(["StreamOrde", "river_name"], dropna=False)
-        .agg(segment_count=("river_name", "size"), total_length_m=("geom_len", "sum"))
+        .agg(segment_count=("geom_len", "count"), total_length_m=("geom_len", "sum"))
         .reset_index()
         .rename(columns={"StreamOrde": "stream_order"})
     )
