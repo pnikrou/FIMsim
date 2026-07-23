@@ -403,6 +403,13 @@ class StepTritonManningWidget(QWidget):
         if not self._ctx_path or not self._ctx:
             self._log("Complete earlier steps first.")
             return
+        if not self._aoi_features:
+            QMessageBox.warning(
+                self, "No AOI Confirmed",
+                "No AOIs are confirmed.\n\n"
+                "Go back to the AOI step and confirm at least one feature first."
+            )
+            return
         self._error_lbl.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(True)

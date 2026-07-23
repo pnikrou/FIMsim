@@ -564,11 +564,11 @@ class StepDEMWidget(QWidget):
             self._log("Complete Steps 1 and 2 first.")
             return
         if not self._features:
-            self._error_lbl.setText(
-                "No AOIs are confirmed.  Go back to the AOI step and "
-                "confirm at least one feature first."
+            QMessageBox.warning(
+                self, "No AOI Confirmed",
+                "No AOIs are confirmed.\n\n"
+                "Go back to the AOI step and confirm at least one feature first."
             )
-            self._error_lbl.setVisible(True)
             return
 
         from gui.overwrite_check import confirm_overwrite

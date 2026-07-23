@@ -550,11 +550,11 @@ class StepArcConfigWidget(QWidget):
             self._log("Complete earlier steps first.")
             return
         if not self._aoi_features:
-            self._error_lbl.setText(
-                "No AOIs are confirmed.  Go back to the AOI step and "
-                "confirm at least one feature first."
+            QMessageBox.warning(
+                self, "No AOI Confirmed",
+                "No AOIs are confirmed.\n\n"
+                "Go back to the AOI step and confirm at least one feature first."
             )
-            self._error_lbl.setVisible(True)
             return
 
         if len(self._aoi_features) <= 1:
