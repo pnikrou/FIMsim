@@ -445,6 +445,8 @@ def write_triton_hyg_single(ctx_path, ctx, *, bdy_source, start_dt, end_dt,
             raw = pd.read_csv(paths[0])
         if "datetime" not in raw.columns and raw.index.name == "datetime":
             raw = raw.reset_index()
+        if "datetime" not in raw.columns and "time_hours" in raw.columns:
+            raw = raw.rename(columns={"time_hours": "datetime"})
         qcol = next((c for c in ("streamflow_m3s", "discharge_cms") if c in raw.columns), None)
         if qcol is None:
             raise RuntimeError(f"USGS CSV for gage {gage_id} has no discharge column.")
