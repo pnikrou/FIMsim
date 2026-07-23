@@ -48,9 +48,6 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Flood Model Prep Tool")
     app.setOrganizationName("YourLab")
-    # macOS NSOpenPanel assertion failure workaround: use Qt's own file dialogs
-    # instead of the native macOS picker, which crashes with PyQt6 on newer macOS.
-    app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
 
     window = MainWindow()
     _excepthook.window = window
