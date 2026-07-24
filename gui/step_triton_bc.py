@@ -65,7 +65,7 @@ class StepTritonBCWidget(QWidget):
         self._clear_cards()
         self._clear_results()
         if self._single_panel is not None:
-            self._single_panel.set_config({"bc_type": 0})
+            self._single_panel.set_config({"bc_type": 2})
         self._error_lbl.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(False)

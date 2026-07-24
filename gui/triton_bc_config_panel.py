@@ -222,7 +222,7 @@ class TritonBCConfigPanel(QWidget):
             s = cfg["segment"]
             self._seg_x1.setValue(float(s[0])); self._seg_y1.setValue(float(s[1]))
             self._seg_x2.setValue(float(s[2])); self._seg_y2.setValue(float(s[3]))
-        bt = int(cfg.get("bc_type", 0))
+        bt = int(cfg.get("bc_type", 2))
         try:
             self._type_combo.setCurrentIndex(_BC_TYPES.index(bt))
         except ValueError:
