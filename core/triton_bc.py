@@ -357,6 +357,24 @@ def detect_main_river(
         main_segments.to_file(project_dir / "main_river_segments.gpkg", driver="GPKG")
         # main_river_line.gpkg saved after extrapolation so map shows complete line.
 
+    # Reproject main_line to DEM CRS so that _extrapolate_to_dem_bounds and
+    # elevation sampling use consistent coordinates (fixes wrong reach ID when
+    # flowlines are in EPSG:4326 but the DEM is in a projected UTM CRS).
+    with rasterio.open(dem_tif_path) as _dsrc:
+        dem_crs = _dsrc.crs
+    _flowline_crs = flowlines_clip.crs
+    _need_reproject = (
+        dem_crs is not None
+        and _flowline_crs is not None
+        and dem_crs.to_epsg() != _flowline_crs.to_epsg()
+    )
+    if _need_reproject:
+        from pyproj import Transformer
+        from shapely.ops import transform as _shp_transform
+        _tf = Transformer.from_crs(_flowline_crs, dem_crs, always_xy=True)
+        main_line = _shp_transform(_tf.transform, main_line)
+        aoi_centroid = Point(*_tf.transform(aoi_centroid.x, aoi_centroid.y))
+
     # Snap any endpoint still short of the DEM boundary to the nearest edge.
     main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
 
@@ -371,7 +389,7 @@ def detect_main_river(
             [{"river_name": main_river_name, "stream_order": main_order,
               "total_length_m": main_total_length_m}],
             geometry=[main_line],
-            crs=flowlines_clip.crs,
+            crs=dem_crs if _need_reproject else flowlines_clip.crs,
         ).to_file(_line_gpkg, driver="GPKG")
 
     coords = list(main_line.coords)
@@ -392,7 +410,12 @@ def detect_main_river(
     fid_col = _choose_fid_col(main_segments)
     if fid_col:
         main_segments = main_segments.copy()
-        main_segments["_dist"] = main_segments.geometry.distance(upstream_pt)
+        if _need_reproject:
+            _tf_back = Transformer.from_crs(dem_crs, _flowline_crs, always_xy=True)
+            _up_pt_fl_crs = Point(*_tf_back.transform(upstream_pt.x, upstream_pt.y))
+        else:
+            _up_pt_fl_crs = upstream_pt
+        main_segments["_dist"] = main_segments.geometry.distance(_up_pt_fl_crs)
         nearest = main_segments.sort_values("_dist").iloc[0]
         try:
             reach_id = str(nearest[fid_col])
