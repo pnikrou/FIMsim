@@ -43,7 +43,7 @@ from shapely.geometry import Point, LineString, MultiLineString
 from shapely.ops import linemerge
 
 from core.context import save_context
-from core.bci import _extend_to_boundary, _nhd_bygeom, _extrapolate_to_dem_bounds
+from core.nhd_utils import _nhd_bygeom, _extend_to_boundary, _extrapolate_to_dem_bounds
 
 
 # ── shared NHD helpers ────────────────────────────────────────────────────────
