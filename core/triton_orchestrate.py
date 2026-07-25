@@ -22,6 +22,37 @@ from core.nlcd import (
 )
 
 
+# Keys whose values belong to ONE specific AOI.  The parent (multi-AOI) ctx
+# holds AOI-1's values for these (single-AOI back-compat), so they must never
+# be inherited via ``feat_ctx = dict(ctx)`` — otherwise every step that saves
+# a per-AOI workflow_context.json would stamp AOI-1's reach id / river / .hyg
+# info into every other AOI's file, and NWM downloads would all use one reach.
+_PER_AOI_KEYS = (
+    "upstream_reach_id", "main_river_name", "main_feature_name",
+    "num_sources", "upstream_x", "upstream_y",
+    "triton_extbc_path", "triton_src_loc_path", "triton_extbc_entries",
+    "triton_hyg_path", "triton_hydro_helper_csv", "triton_hydro_source",
+    "triton_hydro_reach_id", "triton_hydro_gage_id", "sim_duration",
+)
+
+
+def _isolate_per_aoi(feat_ctx: dict, per_aoi_ctx_path) -> dict:
+    """Strip parent-inherited per-AOI values, then restore this AOI's own
+    values from its saved workflow_context.json (if it exists)."""
+    for k in _PER_AOI_KEYS:
+        feat_ctx.pop(k, None)
+    p = Path(per_aoi_ctx_path)
+    if p.exists():
+        try:
+            with open(p, "r", encoding="utf-8") as fr:
+                saved = json.load(fr)
+            for k in _PER_AOI_KEYS:
+                if k in saved:
+                    feat_ctx[k] = saved[k]
+        except Exception:
+            pass
+    return feat_ctx
+
 
 # -- TRITON: multi-AOI DEM step ------------------------------------------------
 def run_triton_dem_all(
@@ -114,6 +145,7 @@ def run_triton_dem_all(
             feat_ctx["model_dir"] = mf_dir
 
             feat_ctx_path = str(Path(folder) / "workflow_context.json")
+            feat_ctx = _isolate_per_aoi(feat_ctx, feat_ctx_path)
             try:
                 with open(feat_ctx_path, "w", encoding="utf-8") as wf:
                     json.dump(feat_ctx, wf, indent=2, default=str)
@@ -263,6 +295,7 @@ def run_triton_manning_for_all_aois(
                 except Exception:
                     pass
 
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path)
             feat_ctx_path = str(per_aoi_ctx_path)
 
             feat_ctx = prepare_triton_manning(
@@ -381,6 +414,7 @@ def run_triton_bc_for_all_aois(
                             feat_ctx[k] = saved[k]
                 except Exception:
                     pass
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path)
             feat_ctx_path = str(per_aoi_ctx_path)
 
             # Inflow point + downstream segment: either auto-detected from the
@@ -519,16 +553,12 @@ def run_triton_hydro_for_all_aois(
             feat_ctx.pop("lisflood_dir", None)
 
             # This AOI's upstream feature/reach id (written by the BC step) —
-            # needed for NWM sources.
-            reach_id = None
+            # needed for NWM sources.  _isolate_per_aoi strips AOI-1's values
+            # inherited from the parent ctx and restores THIS AOI's own saved
+            # values, so saving feat_ctx back cannot clobber them.
             per_aoi_ctx_path = Path(folder) / "workflow_context.json"
-            if per_aoi_ctx_path.exists():
-                try:
-                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
-                        saved = json.load(fr)
-                    reach_id = saved.get("upstream_reach_id")
-                except Exception:
-                    pass
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path)
+            reach_id = feat_ctx.get("upstream_reach_id")
             feat_ctx_path = str(per_aoi_ctx_path)
 
             bdy_source = cfg.get("bdy_source") or ""
@@ -624,10 +654,13 @@ def run_triton_cfg_for_all_aois(
             mf_dir = model_files_subdir(folder, is_triton=True)
 
             feat_ctx = dict(ctx)
-            # Merge this AOI's full saved context (sim_duration, num_sources,
+            # Strip AOI-1's per-AOI values inherited from the parent ctx, then
+            # merge this AOI's full saved context (sim_duration, num_sources,
             # num_extbc, file refs, dem_epsg, fric_mode, … written by the
             # earlier steps) so create_triton_cfg has everything it needs.
             per_aoi_ctx_path = Path(folder) / "workflow_context.json"
+            for _k in _PER_AOI_KEYS:
+                feat_ctx.pop(_k, None)
             if per_aoi_ctx_path.exists():
                 try:
                     with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:

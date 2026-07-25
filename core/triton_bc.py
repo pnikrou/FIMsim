@@ -603,11 +603,12 @@ def prepare_triton_bc(
     ]
     ctx["triton_extbc_dir"]         = str(triton_dir) + "/"
     ctx["triton_extbc_written"]     = True
-    if main_river_name:
-        ctx["main_river_name"]     = main_river_name
-        ctx["main_feature_name"]   = main_river_name
-    if upstream_reach_id:
-        ctx["upstream_reach_id"]   = upstream_reach_id
+    # Always write these — even None — so a stale value inherited from a
+    # previous run (or another AOI via the parent ctx) can never survive.
+    # Mirrors core/bci.py, which writes upstream_reach_id unconditionally.
+    ctx["main_river_name"]     = main_river_name
+    ctx["main_feature_name"]   = main_river_name
+    ctx["upstream_reach_id"]   = upstream_reach_id
 
     # Back-compat: keep single-source convenience keys when there's only one
     if len(inflow_sources) == 1:
