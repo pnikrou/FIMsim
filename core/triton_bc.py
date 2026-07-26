@@ -326,8 +326,13 @@ def detect_main_river(
 
     flowlines_path = project_dir / f"NHD_flowlines_{aoi_name}.gpkg"
     if save_diagnostics:
-        flowlines_clip.to_file(flowlines_path, driver="GPKG")
-        log_fn(f"Flowlines saved: {flowlines_path.name}")
+        try:
+            if flowlines_path.exists():
+                flowlines_path.unlink()
+            flowlines_clip.to_file(flowlines_path, driver="GPKG")
+            log_fn(f"Flowlines saved: {flowlines_path.name}")
+        except Exception as _diag_exc:
+            log_fn(f"  (diagnostic write skipped: {_diag_exc})")
 
     (
         main_segments,
@@ -353,9 +358,18 @@ def detect_main_river(
         log_fn(f"  River extended to boundary — total line length: {main_line.length:.0f} m")
 
     if save_diagnostics:
-        summary.to_csv(project_dir / "main_river_summary.csv", index=False)
-        main_segments.to_file(project_dir / "main_river_segments.gpkg", driver="GPKG")
-        # main_river_line.gpkg saved after extrapolation so map shows complete line.
+        try:
+            summary.to_csv(project_dir / "main_river_summary.csv", index=False)
+        except Exception as _diag_exc:
+            log_fn(f"  (diagnostic write skipped: {_diag_exc})")
+        try:
+            _segs_gpkg = project_dir / "main_river_segments.gpkg"
+            if _segs_gpkg.exists():
+                _segs_gpkg.unlink()
+            main_segments.to_file(_segs_gpkg, driver="GPKG")
+            # main_river_line.gpkg saved after extrapolation so map shows complete line.
+        except Exception as _diag_exc:
+            log_fn(f"  (diagnostic write skipped: {_diag_exc})")
 
     # Reproject main_line to DEM CRS so that _extrapolate_to_dem_bounds and
     # elevation sampling use consistent coordinates (fixes wrong reach ID when
@@ -379,18 +393,18 @@ def detect_main_river(
     main_line = _extrapolate_to_dem_bounds(main_line, dem_tif_path, log_fn=log_fn)
 
     if save_diagnostics:
-        _line_gpkg = project_dir / "main_river_line.gpkg"
-        if _line_gpkg.exists():
-            try:
+        try:
+            _line_gpkg = project_dir / "main_river_line.gpkg"
+            if _line_gpkg.exists():
                 _line_gpkg.unlink()
-            except Exception:
-                pass
-        gpd.GeoDataFrame(
-            [{"river_name": main_river_name, "stream_order": main_order,
-              "total_length_m": main_total_length_m}],
-            geometry=[main_line],
-            crs=dem_crs if _need_reproject else flowlines_clip.crs,
-        ).to_file(_line_gpkg, driver="GPKG")
+            gpd.GeoDataFrame(
+                [{"river_name": main_river_name, "stream_order": main_order,
+                  "total_length_m": main_total_length_m}],
+                geometry=[main_line],
+                crs=dem_crs if _need_reproject else flowlines_clip.crs,
+            ).to_file(_line_gpkg, driver="GPKG")
+        except Exception as _diag_exc:
+            log_fn(f"  (diagnostic write skipped: {_diag_exc})")
 
     coords = list(main_line.coords)
     end1, end2 = Point(coords[0]), Point(coords[-1])

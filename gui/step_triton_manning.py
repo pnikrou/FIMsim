@@ -10,10 +10,11 @@ builders:
   * >1 AOI  → an accordion of ``AOIManningCard`` widgets (one per AOI), with
               a top "Apply current AOI's settings to all" button.
 
-Run dispatches to ``prepare_triton_manning`` (single-AOI) or
-``run_triton_manning_for_all_aois`` (multi-AOI).  The friction OPTIONS are
-identical to LISFLOOD's (Fixed / Varying → NLCD / Sentinel-2 / upload), so we
-reuse LISFLOOD's panel + card widgets unchanged.
+Run always dispatches to ``run_triton_manning_for_all_aois`` (a single AOI is
+just a 1-element run) so the friction settings land in each AOI's own
+workflow_context.json.  The friction OPTIONS are identical to LISFLOOD's
+(Fixed / Varying → NLCD / Sentinel-2 / upload), so we reuse LISFLOOD's
+panel + card widgets unchanged.
 """
 import re
 from pathlib import Path
@@ -27,7 +28,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 
-from core.triton_manning import prepare_triton_manning
 from core.triton_orchestrate import run_triton_manning_for_all_aois
 from gui.worker import Worker
 from gui.run_button import set_running, set_ready
@@ -426,10 +426,18 @@ class StepTritonManningWidget(QWidget):
             set_ready(self._run_btn)
             self._progress.setVisible(False)
             return
-        kw.update(ctx_path=self._ctx_path, ctx=self._ctx)
+        # Route through the per-AOI orchestrator even for one AOI (same as
+        # the BC / Hydrograph / Config steps) so the friction settings are
+        # saved into the AOI's own workflow_context.json — a direct
+        # prepare_triton_manning call would only update the parent context
+        # and the Config step reads per-AOI files.
         self._status_lbl.setText("Preparing friction file…")
         self._status_lbl.setVisible(True)
-        self._worker = Worker(prepare_triton_manning, **kw)
+        self._worker = Worker(
+            run_triton_manning_for_all_aois,
+            ctx_path=self._ctx_path, ctx=self._ctx,
+            per_aoi_configs=[kw],
+        )
         self._worker.message.connect(self._on_message)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)

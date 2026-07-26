@@ -25,32 +25,81 @@ from core.nlcd import (
 # Keys whose values belong to ONE specific AOI.  The parent (multi-AOI) ctx
 # holds AOI-1's values for these (single-AOI back-compat), so they must never
 # be inherited via ``feat_ctx = dict(ctx)`` — otherwise every step that saves
-# a per-AOI workflow_context.json would stamp AOI-1's reach id / river / .hyg
-# info into every other AOI's file, and NWM downloads would all use one reach.
+# a per-AOI workflow_context.json would stamp AOI-1's reach id / river / DEM
+# paths / .hyg info into every other AOI's file, and NWM downloads would all
+# use one reach and detection would sample the wrong AOI's DEM.
 _PER_AOI_KEYS = (
+    # AOI identity
+    "aoi_path", "aoi_feature_index",
+    # river / reach detection results
     "upstream_reach_id", "main_river_name", "main_feature_name",
-    "num_sources", "upstream_x", "upstream_y",
+    "num_sources", "upstream_x", "upstream_y", "flowlines_path",
+    # DEM artifacts
+    "dem_path", "dem_tif_path", "dem_ascii_path", "dem_res_m",
+    "dem_source", "dem_epsg",
+    # friction / LULC artifacts
+    "manning_ascii_path", "manning_tif_path", "lulc_path", "lulc_source",
+    "triton_friction_path", "triton_fric_mode", "par_fpfric",
+    # BC / hydro / cfg artifacts
     "triton_extbc_path", "triton_src_loc_path", "triton_extbc_entries",
-    "triton_hyg_path", "triton_hydro_helper_csv", "triton_hydro_source",
-    "triton_hydro_reach_id", "triton_hydro_gage_id", "sim_duration",
+    "num_extbc", "triton_hyg_path", "triton_hydro_helper_csv",
+    "triton_hydro_source", "triton_hydro_reach_id", "triton_hydro_gage_id",
+    "sim_duration", "triton_cfg_path",
 )
 
 
-def _isolate_per_aoi(feat_ctx: dict, per_aoi_ctx_path) -> dict:
+def _isolate_per_aoi(feat_ctx: dict, per_aoi_ctx_path, feat: dict = None) -> dict:
     """Strip parent-inherited per-AOI values, then restore this AOI's own
-    values from its saved workflow_context.json (if it exists)."""
+    values from its saved workflow_context.json (if it exists).
+
+    A restored path-like value that points inside a SIBLING AOI's folder is
+    dropped (poison from the pre-fix contamination bug, where every step
+    stamped AOI-1's paths into all per-AOI files).  When ``feat`` is given,
+    the AOI identity keys are forced from the confirmed feature list — the
+    single source of truth — and a missing dem_tif_path is healed by looking
+    for the DEM GeoTIFF the DEM step wrote into this AOI's folder.
+    """
     for k in _PER_AOI_KEYS:
         feat_ctx.pop(k, None)
+
+    folder = str(feat["folder_path"]) if feat else None
+    parent_dir = str(Path(folder).parent) if folder else None
+
+    def _poisoned(v):
+        """True if v is a path inside the project but NOT in this AOI's folder."""
+        if not (folder and isinstance(v, str) and "/" in v):
+            return False
+        return v.startswith(parent_dir + "/") and not v.startswith(folder + "/")
+
     p = Path(per_aoi_ctx_path)
     if p.exists():
         try:
             with open(p, "r", encoding="utf-8") as fr:
                 saved = json.load(fr)
             for k in _PER_AOI_KEYS:
-                if k in saved:
+                if k in saved and not _poisoned(saved[k]):
                     feat_ctx[k] = saved[k]
         except Exception:
             pass
+
+    if feat:
+        # Authoritative identity — never trust the saved file for these.
+        feat_ctx["aoi_path"]          = feat["source_file"]
+        feat_ctx["aoi_feature_index"] = feat["feature_index"]
+        # Heal DEM paths lost to poisoning: the DEM step names its output
+        # DEM_<AOI>.tif (3DEP), dem_clip_to_<AOI>.tif (user DEM) or
+        # HAND_<AOI>.tif (HAND) inside the AOI folder.  Pick the newest by
+        # mtime — re-runs create versioned copies and lexicographic order
+        # would pick the wrong one.
+        if not feat_ctx.get("dem_tif_path"):
+            hits = []
+            for pat in ("DEM_*.tif", "dem_clip_to_*.tif", "HAND_*.tif"):
+                hits.extend(Path(folder).glob(pat))
+            hits = [h for h in hits if "__filled" not in h.name]
+            if hits:
+                newest = max(hits, key=lambda h: h.stat().st_mtime)
+                feat_ctx["dem_tif_path"] = str(newest)
+                feat_ctx.setdefault("dem_path", str(newest))
     return feat_ctx
 
 
@@ -145,7 +194,7 @@ def run_triton_dem_all(
             feat_ctx["model_dir"] = mf_dir
 
             feat_ctx_path = str(Path(folder) / "workflow_context.json")
-            feat_ctx = _isolate_per_aoi(feat_ctx, feat_ctx_path)
+            feat_ctx = _isolate_per_aoi(feat_ctx, feat_ctx_path, feat)
             try:
                 with open(feat_ctx_path, "w", encoding="utf-8") as wf:
                     json.dump(feat_ctx, wf, indent=2, default=str)
@@ -295,7 +344,7 @@ def run_triton_manning_for_all_aois(
                 except Exception:
                     pass
 
-            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path)
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path, feat)
             feat_ctx_path = str(per_aoi_ctx_path)
 
             feat_ctx = prepare_triton_manning(
@@ -414,7 +463,7 @@ def run_triton_bc_for_all_aois(
                             feat_ctx[k] = saved[k]
                 except Exception:
                     pass
-            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path)
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path, feat)
             feat_ctx_path = str(per_aoi_ctx_path)
 
             # Inflow point + downstream segment: either auto-detected from the
@@ -557,8 +606,14 @@ def run_triton_hydro_for_all_aois(
             # inherited from the parent ctx and restores THIS AOI's own saved
             # values, so saving feat_ctx back cannot clobber them.
             per_aoi_ctx_path = Path(folder) / "workflow_context.json"
-            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path)
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path, feat)
             reach_id = feat_ctx.get("upstream_reach_id")
+            # A manually entered NWM feature ID overrides auto-detection —
+            # mirrors LISFLOOD's create_bdy(manual_feature_id=...) behavior.
+            manual_fid = str(cfg.get("manual_feature_id") or "").strip()
+            if manual_fid:
+                reach_id = manual_fid
+                log_fn(f"  Using manually entered NWM feature ID: {reach_id}")
             feat_ctx_path = str(per_aoi_ctx_path)
 
             bdy_source = cfg.get("bdy_source") or ""
@@ -667,6 +722,10 @@ def run_triton_cfg_for_all_aois(
                         feat_ctx.update(json.load(fr))
                 except Exception:
                     pass
+            # Re-validate per-AOI keys after the full merge: drops poisoned
+            # sibling-folder paths from old contaminated runs and forces this
+            # AOI's identity keys.
+            feat_ctx = _isolate_per_aoi(feat_ctx, per_aoi_ctx_path, feat)
             feat_ctx["aoi_name"]    = feat["folder_name"]
             feat_ctx["project_dir"] = folder
             feat_ctx["triton_dir"]  = mf_dir
