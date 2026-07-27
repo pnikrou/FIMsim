@@ -82,10 +82,17 @@ DEM grid, and converts it to a Manning's n map using the editable lookup table:
 
 ### Step 5 — BCI (Boundary Conditions)
 
-Keep **Auto-detect from NHD (USA)**. Set:
+Keep **Auto-detect from NHD (USA)**.
 
-- **Upstream boundary:** Varying discharge (QVAR — requires BDY file)
-- **Downstream boundary:** Free normal depth (FREE), bed slope `0.0001`
+The upstream boundary can be a **Varying discharge (QVAR)** — driven by the hydrograph
+from the next step — or a **Fixed discharge (QFIX)**. Select **QVAR**:
+
+![Step 5 — Upstream boundary options](images/lisflood_07a_bci_upstream_options.png)
+
+The downstream boundary can be a **Free normal depth (FREE)** or a **Fixed water level
+(HFIX)**. Select **FREE** with bed slope `0.0001`:
+
+![Step 5 — Downstream boundary options](images/lisflood_07b_bci_downstream_options.png)
 
 Click **Write .bci file(s)**. FIMsim downloads the NHD river network, identifies the
 main river, and derives the upstream/downstream boundary points from DEM elevations.
