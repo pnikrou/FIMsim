@@ -88,4 +88,20 @@ conda activate FIMsim
 python main.py
 ```
 
+---
+
+## 🧪 Try it — no input data needed
+
+Don't have a study area of your own? The [**`test_case/`**](test_case) folder ships two
+ready-to-use AOI shapefiles with complete step-by-step walkthroughs — the AOI polygon is
+the **only** input you provide; FIMsim downloads everything else automatically.
+
+| Test case | River | Model | Flood event |
+|---|---|---|---|
+| [AOI 1](test_case#test-case-1--lisflood-fp--west-branch-susquehanna-river-pa) | West Branch Susquehanna River, PA | LISFLOOD-FP | Tropical Storm Lee (Sep 2011) |
+| [AOI 2](test_case#test-case-2--triton--little-pee-dee-river-sc) | Little Pee Dee River, SC | TRITON | Hurricane Matthew (Oct 2016) |
+
+Each walkthrough states the expected result at every step (detected river, NWM reach ID,
+generated files) so you can verify your installation is working correctly.
+
 
