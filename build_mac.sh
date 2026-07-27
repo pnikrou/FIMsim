@@ -16,7 +16,7 @@
 # =============================================================================
 set -euo pipefail
 
-CONDA_ENV="lisflood_workflow"
+CONDA_ENV="FIMsim"
 APP_NAME="FIMsim"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -54,7 +54,7 @@ echo ""
 # ── Run PyInstaller ───────────────────────────────────────────────────────────
 echo "► Running PyInstaller (this takes 3–8 minutes)..."
 cd "$SCRIPT_DIR"
-"$PYINSTALLER" build_mac.spec --noconfirm
+"$PYINSTALLER" build_app.spec --noconfirm
 echo ""
 
 # ── Verify output ─────────────────────────────────────────────────────────────

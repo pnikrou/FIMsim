@@ -46,6 +46,11 @@ for pkg in [
     "openpyxl",
     "PyQt6",
     "matplotlib.backends",
+    "netCDF4",      # NWM forecast downloads
+    "h5netcdf",
+    "fimserve",     # OWP HAND-FIM mode
+    "curve2flood",  # ARC-Curve2Flood mode
+    "arc",          # automated-rating-curve (ARC-Curve2Flood mode)
 ]:
     d, b, h = collect_all(pkg)
     datas    += d
@@ -60,6 +65,8 @@ datas += [
     (str(ROOT / "data" / "us_huc8.geojson"),   "data"),
     # App assets (logo, workflow diagram)
     (str(ROOT / "assets"),                     "assets"),
+    # Bundled HTML user manual (opened by every mode's Help button)
+    (str(ROOT / "manual_site"),                "manual_site"),
 ]
 
 # ── Hidden imports that collect_all misses ────────────────────────────────────
@@ -94,13 +101,17 @@ hidden += [
     # aiofiles (async file I/O used by pynhd / pygeoogc)
     "aiofiles",
     # App modules — guarantee all core + gui submodules are included
-    "core.arc_manning", "core.arc_orchestrate",
+    "core.arc_manning", "core.arc_orchestrate", "core.arc_run",
     "core.triton_manning", "core.triton_bc", "core.triton_hydro",
     "core.triton_cfg", "core.triton_orchestrate",
     "core.orchestrate", "core.bci", "core.bdy", "core.par",
     "core.dem", "core.manning", "core.nlcd", "core.nwm_discharge",
     "core.flowline_mode", "core.multi_aoi", "core.aoi", "core.context",
     "core.export", "core.hand", "core.crs_utils",
+    "core.nhd_utils", "core.river_lookup", "core.aoi_info",
+    "core.nwm_forecast", "core.FIMserv_api",
+    # OWP HAND-FIM / ARC runtime packages (dynamically imported)
+    "fimserve.plot.nwmfid", "curve2flood", "arc",
 ]
 
 # ── PyInstaller Analysis ──────────────────────────────────────────────────────
@@ -158,8 +169,8 @@ if IS_MAC:
         bundle_identifier="edu.ua.fimsim",
         info_plist={
             "CFBundleDisplayName": "FIMsim",
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": "1.1.0",
+            "CFBundleVersion": "1.1.0",
             "NSHighResolutionCapable": True,
             "NSRequiresAquaSystemAppearance": False,
         },

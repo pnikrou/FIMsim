@@ -34,8 +34,12 @@ jobs:
             scipy numpy pandas openpyxl \
             h5py requests
           # Install remaining packages via pip
+          conda install -y -c conda-forge netCDF4 h5netcdf
           pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
                       pynhd pygeoogc gmsh certifi charset-normalizer \
+                      "fimserve==0.1.99" \
+                      "git+https://github.com/MikeFHS/automated-rating-curve.git@522d591d675a92af7454883a7ea82aa68953defc" \
+                      "git+https://github.com/MikeFHS/Curve2Flood.git@6f665af60d758aa212b2406a1d56c97ef9bbebe1" \
                       pyinstaller
 
       - name: Build with PyInstaller
@@ -84,8 +88,12 @@ jobs:
             geopandas pyogrio rasterio pyproj shapely \
             scipy numpy pandas openpyxl \
             h5py requests
+          conda install -y -c conda-forge netCDF4 h5netcdf
           pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
                       pynhd pygeoogc gmsh certifi charset-normalizer \
+                      "fimserve==0.1.99" \
+                      "git+https://github.com/MikeFHS/automated-rating-curve.git@522d591d675a92af7454883a7ea82aa68953defc" \
+                      "git+https://github.com/MikeFHS/Curve2Flood.git@6f665af60d758aa212b2406a1d56c97ef9bbebe1" \
                       pyinstaller
 
       - name: Build with PyInstaller
