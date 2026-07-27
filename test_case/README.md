@@ -197,7 +197,9 @@ First choose between **Fixed** and **Varying** roughness:
 
 ![Step 4 — Friction mode selection](images/triton_04_friction_mode.png)
 
-Select **Varying**, then pick the LULC source and year (use **NLCD**):
+Select **Varying**, then pick the LULC source and year. In Test Case 1 we used NLCD;
+this time select **Sentinel-2 (ESRI, 10 m — global)** with year **2017** (the year of
+the event) — demonstrating the globally available land-cover option:
 
 ![Step 4 — LULC source and Manning table](images/triton_05_friction_source.png)
 
