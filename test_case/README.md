@@ -154,9 +154,6 @@ tributary of the Neches River near Kountze, TX — experienced record flooding. 
 walkthrough builds the complete TRITON input package for that event using the NWM
 Retrospective discharge for the automatically detected reach.
 
-> ℹ️ In the screenshots the AOI file carries the author's original name `AOI_02shp` —
-> with the shapefile shipped here your run will show `AOI_2` instead.
-
 ### Step 1 — Project
 
 Open FIMsim and choose the **TRITON** model. Create a new project — pick any project
@@ -228,7 +225,9 @@ CSV/XLSX file:
 
 ![Step 6 — Hydrograph data source options](images/triton_09_hydro_sources.png)
 
-Select **NWM Retrospective (1979–2023)** and keep **Feature ID: Auto-detect** (you can
+In Test Case 1 (LISFLOOD-FP) we used a **USGS stream gage**; this time we download the
+discharge from the **NWM** instead — simply to demonstrate both processes. Select
+**NWM Retrospective (1979–2023)** and keep **Feature ID: Auto-detect** (you can
 also enter a feature ID manually). Set:
 
 - **Event start:** `2017-08-24 00:00`
