@@ -96,12 +96,13 @@ Don't have a study area of your own? The [**`test_case/`**](test_case) folder sh
 ready-to-use AOI shapefiles with complete step-by-step walkthroughs — the AOI polygon is
 the **only** input you provide; FIMsim downloads everything else automatically.
 
-| Test case | River | Model | Flood event |
+| Test case | Location | Model | Flood event |
 |---|---|---|---|
-| [AOI 1](test_case#test-case-1--lisflood-fp--west-branch-susquehanna-river-pa) | West Branch Susquehanna River, PA | LISFLOOD-FP | Tropical Storm Lee (Sep 2011) |
-| [AOI 2](test_case#test-case-2--triton--little-pee-dee-river-sc) | Little Pee Dee River, SC | TRITON | Hurricane Matthew (Oct 2016) |
+| [AOI 1](test_case#test-case-1--lisflood-fp--neuse-river-north-carolina) | Neuse River, North Carolina | LISFLOOD-FP | Hurricane Matthew (Oct 2016) |
+| [AOI 2](test_case#test-case-2--triton--southeast-texas-hurricane-harvey) | Southeast Texas | TRITON | Hurricane Harvey (Aug 2017) |
 
-Each walkthrough states the expected result at every step (detected river, NWM reach ID,
-generated files) so you can verify your installation is working correctly.
+Each walkthrough includes a screenshot of every step and states the expected result
+(detected river, USGS gage, generated files) so you can verify your installation is
+working correctly.
 
 
