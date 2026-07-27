@@ -9,12 +9,10 @@ your own. Each test case walks through one complete flood-model setup:
 | **2** | [`AOI_2_Texas/AOI_2.shp`](AOI_2_Texas) | Village Creek, Texas | **TRITON** | Hurricane Harvey — August 2017 |
 
 **What you need:** FIMsim (web app or desktop installer — see the
-[main README](../README.md#getting-started)) and an internet connection. All terrain,
-land-cover, river-network, and discharge data are downloaded automatically — the AOI
-shapefile is the only input you provide.
-
-> 💡 **Expected results are stated at every step** (detected river, gage, generated
-> files). If your run shows the same values, everything is working correctly.
+[main README](../README.md#getting-started)) and an internet connection. You provide
+the AOI shapefile plus the start and end dates of the flood event you want to
+simulate — all terrain, land-cover, river-network, and discharge data are downloaded
+automatically.
 
 ---
 

@@ -93,8 +93,9 @@ python main.py
 ## 🧪 Try it — no input data needed
 
 Don't have a study area of your own? The [**`test_case/`**](test_case) folder ships two
-ready-to-use AOI shapefiles with complete step-by-step walkthroughs — the AOI polygon is
-the **only** input you provide; FIMsim downloads everything else automatically.
+ready-to-use AOI shapefiles with complete step-by-step walkthroughs — you provide the
+AOI polygon and the event start/end dates; FIMsim downloads everything else
+automatically.
 
 | Test case | Location | Model | Flood event |
 |---|---|---|---|
