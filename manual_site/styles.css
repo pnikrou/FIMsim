@@ -632,3 +632,37 @@ th {
   font-size: 0.85rem;
   color: #64748b;
 }
+
+/* ── Top-level collapsibles: Preparing the AOI, Part 1, Part 2 ───────────── */
+.top-details {
+  scroll-margin-top: 90px;
+}
+
+.top-details > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+}
+
+.top-details > summary::-webkit-details-marker { display: none; }
+
+.top-details > summary::before {
+  content: "▸";
+  color: #2b6cb0;
+  font-size: 1.3rem;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.top-details[open] > summary::before { transform: rotate(90deg); }
+
+.top-details > summary h2 {
+  margin: 0;
+}
+
+.top-details .top-details-body {
+  margin-top: 16px;
+}

@@ -36,7 +36,7 @@
 
         <details open>
           <summary>Part 1: Preparing Input Parameters</summary>
-          <a href="#part-1">Part 1 Overview</a>
+          <a href="#part-1-overview">Overview</a>
           <a href="#dem-mode">DEM Mode</a>
           <a href="#lulc-mode">LULC &amp; Manning's n Mode</a>
           <a href="#flowline-mode">Flowline Mode</a>
@@ -45,7 +45,7 @@
 
         <details open>
           <summary>Part 2: Flood Mapping Models</summary>
-          <a href="#part-2">Part 2 Overview</a>
+          <a href="#part-2-overview">Overview</a>
           <a href="#lisflood-model">LISFLOOD-FP</a>
           <a href="#triton-model">TRITON</a>
           <a href="#fimserv-model">OWP HAND-FIM</a>
@@ -64,11 +64,6 @@
       </section>
 
       <section class="topic-section" id="framework">
-        <figure class="figure">
-          <img src="assets/workflow.png"
-               alt="FIMsim framework: Part 1 prepares independent hydraulic model inputs (DEM, LULC and Manning, Flowline, Streamflow Data); Part 2 covers the flood mapping models LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM.">
-          <figcaption>The FIMsim framework &mdash; Part 1 (independent inputs) and Part 2 (flood mapping models).</figcaption>
-        </figure>
         <p>
           FIMsim is organized into two parts. <strong>Part 1</strong> prepares
           individual, model-independent input datasets (DEM, LULC &amp;
@@ -77,10 +72,17 @@
           &mdash; LISFLOOD-FP, TRITON, OWP HAND-FIM, and ARC-Curve2Flood.
           Click any part or section below to unfold its guide.
         </p>
+        <figure class="figure">
+          <img src="assets/workflow.png"
+               alt="FIMsim framework: Part 1 prepares independent hydraulic model inputs (DEM, LULC and Manning, Flowline, Streamflow Data); Part 2 covers the flood mapping models LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM.">
+          <figcaption>The FIMsim framework &mdash; Part 1 (independent inputs) and Part 2 (flood mapping models).</figcaption>
+        </figure>
       </section>
 
-      <section class="topic-section" id="aoi-prep">
-        <h2>Preparing the AOI</h2>
+      <section class="topic-section">
+        <details class="top-details" id="aoi-prep">
+          <summary><h2>Preparing the AOI</h2></summary>
+          <div class="top-details-body">
 <p>
           The Area of Interest (AOI) is the single most important input in
           FIMsim. It is the polygon that defines the model domain, and its
@@ -188,10 +190,17 @@
             easier to fix the boundary here than after the model is built.
           </p>
         </div>
+          </div>
+        </details>
       </section>
 
-      <section class="topic-section part-section" id="part-1">
-        <h2>Part 1: Preparing Input Parameters</h2>
+      <section class="topic-section part-section">
+        <details class="top-details" id="part-1">
+          <summary><h2>Part 1: Preparing Input Parameters</h2></summary>
+          <div class="top-details-body">
+        <details class="mode-details" id="part-1-overview">
+        <summary><h3>Overview</h3></summary>
+        <div class="details-body">
         <p>
           Four standalone tools that each produce one type of model-independent
           input &mdash; usable in any flood model or workflow. On the FIMsim main
@@ -202,6 +211,8 @@
   <img src="assets/shots/part1_mainpage.png" alt="The FIMsim main page — the Preparing Input Data category with its four tools." loading="lazy">
   <figcaption>The FIMsim main page — the Preparing Input Data category with its four tools.</figcaption>
 </figure>
+        </div>
+      </details>
 
       <details class="mode-details" id="dem-mode">
         <summary><h3>DEM Mode</h3></summary>
@@ -606,10 +617,17 @@
         </ul>
         </div>
       </details>
+          </div>
+        </details>
       </section>
 
-      <section class="topic-section part-section" id="part-2">
-        <h2>Part 2: Flood Mapping Models</h2>
+      <section class="topic-section part-section">
+        <details class="top-details" id="part-2">
+          <summary><h2>Part 2: Flood Mapping Models</h2></summary>
+          <div class="top-details-body">
+        <details class="mode-details" id="part-2-overview">
+        <summary><h3>Overview</h3></summary>
+        <div class="details-body">
         <p>
           Complete pipelines that convert prepared terrain, roughness, boundary,
           and discharge inputs into model-ready folders &mdash; and, for
@@ -621,6 +639,8 @@
   <img src="assets/shots/part2_mainpage.png" alt="The FIMsim main page — the Flood Mapping category with its four models." loading="lazy">
   <figcaption>The FIMsim main page — the Flood Mapping category with its four models.</figcaption>
 </figure>
+        </div>
+      </details>
 
       <details class="mode-details" id="lisflood-model">
         <summary><h3>LISFLOOD-FP</h3></summary>
@@ -1306,6 +1326,8 @@
         </table>
         </div>
       </details>
+          </div>
+        </details>
       </section>
     </main>
   </div>
