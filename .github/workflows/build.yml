@@ -28,13 +28,14 @@ jobs:
         shell: bash -el {0}
         run: |
           conda activate fimsim-build
-          # Install geospatial packages via conda (GDAL/PROJ binaries)
+          # Geospatial stack via conda (GDAL/PROJ binaries). gdal is REQUIRED:
+          # the arc + curve2flood pip packages declare it as a dependency and
+          # pip cannot build GDAL from source on the runners. numpy pinned to
+          # the dev environment's version so the pip step cannot up/downgrade.
           conda install -y -c conda-forge \
             geopandas pyogrio rasterio pyproj shapely \
-            scipy numpy pandas openpyxl \
-            h5py requests
-          # Install remaining packages via pip
-          conda install -y -c conda-forge netCDF4 h5netcdf
+            scipy "numpy=2.0.*" pandas openpyxl \
+            h5py requests gdal netcdf4 h5netcdf
           pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
                       pynhd pygeoogc gmsh certifi charset-normalizer \
                       "fimserve==0.1.99" \
@@ -86,9 +87,8 @@ jobs:
           conda activate fimsim-build
           conda install -y -c conda-forge \
             geopandas pyogrio rasterio pyproj shapely \
-            scipy numpy pandas openpyxl \
-            h5py requests
-          conda install -y -c conda-forge netCDF4 h5netcdf
+            scipy "numpy=2.0.*" pandas openpyxl \
+            h5py requests gdal netcdf4 h5netcdf
           pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
                       pynhd pygeoogc gmsh certifi charset-normalizer \
                       "fimserve==0.1.99" \

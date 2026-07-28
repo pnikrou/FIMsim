@@ -51,6 +51,7 @@ for pkg in [
     "fimserve",     # OWP HAND-FIM mode
     "curve2flood",  # ARC-Curve2Flood mode
     "arc",          # automated-rating-curve (ARC-Curve2Flood mode)
+    "osgeo",        # GDAL python bindings (used by arc + curve2flood)
 ]:
     d, b, h = collect_all(pkg)
     datas    += d
