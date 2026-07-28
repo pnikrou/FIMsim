@@ -101,9 +101,9 @@ automatically.
 
 | Test case | Location | Model | Flood event |
 |---|---|---|---|
-| [AOI 1](test_case#test-case-1--lisflood-fp--neuse-river-north-carolina) | Neuse River, North Carolina | LISFLOOD-FP | Hurricane Matthew (Oct 2016) |
-| [AOI 2](test_case#test-case-2--triton--village-creek-texas-hurricane-harvey) | Village Creek, Texas | TRITON | Hurricane Harvey (Aug 2017) |
-| [AOI 3](test_case#test-case-3--standalone-input-data-tools--lumber-river-north-carolina) | Lumber River, North Carolina | Standalone input tools | Hurricane Matthew (Oct 2016) |
+| [AOI 1](test_case/test_case_1_lisflood.md) | Neuse River, North Carolina | LISFLOOD-FP | Hurricane Matthew (Oct 2016) |
+| [AOI 2](test_case/test_case_2_triton.md) | Village Creek, Texas | TRITON | Hurricane Harvey (Aug 2017) |
+| [AOI 3](test_case/test_case_3_standalone_tools.md) | Lumber River, North Carolina | Standalone input tools | Hurricane Matthew (Oct 2016) |
 
 Each walkthrough includes a screenshot of every step and states the expected result
 (detected river, USGS gage, generated files) so you can verify your installation is
