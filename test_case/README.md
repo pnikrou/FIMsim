@@ -10,6 +10,16 @@ tools:
 | **2** | [`AOI_2_Texas/AOI_2.shp`](AOI_2_Texas) | Village Creek, Texas | **TRITON** | Hurricane Harvey — August 2017 |
 | **3** | [`AOI_3_Lumber/AOI_03.shp`](AOI_3_Lumber) | Lumber River, North Carolina | **Standalone input tools** (DEM · LULC & Manning · Flowline · Streamflow) | Hurricane Matthew — October 2016 |
 
+### Contents
+
+1. [Test Case 1 — LISFLOOD-FP · Neuse River, North Carolina](#test-case-1--lisflood-fp--neuse-river-north-carolina)
+2. [Test Case 2 — TRITON · Village Creek, Texas (Hurricane Harvey)](#test-case-2--triton--village-creek-texas-hurricane-harvey)
+3. [Test Case 3 — Standalone Input Data Tools · Lumber River, North Carolina](#test-case-3--standalone-input-data-tools--lumber-river-north-carolina)
+   - [Tool 1 — DEM](#tool-1--dem)
+   - [Tool 2 — LULC & Manning](#tool-2--lulc--manning)
+   - [Tool 3 — Flowline](#tool-3--flowline)
+   - [Tool 4 — Streamflow Data](#tool-4--streamflow-data)
+
 **What you need:** FIMsim (web app or desktop installer — see the
 [main README](../README.md#getting-started)) and an internet connection. You provide
 the AOI shapefile plus the start and end dates of the flood event you want to
