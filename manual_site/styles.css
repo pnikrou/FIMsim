@@ -566,3 +566,69 @@ th {
     table-layout: auto;
   }
 }
+
+/* ── Collapsible mode/model sections (Part 1 / Part 2 accordion) ─────────── */
+.part-section > h2 {
+  scroll-margin-top: 90px;
+}
+
+.mode-details {
+  border: 1px solid #d7dfe8;
+  border-radius: 10px;
+  background: #fff;
+  margin: 14px 0;
+  scroll-margin-top: 90px;
+}
+
+.mode-details > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  user-select: none;
+}
+
+.mode-details > summary::-webkit-details-marker { display: none; }
+
+.mode-details > summary::before {
+  content: "▸";
+  color: #2b6cb0;
+  font-size: 1rem;
+  transition: transform 0.15s ease;
+}
+
+.mode-details[open] > summary::before { transform: rotate(90deg); }
+
+.mode-details > summary h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  color: #1f2937;
+}
+
+.mode-details > summary:hover h3 { color: #2b6cb0; }
+
+.mode-details .details-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid #edf2f7;
+}
+
+/* ── Screenshot figures ──────────────────────────────────────────────────── */
+.shot {
+  margin: 16px 0;
+}
+
+.shot img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid #d7dfe8;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.shot figcaption {
+  margin-top: 7px;
+  font-size: 0.85rem;
+  color: #64748b;
+}

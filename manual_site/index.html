@@ -31,22 +31,21 @@
         <details open>
           <summary>Getting Started</summary>
           <a href="#overview">Overview</a>
-          <a href="#manual-structure">Manual Structure</a>
           <a href="#aoi-prep">Preparing the AOI</a>
         </details>
 
-        <details>
+        <details open>
           <summary>Part 1: Preparing Input Parameters</summary>
-          <a href="#input-parameters">Part Overview</a>
+          <a href="#part-1">Part 1 Overview</a>
           <a href="#dem-mode">DEM Mode</a>
           <a href="#lulc-mode">LULC &amp; Manning's n Mode</a>
           <a href="#flowline-mode">Flowline Mode</a>
           <a href="#streamflow-mode">Streamflow Data Mode</a>
         </details>
 
-        <details>
+        <details open>
           <summary>Part 2: Flood Mapping Models</summary>
-          <a href="#flood-models">Part Overview</a>
+          <a href="#part-2">Part 2 Overview</a>
           <a href="#lisflood-model">LISFLOOD-FP</a>
           <a href="#triton-model">TRITON</a>
           <a href="#fimserv-model">OWP HAND-FIM</a>
@@ -61,94 +60,28 @@
           <p class="eyebrow">Flood Inundation Model Simulation Tool</p>
           <h1>FIMsim User Manual</h1>
           <p>
-            FIMsim is organized into two parts. The first part prepares input
-            parameters: DEM, LULC and Manning's n, Flowline, and Streamflow
-            Data. The second part prepares flood mapping model inputs, starting
-            with LISFLOOD-FP and TRITON.
+            FIMsim is organized into two parts. <strong>Part 1</strong> prepares
+            individual, model-independent input datasets (DEM, LULC &amp;
+            Manning's n, Flowline, Streamflow Data). <strong>Part 2</strong>
+            builds complete, model-ready packages for four flood mapping models
+            &mdash; LISFLOOD-FP, TRITON, OWP HAND-FIM, and ARC-Curve2Flood.
+            Click any part or section below to unfold its guide.
           </p>
         </div>
         <img src="assets/fimsim_logo.png" alt="FIMsim logo">
       </section>
 
-      <section class="topic-section" id="manual-structure">
-        <h2>Manual Structure</h2>
-        <p>
-          FIMsim is organized into two parts. <strong>Part 1</strong> prepares
-          individual, model-independent input datasets (DEM, LULC &amp;
-          Manning's n, Flowline, Streamflow Data). <strong>Part 2</strong> takes
-          those inputs and builds a complete, model-ready package for a 2-D
-          flood mapping model. The framework below shows how the two parts fit
-          together.
-        </p>
+      <section class="topic-section" id="framework">
         <figure class="figure">
           <img src="assets/workflow.png"
                alt="FIMsim framework: Part 1 prepares independent hydraulic model inputs (DEM, LULC and Manning, Flowline, Streamflow Data); Part 2 covers the flood mapping models LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM.">
-          <figcaption>The FIMsim framework — Part 1 (independent inputs) and Part 2 (flood mapping models).</figcaption>
+          <figcaption>The FIMsim framework &mdash; Part 1 (independent inputs) and Part 2 (flood mapping models).</figcaption>
         </figure>
-        <div class="part-accordion">
-          <details id="input-parameters">
-            <summary>
-              <span>Part 1</span>
-              <strong>Preparing Input Parameters</strong>
-            </summary>
-            <div class="mode-grid">
-              <article>
-                <h3>DEM Mode</h3>
-                <p>Download and process Digital Elevation Models for any Area of Interest.</p>
-                <p class="muted">Output: DEM raster (.tif / .asc / .gpkg).</p>
-              </article>
-              <article>
-                <h3>LULC &amp; Manning Mode</h3>
-                <p>Download land use/land cover data and assign Manning's n roughness coefficients.</p>
-                <p class="muted">Output: LULC raster and Manning's n raster / table.</p>
-              </article>
-              <article>
-                <h3>Flowline Mode</h3>
-                <p>Download NHD river flowlines, identify the main river, save USGS gages, and export NWM feature IDs.</p>
-                <p class="muted">Output: flowlines, gages CSV, feature IDs CSV.</p>
-              </article>
-              <article>
-                <h3>Streamflow Data Mode</h3>
-                <p>Download discharge time series from NOAA NWM retrospective, NOAA NWM forecast, or USGS stream gages.</p>
-                <p class="muted">Output: CSV files with time_hours and discharge_cms.</p>
-              </article>
-            </div>
-          </details>
-
-          <details>
-            <summary>
-              <span>Part 2</span>
-              <strong>Flood Mapping Models</strong>
-            </summary>
-            <div class="model-grid">
-              <article>
-                <span class="status-badge ready">Ready</span>
-                <h3>LISFLOOD-FP</h3>
-                <p>Prepares raster terrain, Manning's n, boundary condition, discharge, and simulation control files.</p>
-              </article>
-              <article>
-                <span class="status-badge ready">Ready</span>
-                <h3>TRITON</h3>
-                <p>Prepares raster terrain, friction, boundary, hydrograph, and configuration files for TRITON runs.</p>
-              </article>
-              <article>
-                <span class="status-badge ready">Ready</span>
-                <h3>OWP HAND-FIM</h3>
-                <p>Generates OWP HAND flood inundation maps from AOI files or HUC8 IDs using the three-step FIMserv workflow.</p>
-              </article>
-              <article>
-                <span class="status-badge ready">Ready</span>
-                <h3>ARC-Curve2Flood</h3>
-                <p>Builds a rating curve per stream reach (ARC) and runs Curve2Flood in-app to produce the flood inundation raster.</p>
-              </article>
-            </div>
-          </details>
-        </div>
       </section>
 
       <section class="topic-section" id="aoi-prep">
         <h2>Preparing the AOI</h2>
-        <p>
+<p>
           The Area of Interest (AOI) is the single most important input in
           FIMsim. It is the polygon that defines the model domain, and its
           edges become the outer boundary of the flood simulation. Almost every
@@ -165,6 +98,11 @@
           <li>Each selected polygon becomes one model domain with its own output folder.</li>
           <li>The DEM, LULC/Manning, and flowlines are all cut to the polygon outline.</li>
         </ul>
+
+        <figure class="shot">
+  <img src="assets/shots/aoi_selection.png" alt="The AOI step — feature table, selected-AOI details (area, CRS, HUC codes, main river, USGS gages), and location preview." loading="lazy">
+  <figcaption>The AOI step — feature table, selected-AOI details (area, CRS, HUC codes, main river, USGS gages), and location preview.</figcaption>
+</figure>
 
         <h3 id="aoi-edges">Why the Edges Matter for Boundary Conditions</h3>
         <p>
@@ -252,9 +190,23 @@
         </div>
       </section>
 
-      <section class="topic-section" id="dem-mode">
-        <h2>DEM Mode</h2>
-        <div class="note">
+      <section class="topic-section part-section" id="part-1">
+        <h2>Part 1: Preparing Input Parameters</h2>
+        <p>
+          Four standalone tools that each produce one type of model-independent
+          input &mdash; usable in any flood model or workflow. On the FIMsim main
+          page, open the <strong>Preparing Input Data</strong> category and
+          start the tool you need. Click a tool below to unfold its guide.
+        </p>
+        <figure class="shot">
+  <img src="assets/shots/part1_mainpage.png" alt="The FIMsim main page — the Preparing Input Data category with its four tools." loading="lazy">
+  <figcaption>The FIMsim main page — the Preparing Input Data category with its four tools.</figcaption>
+</figure>
+
+      <details class="mode-details" id="dem-mode">
+        <summary><h3>DEM Mode</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             Before you start, make sure your AOI is ready. See
             <a href="#aoi-prep">Preparing the AOI</a> for how the polygon and
@@ -275,6 +227,11 @@
           <li>Click Create Project.</li>
         </ul>
 
+        <figure class="shot">
+  <img src="assets/shots/project_step.png" alt="Step 1 — creating a project folder." loading="lazy">
+  <figcaption>Step 1 — creating a project folder.</figcaption>
+</figure>
+
         <h3 id="dem-aoi">Step 2: Define Area(s) of Interest (AOI)</h3>
         <p>An AOI is a polygon shapefile (.shp) or GeoPackage (.gpkg) that defines the study boundary.</p>
         <ul>
@@ -284,6 +241,11 @@
           <li>Click Add to confirmed AOIs. A folder with the AOI name is automatically created inside the project folder.</li>
           <li>Click Next step to continue.</li>
         </ul>
+
+        <figure class="shot">
+  <img src="assets/shots/aoi_selection.png" alt="Step 2 — selecting the AOI and reviewing the domain overview." loading="lazy">
+  <figcaption>Step 2 — selecting the AOI and reviewing the domain overview.</figcaption>
+</figure>
 
         <h3 id="dem-settings">Step 3: Configure DEM Settings</h3>
         <p>For each AOI, choose the DEM source and output format.</p>
@@ -309,6 +271,15 @@
 
         <p>For multiple AOIs, each AOI gets its own settings card. Use Apply current AOI's settings to all to copy settings across all AOIs at once.</p>
 
+        <figure class="shot">
+  <img src="assets/shots/dem_source.png" alt="Step 3 — choosing the DEM source (USGS 3DEP or HAND / TACC)." loading="lazy">
+  <figcaption>Step 3 — choosing the DEM source (USGS 3DEP or HAND / TACC).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/dem_format.png" alt="Step 3 — choosing the output format (GeoTIFF, GeoPackage, or ASCII grid)." loading="lazy">
+  <figcaption>Step 3 — choosing the output format (GeoTIFF, GeoPackage, or ASCII grid).</figcaption>
+</figure>
+
         <h3 id="dem-run">Step 4: Run</h3>
         <ul>
           <li>Click Run.</li>
@@ -316,11 +287,17 @@
           <li>When complete, click any AOI name to see the DEM preview and elevation statistics.</li>
           <li>The DEM file is saved at: <code>&lt;project&gt;/&lt;AOI name&gt;/dem/dem.tif</code>, or .asc / .gpkg depending on your format choice.</li>
         </ul>
-      </section>
+<figure class="shot">
+  <img src="assets/shots/dem_result.png" alt="Step 4 — the processed DEM with preview and elevation statistics." loading="lazy">
+  <figcaption>Step 4 — the processed DEM with preview and elevation statistics.</figcaption>
+</figure>
+        </div>
+      </details>
 
-      <section class="topic-section" id="lulc-mode">
-        <h2>LULC &amp; Manning's n Mode</h2>
-        <div class="note">
+      <details class="mode-details" id="lulc-mode">
+        <summary><h3>LULC &amp; Manning's n Mode</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             Before you start, make sure your AOI is ready. See
             <a href="#aoi-prep">Preparing the AOI</a> for how the polygon and
@@ -360,6 +337,11 @@
           <li><strong>ESRI Sentinel-2 (Global, 10 m):</strong> Global land cover from ESRI. Use for study areas outside the USA or when 10 m resolution is needed.</li>
         </ul>
 
+        <figure class="shot">
+  <img src="assets/shots/lulc_source.png" alt="Choosing the LULC source — NLCD (USA, 30 m) or ESRI Sentinel-2 (global, 10 m)." loading="lazy">
+  <figcaption>Choosing the LULC source — NLCD (USA, 30 m) or ESRI Sentinel-2 (global, 10 m).</figcaption>
+</figure>
+
         <h3 id="lulc-table">Editing the Manning's n Table</h3>
         <p>In Varying mode, a table lists all LULC classes with default Manning's n values.</p>
         <ul>
@@ -368,6 +350,11 @@
           <li>Changes apply only to the current session.</li>
         </ul>
 
+        <figure class="shot">
+  <img src="assets/shots/lulc_manning_table.png" alt="The Manning's n output format and the editable per-class lookup table." loading="lazy">
+  <figcaption>The Manning's n output format and the editable per-class lookup table.</figcaption>
+</figure>
+
         <h3 id="lulc-run">Step 4: Run</h3>
         <ul>
           <li>Click Run.</li>
@@ -375,11 +362,17 @@
           <li>When complete, click any AOI name to view LULC and Manning raster previews plus a land cover breakdown table.</li>
           <li>Output files are saved at: <code>&lt;project&gt;/&lt;AOI name&gt;/lulc.tif</code> and <code>&lt;AOI name&gt;/lulc.ascii</code> if requested.</li>
         </ul>
-      </section>
+<figure class="shot">
+  <img src="assets/shots/lulc_result.png" alt="The result — land-cover breakdown with the LULC map and the derived Manning's n map." loading="lazy">
+  <figcaption>The result — land-cover breakdown with the LULC map and the derived Manning's n map.</figcaption>
+</figure>
+        </div>
+      </details>
 
-      <section class="topic-section" id="flowline-mode">
-        <h2>Flowline Mode</h2>
-        <div class="note">
+      <details class="mode-details" id="flowline-mode">
+        <summary><h3>Flowline Mode</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             Before you start, make sure your AOI is ready. See
             <a href="#aoi-prep">Preparing the AOI</a> &mdash; the river must
@@ -435,6 +428,15 @@
           </tbody>
         </table>
 
+        <figure class="shot">
+  <img src="assets/shots/flowline_mainriver.png" alt="Main-river output format options (Shapefile, GeoPackage, TIF raster, CSV)." loading="lazy">
+  <figcaption>Main-river output format options (Shapefile, GeoPackage, TIF raster, CSV).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/flowline_all.png" alt="All-flowlines output format options and the USGS gages CSV toggle." loading="lazy">
+  <figcaption>All-flowlines output format options and the USGS gages CSV toggle.</figcaption>
+</figure>
+
         <h3 id="flowline-run">Step 4: Run</h3>
         <ul>
           <li>Click Download Flowlines for all AOIs.</li>
@@ -442,6 +444,11 @@
           <li>When complete, click any AOI name to view AOI polygon, downloaded flowlines, USGS gages, and upstream/downstream markers.</li>
           <li>Output files are saved inside each AOI folder: <code>&lt;project&gt;/&lt;AOI name&gt;/</code>.</li>
         </ul>
+
+        <figure class="shot">
+  <img src="assets/shots/flowline_result.png" alt="The result map — main river, all flowlines, USGS gage, and upstream/downstream markers." loading="lazy">
+  <figcaption>The result map — main river, all flowlines, USGS gage, and upstream/downstream markers.</figcaption>
+</figure>
 
         <h3 id="flowline-output">Flowline Output Files</h3>
         <table>
@@ -475,11 +482,13 @@
             </tr>
           </tbody>
         </table>
-      </section>
+        </div>
+      </details>
 
-      <section class="topic-section" id="streamflow-mode">
-        <h2>Streamflow Data Mode</h2>
-        <p>
+      <details class="mode-details" id="streamflow-mode">
+        <summary><h3>Streamflow Data Mode</h3></summary>
+        <div class="details-body">
+<p>
           Streamflow Data Mode downloads discharge time series without requiring
           an AOI. Enter NWM feature IDs or USGS gage numbers directly, paste
           comma-separated values, or browse to a CSV/TXT file with one ID per line.
@@ -521,6 +530,19 @@
           </tbody>
         </table>
 
+        <figure class="shot">
+  <img src="assets/shots/streamflow_retro.png" alt="NWM Retrospective — feature IDs (or a CSV of IDs), date window, and interval." loading="lazy">
+  <figcaption>NWM Retrospective — feature IDs (or a CSV of IDs), date window, and interval.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/streamflow_forecast.png" alt="NWM Forecast — feature IDs plus forecast range, issue date, and cycle." loading="lazy">
+  <figcaption>NWM Forecast — feature IDs plus forecast range, issue date, and cycle.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/streamflow_usgs.png" alt="USGS Stream Gage — gage numbers (or a CSV), date window, and interval." loading="lazy">
+  <figcaption>USGS Stream Gage — gage numbers (or a CSV), date window, and interval.</figcaption>
+</figure>
+
         <h3 id="streamflow-ids">Entering IDs</h3>
         <ul>
           <li>For NWM sources, enter a single feature ID, a comma-separated list of feature IDs, or browse to a CSV/TXT file. The feature_ids_&lt;AOI name&gt;.csv file from Flowline Mode can be used here.</li>
@@ -535,6 +557,11 @@
           <li>When complete, the app reports how many time series were saved. Data warnings appear in the results panel.</li>
           <li>If one time series is downloaded, the hydrograph appears directly. If multiple time series are downloaded, click a row to preview its hydrograph.</li>
         </ul>
+
+        <figure class="shot">
+  <img src="assets/shots/streamflow_result.png" alt="A downloaded USGS hydrograph previewed after the run." loading="lazy">
+  <figcaption>A downloaded USGS hydrograph previewed after the run.</figcaption>
+</figure>
 
         <h3 id="streamflow-output">Streamflow Output Files</h3>
         <table>
@@ -577,45 +604,28 @@
           <li>Use usgs_gages_&lt;AOI name&gt;.csv to identify candidate USGS gage numbers.</li>
           <li>Check the hydrograph preview and warnings after each download to confirm the selected period has usable discharge data.</li>
         </ul>
+        </div>
+      </details>
       </section>
 
-      <section class="blank-page" aria-hidden="true"></section>
-
-      <section class="topic-section" id="flood-models">
+      <section class="topic-section part-section" id="part-2">
         <h2>Part 2: Flood Mapping Models</h2>
         <p>
-          Flood Mapping Models convert prepared terrain, roughness, boundary,
-          and discharge inputs into complete model-ready folders — and, for
-          ARC-Curve2Flood and OWP HAND-FIM, run the simulation directly. All
-          four models are documented below.
+          Complete pipelines that convert prepared terrain, roughness, boundary,
+          and discharge inputs into model-ready folders &mdash; and, for
+          ARC-Curve2Flood and OWP HAND-FIM, run the simulation directly. On the
+          main page, open the <strong>Flood Mapping</strong> category and start
+          a model. Click a model below to unfold its guide.
         </p>
-        <div class="model-grid">
-          <article>
-            <span class="status-badge ready">Ready</span>
-            <h3>LISFLOOD-FP</h3>
-            <p>Prepares raster terrain, Manning's n, boundary condition, discharge, and simulation control files.</p>
-          </article>
-          <article>
-            <span class="status-badge ready">Ready</span>
-            <h3>TRITON</h3>
-            <p>Prepares raster terrain, friction, boundary, hydrograph, and configuration files for TRITON runs.</p>
-          </article>
-          <article>
-            <span class="status-badge ready">Ready</span>
-            <h3>OWP HAND-FIM</h3>
-            <p>Generates OWP HAND flood inundation maps from AOI files or HUC8 IDs using the three-step FIMserv workflow.</p>
-          </article>
-          <article>
-            <span class="status-badge ready">Ready</span>
-            <h3>ARC-Curve2Flood</h3>
-            <p>Builds a rating curve per stream reach (ARC) and runs Curve2Flood in-app to produce the flood inundation raster.</p>
-          </article>
-        </div>
-      </section>
+        <figure class="shot">
+  <img src="assets/shots/part2_mainpage.png" alt="The FIMsim main page — the Flood Mapping category with its four models." loading="lazy">
+  <figcaption>The FIMsim main page — the Flood Mapping category with its four models.</figcaption>
+</figure>
 
-      <section class="topic-section" id="lisflood-model">
-        <h2>LISFLOOD-FP</h2>
-        <div class="note">
+      <details class="mode-details" id="lisflood-model">
+        <summary><h3>LISFLOOD-FP</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             The AOI edges become this model's boundary. Before you start, see
             <a href="#aoi-prep">Preparing the AOI</a> &mdash; it explains why the
@@ -733,6 +743,39 @@
           </tbody>
         </table>
 
+        <figure class="shot">
+  <img src="assets/shots/lf_aoi.png" alt="Step 2 — AOI selection with domain overview (area, CRS, HUC codes, main river, USGS gages)." loading="lazy">
+  <figcaption>Step 2 — AOI selection with domain overview (area, CRS, HUC codes, main river, USGS gages).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_dem.png" alt="Step 3 — DEM downloaded, clipped, and previewed with elevation statistics." loading="lazy">
+  <figcaption>Step 3 — DEM downloaded, clipped, and previewed with elevation statistics.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_manning.png" alt="Step 4 — LULC and Manning's n maps with the per-class breakdown." loading="lazy">
+  <figcaption>Step 4 — LULC and Manning's n maps with the per-class breakdown.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_bci_upstream.png" alt="Step 5 — upstream boundary options: varying discharge (QVAR) or fixed discharge (QFIX)." loading="lazy">
+  <figcaption>Step 5 — upstream boundary options: varying discharge (QVAR) or fixed discharge (QFIX).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_bci_downstream.png" alt="Step 5 — downstream boundary options: free normal depth (FREE) or fixed water level (HFIX)." loading="lazy">
+  <figcaption>Step 5 — downstream boundary options: free normal depth (FREE) or fixed water level (HFIX).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_bci_result.png" alt="Step 5 — the generated BCI previewed on the map with upstream and downstream markers." loading="lazy">
+  <figcaption>Step 5 — the generated BCI previewed on the map with upstream and downstream markers.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_bdy.png" alt="Step 6 — the discharge hydrograph downloaded and previewed before writing the .bdy file." loading="lazy">
+  <figcaption>Step 6 — the discharge hydrograph downloaded and previewed before writing the .bdy file.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/lf_par.png" alt="Step 7 — simulation timing, solver, initial condition, and output options for the .par file." loading="lazy">
+  <figcaption>Step 7 — simulation timing, solver, initial condition, and output options for the .par file.</figcaption>
+</figure>
+
         <h3 id="lisflood-outputs">Output Files</h3>
         <p>
           For each AOI, the LISFLOOD-FP files are saved in a
@@ -768,11 +811,13 @@
             </tr>
           </tbody>
         </table>
-      </section>
+        </div>
+      </details>
 
-      <section class="topic-section" id="triton-model">
-        <h2>TRITON</h2>
-        <div class="note">
+      <details class="mode-details" id="triton-model">
+        <summary><h3>TRITON</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             The AOI edges become this model's boundary. Before you start, see
             <a href="#aoi-prep">Preparing the AOI</a> &mdash; it explains why the
@@ -891,6 +936,23 @@
           </tbody>
         </table>
 
+        <figure class="shot">
+  <img src="assets/shots/tr_friction.png" alt="Step 4 — LULC and Manning's n (friction) maps for TRITON." loading="lazy">
+  <figcaption>Step 4 — LULC and Manning's n (friction) maps for TRITON.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/tr_bc.png" alt="Step 5 — the BC step result: inflow point (.src) and downstream boundary segment (.extbc) previewed." loading="lazy">
+  <figcaption>Step 5 — the BC step result: inflow point (.src) and downstream boundary segment (.extbc) previewed.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/tr_hydrograph.png" alt="Step 6 — NWM Retrospective hydrograph with auto-detected feature ID, written to the .hyg file." loading="lazy">
+  <figcaption>Step 6 — NWM Retrospective hydrograph with auto-detected feature ID, written to the .hyg file.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/tr_config.png" alt="Step 7 — the Config step writes the .cfg with run controls and file references." loading="lazy">
+  <figcaption>Step 7 — the Config step writes the .cfg with run controls and file references.</figcaption>
+</figure>
+
         <h3 id="triton-outputs">Output Files</h3>
         <p>
           For each AOI, the TRITON files are saved in a
@@ -930,11 +992,13 @@
             </tr>
           </tbody>
         </table>
-      </section>
+        </div>
+      </details>
 
-      <section class="topic-section" id="fimserv-model">
-        <h2>OWP HAND-FIM</h2>
-        <div class="note">
+      <details class="mode-details" id="fimserv-model">
+        <summary><h3>OWP HAND-FIM (FIMserv)</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             When you run from an AOI file, make sure it is ready first. See
             <a href="#aoi-prep">Preparing the AOI</a>. (This module can also run
@@ -1080,11 +1144,13 @@
             </tr>
           </tbody>
         </table>
-      </section>
+        </div>
+      </details>
 
-      <section class="topic-section" id="arc-model">
-        <h2>ARC-Curve2Flood</h2>
-        <div class="note">
+      <details class="mode-details" id="arc-model">
+        <summary><h3>ARC-Curve2Flood</h3></summary>
+        <div class="details-body">
+<div class="note">
           <p>
             The AOI defines this model's domain. Before you start, see
             <a href="#aoi-prep">Preparing the AOI</a> &mdash; the stream network
@@ -1238,6 +1304,8 @@
             </tr>
           </tbody>
         </table>
+        </div>
+      </details>
       </section>
     </main>
   </div>

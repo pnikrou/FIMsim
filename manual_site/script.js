@@ -50,3 +50,23 @@ const markActiveLink = () => {
 
 document.addEventListener("scroll", markActiveLink, { passive: true });
 window.addEventListener("load", markActiveLink);
+
+// Open the collapsible section (and its ancestors) when navigating to it,
+// so sidebar links and in-text anchors always reveal their target.
+const openTarget = (hash) => {
+  if (!hash || hash === "#") return;
+  const el = document.querySelector(hash);
+  if (!el) return;
+  if (el.tagName === "DETAILS") el.open = true;
+  let parent = el.parentElement;
+  while (parent) {
+    if (parent.tagName === "DETAILS") parent.open = true;
+    parent = parent.parentElement;
+  }
+};
+
+links.forEach((link) => {
+  link.addEventListener("click", () => openTarget(link.getAttribute("href")));
+});
+window.addEventListener("hashchange", () => openTarget(window.location.hash));
+window.addEventListener("load", () => openTarget(window.location.hash));
