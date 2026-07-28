@@ -1,7 +1,8 @@
 # FIMsim Test Cases
 
-Two ready-to-use study areas so you can try FIMsim end to end without any input data of
-your own. Each test case walks through one complete flood-model setup:
+Three ready-to-use test cases so you can try FIMsim end to end without any input data
+of your own — two complete flood-model setups and one tour of the standalone input
+tools:
 
 | Test case | AOI shapefile | Location | Model / Tool | Flood event |
 |---|---|---|---|---|
