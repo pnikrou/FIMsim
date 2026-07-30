@@ -18,7 +18,7 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
-    QComboBox, QDateEdit, QDoubleSpinBox,
+    QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QDate
@@ -99,8 +99,28 @@ class ArcFlowConfigPanel(QWidget):
         fr.addStretch()
         layout.addWidget(self._fcst_row)
 
-        # Baseflow percentile — ARC's own streamflow tool uses the MEDIAN of
-        # the record as baseflow and the record max as the flood flow.
+        # Baseflow — ARC carves the channel to convey this flow before any
+        # water goes overbank, so it must be a long-term (climatological)
+        # statistic, not a statistic of the flood window.
+        bf_row = QHBoxLayout()
+        bf_row.addWidget(QLabel("Baseflow (channel-forming):"))
+        self._base_mode = QComboBox()
+        self._base_mode.addItem("Long-term climatology (recommended)", "longterm")
+        self._base_mode.addItem("From the event window only", "window")
+        self._base_mode.setFixedWidth(250)
+        self._base_mode.setToolTip(
+            "ARC uses the baseflow column as the channel-forming (bankfull) "
+            "discharge and carves the channel deep enough to convey it.\n\n"
+            "Long-term climatology: median of a multi-year NWM retrospective "
+            "record (what ARC's own tooling does).\n\n"
+            "Event window only: median of your selected dates — this is much "
+            "higher during a flood, over-carves the channel, and badly "
+            "UNDER-predicts inundated area.")
+        self._base_mode.currentIndexChanged.connect(self._on_base_mode_changed)
+        bf_row.addWidget(self._base_mode)
+        bf_row.addStretch()
+        layout.addLayout(bf_row)
+
         bp_row = QHBoxLayout()
         bp_row.addWidget(QLabel("Baseflow percentile:"))
         self._base_pct = QDoubleSpinBox()
@@ -109,18 +129,48 @@ class ArcFlowConfigPanel(QWidget):
         self._base_pct.setSuffix(" %")
         self._base_pct.setFixedWidth(90)
         self._base_pct.setToolTip(
-            "Which percentile of the discharge series is used as ARC's "
-            "baseflow. ARC's own tooling uses the median (50%); the peak of "
-            "the series is always used as the flood flow.")
+            "Which percentile of the record is used as baseflow. ARC's own "
+            "tooling uses the median (50%); the peak of the event window is "
+            "always used as the flood flow.")
         self._base_pct.valueChanged.connect(lambda *_: self.config_changed.emit())
         bp_row.addWidget(self._base_pct)
-        bp_hint = QLabel("(50 % = median, ARC's convention; peak = flood flow)")
-        bp_hint.setStyleSheet("color:#718096; font-size:11px;")
-        bp_row.addWidget(bp_hint)
+        bp_row.addWidget(QLabel("over"))
+        self._base_years = QSpinBox()
+        self._base_years.setRange(1, 40)
+        self._base_years.setValue(10)
+        self._base_years.setSuffix(" yr")
+        self._base_years.setFixedWidth(80)
+        self._base_years.valueChanged.connect(lambda *_: self.config_changed.emit())
+        bp_row.addWidget(self._base_years)
         bp_row.addStretch()
         layout.addLayout(bp_row)
 
+        self._bp_hint = QLabel(
+            "★ 50 % = median, ARC's convention. The flood flow is always the "
+            "peak of the event window above.")
+        self._bp_hint.setWordWrap(True)
+        self._bp_hint.setStyleSheet("color:#718096; font-size:11px;")
+        layout.addWidget(self._bp_hint)
+
         self._on_src_changed()
+        self._on_base_mode_changed()
+
+    def _on_base_mode_changed(self, *_):
+        longterm = (self._base_mode.currentData() == "longterm")
+        self._base_years.setVisible(longterm)
+        if longterm:
+            self._bp_hint.setText(
+                "★ 50 % = median, ARC's convention. Baseflow is taken from a "
+                "multi-year NWM record (an extra, quick daily download). The "
+                "flood flow is always the peak of the event window above.")
+            self._bp_hint.setStyleSheet("color:#718096; font-size:11px;")
+        else:
+            self._bp_hint.setText(
+                "⚠ Baseflow from the flood window is much higher than the true "
+                "channel-forming flow — ARC over-carves the channel and the "
+                "flood map will show far too little inundated area.")
+            self._bp_hint.setStyleSheet("color:#c05621; font-size:11px;")
+        self.config_changed.emit()
 
     def _on_src_changed(self, *_):
         is_retro = (self._src_combo.currentData() == "nwm_retro")
@@ -132,7 +182,9 @@ class ArcFlowConfigPanel(QWidget):
         return True
 
     def get_config(self) -> dict:
-        cfg = {"base_percentile": float(self._base_pct.value())}
+        cfg = {"base_percentile": float(self._base_pct.value()),
+               "baseflow_mode": self._base_mode.currentData(),
+               "baseflow_years": int(self._base_years.value())}
         if self._src_combo.currentData() == "nwm_retro":
             cfg["source"]   = "nwm_retro"
             cfg["start_dt"] = self._start.date().toString("yyyy-MM-dd")
@@ -163,6 +215,14 @@ class ArcFlowConfigPanel(QWidget):
         self._fcycle.setCurrentText("Auto" if fh is None else f"{int(fh):02d}")
         if cfg.get("base_percentile") is not None:
             self._base_pct.setValue(float(cfg["base_percentile"]))
+        bm = cfg.get("baseflow_mode")
+        if bm:
+            i = self._base_mode.findData(bm)
+            if i >= 0:
+                self._base_mode.setCurrentIndex(i)
+        if cfg.get("baseflow_years"):
+            self._base_years.setValue(int(cfg["baseflow_years"]))
+        self._on_base_mode_changed()
 
 
 # ── Per-AOI card (mirrors AOIDEMCard chrome) ──────────────────────────────────
@@ -276,8 +336,11 @@ class AOIArcFlowCard(QFrame):
             cyc_txt = "auto" if cyc is None else f"t{cyc:02d}z"
             src = (f"<i>NWM Forecast:</i> {cfg.get('forecast_date')} "
                    f"({cfg.get('forecast_range')}, {cyc_txt})")
+        bm = ("long-term" if cfg.get("baseflow_mode") == "longterm"
+              else "window")
         self._status_lbl.setText(
-            f"{src} &nbsp;·&nbsp; <i>base:</i> p{cfg.get('base_percentile'):g}")
+            f"{src} &nbsp;·&nbsp; <i>base:</i> p{cfg.get('base_percentile'):g} "
+            f"({bm})")
 
     def _forward_config_changed(self):
         self._refresh_status()

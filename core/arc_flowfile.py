@@ -72,6 +72,66 @@ def _base_max_from_grid(df: pd.DataFrame, base_percentile: float) -> pd.DataFram
     return pd.DataFrame(rows, columns=["COMID", "base", "max"])
 
 
+# ── Long-term baseflow ────────────────────────────────────────────────────────
+#
+# ARC uses the baseflow column as the channel-forming (bankfull) discharge: it
+# carves the unseen channel bathymetry deep enough to convey that flow before
+# any water goes overbank.  So baseflow MUST be a long-term climatological
+# statistic, not a statistic of the flood window.
+#
+# Taking the median *inside* a flood window inflates baseflow enormously (on
+# real AOIs we measured 169 m3/s instead of the true 19 m3/s, and 733 instead
+# of 249).  ARC then over-carves the channel and the flood stays inside it,
+# producing far too little inundation.
+#
+# ARC's own tool (arc.streamflow_processing.GetMedianFlowValues) takes the
+# median over the multi-year retrospective record — that is what we replicate.
+
+BASEFLOW_YEARS = 10          # length of the climatology window
+_BASEFLOW_STEP_H = 24.0      # daily sampling is plenty for a median
+
+
+def longterm_baseflow(comids, *, percentile: float = 50.0,
+                      years: int = BASEFLOW_YEARS, end_dt=None,
+                      work_dir=None, log_fn=print) -> dict:
+    """Median (climatological) discharge per COMID from the NWM retrospective.
+
+    Returns ``{comid: baseflow_m3s}``.  Sampled daily over ``years`` ending at
+    ``end_dt`` (clamped to the retrospective coverage).
+    """
+    from core.nwm_discharge import download_nwm_retrospective, RETRO_START, RETRO_END
+
+    end_ts = pd.Timestamp(end_dt) if end_dt is not None else pd.Timestamp(RETRO_END)
+    if end_ts > pd.Timestamp(RETRO_END):
+        end_ts = pd.Timestamp(RETRO_END)
+    start_ts = end_ts - pd.DateOffset(years=years)
+    if start_ts < pd.Timestamp(RETRO_START):
+        start_ts = pd.Timestamp(RETRO_START)
+
+    log_fn(f"Baseflow: NWM retrospective climatology "
+           f"{start_ts.date()} → {end_ts.date()} (daily) …")
+    work_dir = Path(work_dir) if work_dir else Path(".")
+    tmp = work_dir / "_nwm_baseflow.csv"
+    download_nwm_retrospective(
+        comids, start_ts, end_ts, _BASEFLOW_STEP_H, tmp, log_fn=lambda *_a: None)
+    grid = pd.read_csv(tmp).set_index(pd.read_csv(tmp).columns[0])
+    out = {}
+    for col in grid.columns:
+        s = pd.to_numeric(grid[col], errors="coerce").dropna()
+        if s.empty:
+            continue
+        try:
+            out[int(float(col))] = float(np.nanpercentile(s.values, percentile))
+        except (TypeError, ValueError):
+            continue
+    try:
+        tmp.unlink()
+    except Exception:
+        pass
+    log_fn(f"  ✓ Long-term baseflow for {len(out)} reach(es)")
+    return out
+
+
 def build_arc_flow_file(
     flowline_path,
     out_csv,
@@ -83,10 +143,18 @@ def build_arc_flow_file(
     forecast_range: str = "medium_range",
     forecast_hour=None,
     base_percentile: float = 50.0,
+    baseflow_mode: str = "longterm",     # "longterm" | "window"
+    baseflow_years: int = BASEFLOW_YEARS,
     interval_hours: float = 1.0,
     log_fn=print,
 ) -> dict:
     """Build ``out_csv`` = COMID,base,max for every reach in ``flowline_path``.
+
+    ``max`` always comes from the selected event / forecast window.  ``base``
+    (ARC's channel-forming discharge) comes from a multi-year NWM retrospective
+    climatology when ``baseflow_mode="longterm"`` — the ARC convention.  Using
+    "window" reproduces the old behaviour and will over-carve the channel,
+    under-predicting inundation.
 
     Returns ``{"flow_csv", "n_reaches", "id_field", "max_field", "base_field"}``.
     """
@@ -123,6 +191,32 @@ def build_arc_flow_file(
     if table.empty:
         raise RuntimeError(
             "NWM returned no usable discharge for these reaches / this window.")
+
+    # Replace the window-derived baseflow with the long-term climatology —
+    # ARC carves the channel to convey `base`, so it must not be a flood-window
+    # statistic (see longterm_baseflow docstring).
+    if baseflow_mode == "longterm":
+        try:
+            end_for_base = end_dt if source == "nwm_retro" else None
+            lt = longterm_baseflow(
+                comids, percentile=base_percentile, years=baseflow_years,
+                end_dt=end_for_base, work_dir=out_csv.parent, log_fn=log_fn)
+            if lt:
+                old = table["base"].median()
+                table["base"] = [
+                    round(float(lt.get(int(c), b)), 4)
+                    for c, b in zip(table["COMID"], table["base"])
+                ]
+                # ARC needs max strictly above base.
+                table["max"] = np.where(
+                    table["max"] > table["base"], table["max"],
+                    table["base"] + np.maximum(table["base"] * 0.05, 0.01))
+                log_fn(f"  Baseflow: window median {old:.2f} → "
+                       f"long-term {table['base'].median():.2f} m³/s (median reach)")
+        except Exception as exc:
+            log_fn(f"  ⚠ Long-term baseflow unavailable ({exc}); "
+                   "falling back to the event-window median. Inundation may be "
+                   "under-predicted.")
 
     table.to_csv(out_csv, index=False)
     try:
