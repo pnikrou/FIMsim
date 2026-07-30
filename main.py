@@ -9,7 +9,12 @@ if sys.platform == "win32":
     if os.path.isdir(_conda_bin):
         os.add_dll_directory(_conda_bin)
 
-# Configure matplotlib for Qt6 BEFORE any figure is created
+# Configure matplotlib for Qt6 BEFORE any figure is created.
+# NenCarta (the ARC-Curve2Flood backend) depends on PyQt5, so both bindings are
+# present in this environment.  Pin matplotlib to PyQt6 so it can never bind to
+# PyQt5 and break every preview canvas in the app.
+import os as _os
+_os.environ.setdefault("QT_API", "pyqt6")
 import matplotlib
 matplotlib.use("QtAgg")
 

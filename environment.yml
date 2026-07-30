@@ -39,13 +39,15 @@ dependencies:
   - pygeoutils
   - async-retriever
 
-  # ARC-Curve2Flood backend (ARC-Curve2Flood mode) — runs ARC + Curve2Flood in-app.
+  # ARC-Curve2Flood backend — NenCarta drives ARC + Curve2Flood.
   # gdal gives the osgeo Python bindings these tools import; conda-forge keeps it
   # matched to the same GDAL as rasterio (no C-library conflict).
   - gdal
-  - numba
+  - numba=0.60.0   # pinned: fimserve requires exactly this
   - fastparquet
   - geojson
+  - cython
+  - whitebox
 
   # HTTP / networking
   - requests
@@ -62,3 +64,13 @@ dependencies:
       # because the conda block above already provides gdal/numba/etc.
       - "git+https://github.com/MikeFHS/automated-rating-curve.git"   # ARC (import arc)
       - "git+https://github.com/MikeFHS/Curve2Flood.git"             # Curve2Flood (import curve2flood)
+      # NenCarta orchestrates ARC + Curve2Flood and provides the `flood-mapping`
+      # CLI that FIMsim's ARC-Curve2Flood mode drives (see its README).
+      - geoglows
+      - progress
+      # NenCarta imports PyQt5 at module load (nencarta/gui_app.py).  FIMsim
+      # itself is PyQt6 and never imports nencarta in-process — it shells out to
+      # `flood-mapping` — and main.py pins QT_API=pyqt6 so matplotlib cannot
+      # bind to PyQt5.
+      - "PyQt5>=5.15"
+      - "git+https://github.com/jlgutenson/nencarta.git"             # flood-mapping CLI
