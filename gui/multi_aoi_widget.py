@@ -336,9 +336,16 @@ class MultiAOIWidget(QWidget):
     aoi_ready = pyqtSignal(list)   # list[AOIFeatureInfo]
     back_requested = pyqtSignal()  # user wants to return to the project step
 
-    def __init__(self, log_fn, parent=None):
+    def __init__(self, log_fn, parent=None, rectangularize: bool = False):
+        """``rectangularize``: when True (LISFLOOD-FP), any confirmed AOI that
+        is not already an axis-aligned rectangle is replaced by a bounding-box
+        rectangle shapefile for all downstream steps; the original polygon is
+        kept and drawn alongside it in the preview.  Off by default so the
+        DEM / LULC / Flowline standalone modes, which share this widget, keep
+        using the user's exact polygon."""
         super().__init__(parent)
         self._log = log_fn
+        self._rectangularize = bool(rectangularize)
         self._project_dir = None
         self._blocks: List[_AOIFileBlock] = []
         self._confirmed_features: List[AOIFeatureInfo] = []
@@ -760,6 +767,21 @@ class MultiAOIWidget(QWidget):
             QMessageBox.critical(self, "Error creating subfolders", str(ex))
             return
 
+        # LISFLOOD-FP: the model domain must be a rectangle.  Replace any
+        # irregular polygon with its bounding box for every downstream step,
+        # keeping the original so the preview can show both.
+        if self._rectangularize:
+            from core.aoi_bbox import rectangularize_features
+            self._log("Checking AOI shape(s) — LISFLOOD-FP runs on a "
+                      "rectangular domain …")
+            rectangularize_features(truly_new, log_fn=self._log)
+            n_conv = sum(1 for f in truly_new if getattr(f, "bbox_applied", False))
+            if n_conv:
+                self._log(
+                    f"{n_conv} irregular AOI(s) replaced by their bounding-box "
+                    "rectangle. Following steps use the rectangle; the preview "
+                    "shows both.")
+
         self._confirmed_features.extend(truly_new)
         self._log(
             f"{len(truly_new)} new AOI(s) confirmed.  "
@@ -842,11 +864,23 @@ class MultiAOIWidget(QWidget):
             )
         except Exception:
             pass
+        # When the AOI was rectangularised, `source_file` is the rectangle —
+        # also load the user's original polygon so both are drawn together.
+        orig_gdf = None
+        if getattr(feature, "bbox_applied", False) and feature.original_source_file:
+            try:
+                orig_gdf = get_single_feature_gdf(
+                    feature.original_source_file,
+                    feature.original_feature_index or 0,
+                )
+            except Exception:
+                orig_gdf = None
         self._map.update_plots(
             states,
             [(feature.centroid_lon, feature.centroid_lat)],
             [_short_label(feature.name)],
             aoi_gdf=aoi_gdf,
+            original_aoi_gdf=orig_gdf,
         )
         # Single-AOI view doesn't need the side table
         self._aoi_side_table.setVisible(False)
@@ -974,10 +1008,27 @@ class MultiAOIWidget(QWidget):
                 and feature.source_crs_epsg != feature.working_crs_epsg
                 and feature.working_crs_label):
             crs_str += f" &nbsp;→&nbsp; outputs in {feature.working_crs_label}"
+        # Rectangular-domain note (LISFLOOD-FP).  Say plainly which file the
+        # following steps will use.
+        shape_str = ""
+        if getattr(feature, "bbox_applied", False):
+            src_name = (Path(feature.original_source_file).name
+                        if feature.original_source_file else "your upload")
+            shape_str = (
+                "<b>Domain:</b> <span style='color:#c05621;'>rectangle built "
+                "from the AOI's min/max extent</span> — your polygon in "
+                f"{src_name} was not rectangular. All following steps use "
+                f"<code>{Path(feature.source_file).name}</code>.<br>"
+            )
+        elif getattr(feature, "was_rectangular", None) is True:
+            shape_str = ("<b>Domain:</b> uploaded AOI is already rectangular — "
+                         "used as-is.<br>")
+
         html = (
             f"<b>{feature.name}</b>  "
             f"<span style='color:#888;'>(from {Path(feature.source_file).name})</span><br>"
             f"<b>Area:</b> {feature.area_km2:.2f} km²<br>"
+            f"{shape_str}"
             f"<b>CRS:</b> {crs_str}<br>"
             f"<b>State:</b> {feature.state_name or '—'} "
             f"({feature.state_abbr or '—'})<br>"
@@ -1031,6 +1082,15 @@ class MultiAOIWidget(QWidget):
             )
         except Exception:
             aoi_gdf = None
+        orig_gdf = None
+        if getattr(feature, "bbox_applied", False) and feature.original_source_file:
+            try:
+                orig_gdf = get_single_feature_gdf(
+                    feature.original_source_file,
+                    feature.original_feature_index or 0,
+                )
+            except Exception:
+                orig_gdf = None
         if flow_result is None:
             flow_result = self._flow_result_cache.get(id(feature))
         river_gdf = flow_result[1] if flow_result else None
@@ -1039,6 +1099,7 @@ class MultiAOIWidget(QWidget):
             [(feature.centroid_lon, feature.centroid_lat)],
             [_short_label(feature.name)],
             aoi_gdf=aoi_gdf,
+            original_aoi_gdf=orig_gdf,
             main_river_gdf=river_gdf,
             usgs_gages=feature.usgs_gages,
         )

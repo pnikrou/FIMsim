@@ -57,6 +57,8 @@ class USMapCanvas(FigureCanvasQTAgg):
         aoi_points: List[Tuple[float, float]],
         aoi_labels: Optional[List[str]] = None,
         aoi_gdf=None,                # GeoDataFrame in any CRS — single AOI polygon
+        original_aoi_gdf=None,       # GeoDataFrame — user's original polygon when
+                                     # aoi_gdf is its bounding-box rectangle
         main_river_gdf=None,         # GeoDataFrame — main river (highest order)
         all_flowlines_gdf=None,      # GeoDataFrame — all NHD reaches (thin underlay)
         usgs_gages: Optional[List[dict]] = None,
@@ -250,6 +252,15 @@ class USMapCanvas(FigureCanvasQTAgg):
                 if aoi_4326 is not None:
                     aoi_4326.plot(ax=ax_close, facecolor="#ebf8ff",
                                   edgecolor="#2c5282", linewidth=1.4, alpha=0.7)
+                # User's ORIGINAL polygon, when aoi_gdf is its bounding-box
+                # rectangle — drawn on top, unfilled, in orange so the shape
+                # that was replaced is obvious.
+                orig_4326 = None
+                if original_aoi_gdf is not None and not original_aoi_gdf.empty:
+                    orig_4326 = original_aoi_gdf.to_crs("EPSG:4326")
+                    orig_4326.plot(ax=ax_close, facecolor="none",
+                                   edgecolor="#c05621", linewidth=1.8,
+                                   linestyle="--", zorder=4)
                 # All flowlines thin underlay
                 if all_flowlines_gdf is not None and not all_flowlines_gdf.empty:
                     all_flowlines_gdf.to_crs("EPSG:4326").plot(
@@ -291,16 +302,28 @@ class USMapCanvas(FigureCanvasQTAgg):
                     elif huc8_4326 is not None:
                         # HUC8-only: short title, no "run area" label
                         river_title = "HUC8"
-                # Legend only when BOTH HUC8 and AOI are present (tan vs blue
-                # colours need explaining); omit when only one layer is shown.
+                    elif orig_4326 is not None:
+                        river_title = "Model domain  &  uploaded AOI"
+                # Legend whenever two polygon layers share the panel and their
+                # colours need explaining.
+                from matplotlib.patches import Patch
+                handles = []
                 if huc8_4326 is not None and aoi_4326 is not None:
-                    from matplotlib.patches import Patch
                     handles = [
                         Patch(facecolor="#fefcbf", edgecolor="#b7791f",
                               alpha=0.5, label="HUC8 run area"),
                         Patch(facecolor="#ebf8ff", edgecolor="#2c5282",
                               alpha=0.7, label="Area of interest"),
                     ]
+                elif orig_4326 is not None and aoi_4326 is not None:
+                    handles = [
+                        Patch(facecolor="#ebf8ff", edgecolor="#2c5282",
+                              alpha=0.7, label="Model domain (rectangle)"),
+                        Patch(facecolor="none", edgecolor="#c05621",
+                              linewidth=1.8, linestyle="--",
+                              label="Your uploaded AOI"),
+                    ]
+                if handles:
                     ax_close.legend(handles=handles, fontsize=7, loc="lower left")
                 # Tight bounds with a small margin — frame the AOI when present,
                 # otherwise the HUC8 run area.

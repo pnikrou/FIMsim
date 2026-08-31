@@ -68,6 +68,14 @@ class AOIFeatureInfo:
     # The AOI shapefile's own CRS (what the user's file is stored in).
     source_crs_epsg: Optional[int] = None
     source_crs_label: Optional[str] = None
+    # Rectangular-AOI support (LISFLOOD-FP).  When the uploaded polygon is not
+    # an axis-aligned rectangle, core.aoi_bbox writes a bounding-box shapefile,
+    # repoints source_file/feature_index at it, and records the original here so
+    # the preview can draw both.  See core/aoi_bbox.py.
+    original_source_file: Optional[str] = None
+    original_feature_index: Optional[int] = None
+    bbox_applied: bool = False        # True when source_file is the rectangle
+    was_rectangular: Optional[bool] = None   # was the upload already a rectangle?
 
 
 # Columns to check for a usable feature name, in priority order
