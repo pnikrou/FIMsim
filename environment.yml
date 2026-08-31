@@ -24,6 +24,9 @@ dependencies:
   # NetCDF / HDF / cloud storage (NWM retrospective)
   - xarray
   - zarr
+  # s3fs/aiobotocore must stay compatible with the botocore that boto3 and
+  # awscli pin, or anonymous S3 breaks and FIMserv (OWP HAND-FIM) silently
+  # downloads no NWM discharge — see the pip section below.
   - s3fs
   - fsspec
   - numcodecs
@@ -74,3 +77,14 @@ dependencies:
       # bind to PyQt5.
       - "PyQt5>=5.15"
       - "git+https://github.com/jlgutenson/nencarta.git"             # flood-mapping CLI
+      # ── Anonymous-S3 stack (FIMserv reads the NWM retrospective zarr from
+      # S3 via s3fs).  aiobotocore pins botocore VERY tightly, and boto3/awscli
+      # pin it too; when the two pins disagree every anonymous S3 read dies with
+      #   TypeError: ClientArgsCreator.compute_endpoint_resolver_builtin_defaults()
+      #   missing 1 required positional argument: 's3_disable_express_session_auth'
+      # and FIMserv then generates FIM with no discharge — i.e. no flood map.
+      # aiobotocore 3.9 accepts botocore 1.43.3–1.43.56 (boto3 1.43.36 pins
+      # 1.43.36), and s3fs >= 2026.1 allows aiobotocore 3.x.  Keep these three
+      # consistent if you ever upgrade one.
+      - "aiobotocore>=3.9.0"
+      - "s3fs>=2026.2.0"
