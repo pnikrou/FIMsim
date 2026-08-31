@@ -98,14 +98,30 @@ class USMapCanvas(FigureCanvasQTAgg):
         # ── reset and rebuild subplot layout ─────────────────────────────────
         self._fig.clear()
         ax_close = None
+        ax_legend = None
         # A close-up panel is shown when there's an AOI polygon OR a HUC8
         # polygon to display (FIMserv shows the HUC8 run-area + the AOI).
         want_close = (aoi_gdf is not None) or (huc8_gdf is not None)
+        # Two polygon layers share the close-up panel → the colours need a
+        # legend.  It gets its own strip of axes UNDER the map rather than
+        # floating inside the frame, where it covers the data.
+        want_legend_below = want_close and aoi_gdf is not None and (
+            huc8_gdf is not None
+            or (original_aoi_gdf is not None and not original_aoi_gdf.empty)
+        )
         if n == 1 and want_close:
             # 3-panel: US + state zoom + close-up (HUC8 run-area + AOI)
-            ax_us    = self._fig.add_subplot(1, 3, 1)
-            ax_zoom  = self._fig.add_subplot(1, 3, 2)
-            ax_close = self._fig.add_subplot(1, 3, 3)
+            gs = self._fig.add_gridspec(1, 3)
+            ax_us    = self._fig.add_subplot(gs[0, 0])
+            ax_zoom  = self._fig.add_subplot(gs[0, 1])
+            if want_legend_below:
+                # Split the third column: map on top, legend strip beneath it.
+                sub = gs[0, 2].subgridspec(2, 1, height_ratios=[9, 1], hspace=0.05)
+                ax_close  = self._fig.add_subplot(sub[0])
+                ax_legend = self._fig.add_subplot(sub[1])
+                ax_legend.axis("off")
+            else:
+                ax_close = self._fig.add_subplot(gs[0, 2])
         elif n == 1:
             ax_us = self._fig.add_subplot(1, 2, 1)
             ax_zoom = self._fig.add_subplot(1, 2, 2)
@@ -324,7 +340,17 @@ class USMapCanvas(FigureCanvasQTAgg):
                               label="Your uploaded AOI"),
                     ]
                 if handles:
-                    ax_close.legend(handles=handles, fontsize=7, loc="lower left")
+                    if ax_legend is not None:
+                        # Below the map, outside its frame — clear of the data.
+                        ax_legend.legend(
+                            handles=handles, fontsize=7, ncol=len(handles),
+                            loc="center", frameon=False,
+                            handlelength=1.6, handletextpad=0.5,
+                            columnspacing=1.4, borderaxespad=0.0,
+                        )
+                    else:
+                        ax_close.legend(handles=handles, fontsize=7,
+                                        loc="lower left")
                 # Tight bounds with a small margin — frame the AOI when present,
                 # otherwise the HUC8 run area.
                 frame = aoi_4326 if aoi_4326 is not None else huc8_4326
