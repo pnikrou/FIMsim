@@ -12,7 +12,7 @@ within United States by providing the necessary input data and parameters. It ca
 import os
 import re
 import glob
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Union
 
@@ -28,6 +28,96 @@ from core.aoi_info import lookup_huc8
 # NWM v3.0 retrospective runs up to early 2023; on/after this date use the
 # operational forecast instead.
 FORECAST_CUTOFF = datetime(2023, 1, 1)
+
+# ── NWM data coverage ────────────────────────────────────────────────────────
+# FIMserv pulls discharge from the NWM v3.0 retrospective zarr store
+# (fimserve.streamflowdata.nwmretrospective, nwm_version="nwm30") or from the
+# operational forecast archive.  Neither library validates the requested date,
+# so an out-of-range request simply fails and FIM is generated with no
+# discharge — i.e. no flood map, with nothing obviously wrong in the log.
+# These bounds mirror core/bdy.py so every model reports coverage the same way.
+RETRO_START = datetime(1979, 2, 1)
+RETRO_END   = datetime(2023, 1, 31)
+# Operational forecast archive (same bound as core/nwm_forecast.ARCHIVE_START).
+FORECAST_ARCHIVE_START = datetime(2018, 9, 17)
+# Longest NWM forecast horizon (long range ≈ 30 days ahead of the run).
+FORECAST_MAX_AHEAD_DAYS = 30
+
+
+def _as_dt(value) -> Optional[datetime]:
+    """Parse a date/datetime/str into a datetime, or None when unparseable."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        import pandas as pd
+        return pd.Timestamp(str(value)).to_pydatetime()
+    except Exception:
+        return None
+
+
+def validate_discharge_window(source: str, start_date=None, end_date=None,
+                              value_times=None, forecast_date=None) -> None:
+    """Raise a clear error when the requested dates have no NWM data.
+
+    FIMserv/fimserve give no coverage check of their own, so without this a
+    request outside the record fails silently and no flood map is produced.
+    """
+    today = datetime.utcnow()
+
+    if source == "forecast":
+        fdt = _as_dt(forecast_date)
+        if fdt is None:
+            return                       # "latest run" — always valid
+        if fdt < FORECAST_ARCHIVE_START:
+            raise ValueError(
+                f"NWM forecast data is not available for {fdt.date()}.  The "
+                f"forecast archive starts {FORECAST_ARCHIVE_START.date()}.  "
+                f"For earlier dates choose 'Retrospective' instead "
+                f"({RETRO_START.date()} to {RETRO_END.date()})."
+            )
+        horizon = today + timedelta(days=FORECAST_MAX_AHEAD_DAYS)
+        if fdt > horizon:
+            raise ValueError(
+                f"NWM forecast data is not available for {fdt.date()} — that "
+                f"date is in the future.  Forecasts only reach about "
+                f"{FORECAST_MAX_AHEAD_DAYS} days ahead (to "
+                f"{horizon.date()}).  Pick a past event and use "
+                f"'Retrospective' ({RETRO_START.date()} to "
+                f"{RETRO_END.date()}), or a forecast date on/before "
+                f"{horizon.date()}."
+            )
+        return
+
+    # ── retrospective ────────────────────────────────────────────────────────
+    wanted = []
+    for v in (list(value_times or []) or [start_date, end_date]):
+        dt = _as_dt(v)
+        if dt is not None:
+            wanted.append(dt)
+    if not wanted:
+        return
+
+    lo, hi = min(wanted), max(wanted)
+    if hi > RETRO_END or lo < RETRO_START:
+        bad = hi if hi > RETRO_END else lo
+        hint = ""
+        if bad > RETRO_END:
+            if bad > today:
+                hint = (f"  {bad.date()} is in the future — the retrospective "
+                        "record only covers the past.")
+            else:
+                hint = ("  For dates after "
+                        f"{RETRO_END.date()} switch the source to 'Forecast'.")
+            # Very common slip: meant 20xx but typed a future year.
+            alt = bad.replace(year=bad.year - 10)
+            if RETRO_START <= alt <= RETRO_END:
+                hint += f"  (Did you mean {alt.date()}?)"
+        raise ValueError(
+            f"NWM retrospective data is not available for {bad.date()}.  "
+            f"Coverage is {RETRO_START.date()} to {RETRO_END.date()}.{hint}"
+        )
 
 
 def _import_fimserve():
@@ -144,6 +234,12 @@ class FIMservAPI:
         """
         fm = _import_fimserve()
         specific = bool(value_times)
+        # Fail fast with a clear message when the dates have no NWM data —
+        # otherwise fimserve errors per-HUC and FIM runs with no discharge,
+        # silently producing no flood map.
+        validate_discharge_window(
+            source, start_date=start_date, end_date=end_date,
+            value_times=value_times, forecast_date=forecast_date)
         self.log(
             f"Preparing NWM {source} discharge for {len(huc8_ids)} HUC8(s)"
             + (f" — {len(value_times)} event time(s)" if specific else "")
@@ -151,6 +247,7 @@ class FIMservAPI:
         )
 
         agg = sort_by or "maximum"
+        failures: List[tuple] = []
         for i, huc in enumerate(huc8_ids, 1):
             try:
                 if source == "forecast":
@@ -196,7 +293,21 @@ class FIMservAPI:
                     )
                 self.log(f"Discharge [{i}/{len(huc8_ids)}] ready: {huc}")
             except Exception as exc:
+                failures.append((huc, str(exc)))
                 self.log(f"Discharge [{i}/{len(huc8_ids)}] failed for {huc}: {exc}")
+
+        # If NOT ONE HUC8 got discharge there is nothing to map — say so loudly
+        # instead of running the model on nothing and reporting no flood map.
+        if failures and len(failures) == len(huc8_ids):
+            detail = "; ".join(f"{h}: {e}" for h, e in failures[:3])
+            raise RuntimeError(
+                "No NWM discharge could be downloaded for any HUC8, so no "
+                f"flood map can be produced.  First error(s) — {detail}"
+            )
+        if failures:
+            self.log(
+                f"  ⚠ {len(failures)} of {len(huc8_ids)} HUC8(s) have no "
+                "discharge; their FIM will be missing.")
         return source
 
     # Generate FIM 
