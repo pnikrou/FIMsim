@@ -40,7 +40,10 @@ class StepArcAOIWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self._inner = MultiAOIWidget(log_fn)
+        # ARC-Curve2Flood: an irregular uploaded AOI is replaced by its
+        # bounding-box rectangle for every downstream step (the original
+        # is kept and shown in the preview).
+        self._inner = MultiAOIWidget(log_fn, rectangularize=True)
         self._inner.aoi_ready.connect(self._on_aoi_ready)
         # The internal "Back to project step" button is already hidden;
         # tab navigation handles it.
@@ -116,6 +119,13 @@ class StepArcAOIWidget(QWidget):
                 # Manning raster the downstream steps write lands here.
                 "working_crs_epsg":  f.working_crs_epsg,
                 "working_crs_label": f.working_crs_label,
+                # Rectangular AOI: source_file above is the bounding-box
+                # rectangle every downstream step uses; these record what
+                # the user actually uploaded.
+                "original_source_file":   getattr(f, "original_source_file", None),
+                "original_feature_index": getattr(f, "original_feature_index", None),
+                "bbox_applied":           bool(getattr(f, "bbox_applied", False)),
+                "was_rectangular":        getattr(f, "was_rectangular", None),
             })
         self._ctx["aoi_features"] = aoi_list
 
