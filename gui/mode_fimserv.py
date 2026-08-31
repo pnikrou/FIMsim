@@ -446,6 +446,9 @@ class ModeFIMservWidget(QWidget):
         # AOI — so they are initialised here and always exist.
         self._aoi_huc8_ids: list = []
         self._aoi_huc8_gdf = None
+        # Discharge kwargs for the card being run — captured when the card
+        # starts and used after the HAND download (FIMserv step 2).
+        self._fim_cur_dischg: Dict = {}
         self._huc8_detail_cache: Dict = {}
         self._huc8_selected_id = None
         self._setup_ui()
@@ -1783,35 +1786,46 @@ class ModeFIMservWidget(QWidget):
         self._fim_cur_projdir = run_project_dir
         self._fim_cur_aoipath = aoi_path
 
+        # FIMserv's documented order (README steps 1-2-3) is
+        #   DownloadHUC8  ->  getNWM*data  ->  runOWPHANDFIM
+        # Discharge MUST come after the download: getNWMretrospectivedata reads
+        # the HUC8's feature_IDs.csv, which DownloadHUC8 writes.  Running it
+        # first returns instantly having fetched nothing, and FIM then has no
+        # discharge to map.
+        self._fim_cur_dischg = dict(kwargs)
         self._set_busy(self._sf_status,
                        f"AOI {idx}/{self._fim_total} ({card['label']}) — "
-                       "fetching NWM discharge …")
-        card["status_lbl"].setText("⏳ discharge …")
+                       "downloading OWP HAND rasters …")
+        card["status_lbl"].setText("⏳ HAND rasters …")
         card["status_lbl"].setVisible(True)
-        self._start_worker(
-            streamflow_mode, done=self._fim_after_discharge,
-            on_error=self._fim_card_failed,
-            project_dir=run_project_dir, huc8_ids=huc8_ids, **kwargs,
-        )
-
-    def _fim_after_discharge(self, result: dict):
-        card = self._sf_current_card
-        idx = self._fim_done + 1
-        if card is not None:
-            card["status_lbl"].setText("⏳ HAND rasters …")
-        self._set_busy(self._sf_status,
-                       f"AOI {idx}/{self._fim_total} — downloading OWP HAND rasters …")
         self._start_worker(
             download_huc8_mode, done=self._fim_after_download,
             on_error=self._fim_card_failed,
-            project_dir=self._fim_cur_projdir, huc8_ids=self._fim_cur_huc8s,
+            project_dir=run_project_dir, huc8_ids=huc8_ids,
         )
 
     def _fim_after_download(self, result: dict):
+        """HAND rasters are in — now fetch discharge (FIMserv step 2)."""
         card = self._sf_current_card
         idx = self._fim_done + 1
         ok = (result.get("downloaded") if isinstance(result, dict) else None) \
             or self._fim_cur_huc8s
+        self._fim_cur_huc8s = list(ok)
+        if card is not None:
+            card["status_lbl"].setText("⏳ discharge …")
+        self._set_busy(self._sf_status,
+                       f"AOI {idx}/{self._fim_total} — fetching NWM discharge …")
+        self._start_worker(
+            streamflow_mode, done=self._fim_after_discharge,
+            on_error=self._fim_card_failed,
+            project_dir=self._fim_cur_projdir, huc8_ids=ok,
+            **(self._fim_cur_dischg or {}),
+        )
+
+    def _fim_after_discharge(self, result: dict):
+        """Discharge is on disk — now run OWP HAND FIM (FIMserv step 3)."""
+        card = self._sf_current_card
+        idx = self._fim_done + 1
         if card is not None:
             card["status_lbl"].setText("⏳ generating FIM …")
         self._set_busy(self._sf_status,
@@ -1819,7 +1833,7 @@ class ModeFIMservWidget(QWidget):
         self._start_worker(
             generate_fim_mode, done=self._fim_after_generate,
             on_error=self._fim_card_failed,
-            project_dir=self._fim_cur_projdir, huc8_ids=ok,
+            project_dir=self._fim_cur_projdir, huc8_ids=self._fim_cur_huc8s,
             aoi_path=self._fim_cur_aoipath,
             depth=self._depth_chk.isChecked(), binary=True, clip=True,
         )

@@ -291,6 +291,15 @@ class FIMservAPI:
                         end_date=str(end_date),
                         discharge_sortby=agg,
                     )
+                # Verify a discharge CSV actually landed.  fimserve can
+                # return without raising and write nothing (e.g. when the
+                # HUC8's feature_IDs.csv is missing), which previously showed
+                # up as "ready" and then a FIM run with nothing to map.
+                if not self.discharge_csv_for(huc):
+                    raise RuntimeError(
+                        "no discharge file was written — check the date is "
+                        "within NWM coverage and that the HUC8 downloaded "
+                        "successfully")
                 self.log(f"Discharge [{i}/{len(huc8_ids)}] ready: {huc}")
             except Exception as exc:
                 failures.append((huc, str(exc)))
@@ -328,10 +337,25 @@ class FIMservAPI:
                     continue
                 self.log(f"FIM [{i}/{len(huc8_ids)}]: {huc} (depth={depth}) …")
                 fm.runOWPHANDFIM(huc, depth=depth)
+                # Only count it when a raster really exists — runOWPHANDFIM
+                # returns normally even when it produced nothing (no discharge),
+                # which previously reported "generated" for an empty run.
+                if not self.has_fim(huc):
+                    self.log(
+                        f"FIM [{i}/{len(huc8_ids)}] produced NO raster for {huc} "
+                        f"(expected {self.output_dir / f'flood_{huc}' / f'{huc}_inundation'})")
+                    continue
                 ok.append(huc)
                 self.log(f"FIM [{i}/{len(huc8_ids)}] generated: {huc}")
             except Exception as exc:
                 self.log(f"FIM [{i}/{len(huc8_ids)}] failed for {huc}: {exc}")
+
+        if not ok:
+            raise RuntimeError(
+                "OWP HAND FIM produced no flood raster for any HUC8.  The most "
+                "common cause is missing NWM discharge — check the Discharge "
+                "lines above."
+            )
         return ok
 
     # Make binary FIM
