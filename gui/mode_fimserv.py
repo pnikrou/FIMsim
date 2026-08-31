@@ -440,6 +440,14 @@ class ModeFIMservWidget(QWidget):
         }
         self._worker: Optional[Worker] = None
         self._aoi_setup_worker: Optional[Worker] = None
+        # HUC8 detail state.  These used to be created by the HUC8 entry panel,
+        # which is no longer built (AOI upload is the only input mode), but the
+        # per-HUC8 detail lookups still use them for the HUCs resolved from the
+        # AOI — so they are initialised here and always exist.
+        self._aoi_huc8_ids: list = []
+        self._aoi_huc8_gdf = None
+        self._huc8_detail_cache: Dict = {}
+        self._huc8_selected_id = None
         self._setup_ui()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -491,10 +499,18 @@ class ModeFIMservWidget(QWidget):
         sa.setWidget(w)
         return sa
 
-    # ── Step 2: AOI choice — AOI file OR HUC8 IDs ────────────────────────────
+    # ── Step 2: AOI (upload only — same as LISFLOOD-FP / TRITON) ─────────────
 
     def _build_aoi_choice_tab(self) -> QWidget:
-        from PyQt6.QtWidgets import QStackedWidget
+        """AOI step.
+
+        FIMsim runs OWP HAND-FIM at *regional* scale, so the run area is always
+        a user-uploaded AOI — exactly like LISFLOOD-FP and TRITON.  The HUC8(s)
+        the AOI covers are resolved automatically (fimserve.getIntersectedHUC8ID)
+        and the final FIM is clipped back to the AOI, so there is no HUC8 entry
+        mode to choose.  The HUC8 panel/state helpers below are retained because
+        the per-HUC8 detail lookups are still used to describe the resolved HUCs.
+        """
         from gui.step_fimserv_aoi import StepFimservAOIWidget
 
         page = QWidget()
@@ -502,53 +518,11 @@ class ModeFIMservWidget(QWidget):
         v.setSpacing(0)
         v.setContentsMargins(0, 0, 0, 0)
 
-        # ── Input-type selector — QGroupBox + QFormLayout, same as Manning step ─
-        gb = QGroupBox("2. Area of Interest")
-        gb_layout = QVBoxLayout(gb)
-
-        form = QFormLayout()
-        form.setContentsMargins(0, 4, 0, 4)
-
-        self._aoi_type_combo = QComboBox()
-        self._aoi_type_combo.addItem("—  pick an input type  —")
-        self._aoi_type_combo.addItem("AOI file  (shapefile / GeoPackage)")
-        self._aoi_type_combo.addItem("HUC8 IDs  (type them in directly)")
-        self._aoi_type_combo.setFixedWidth(280)
-        self._aoi_type_combo.currentIndexChanged.connect(self._on_aoi_choice_changed)
-        form.addRow("<b>Input type:</b>", self._aoi_type_combo)
-        gb_layout.addLayout(form)
-        v.addWidget(gb)
-
-        # ── Stacked content area (hidden until user picks a type) ────────────
-        self._aoi_mode_stack = QStackedWidget()
-        self._aoi_mode_stack.setVisible(False)
-
-        # Page 0: full multi-AOI widget (same as TRITON / LISFLOOD-FP)
+        # Full multi-AOI widget (same as TRITON / LISFLOOD-FP).
         self._aoi_step = StepFimservAOIWidget(self._log, model="generic")
         self._aoi_step.step_completed.connect(self._on_aoi_done)
-        self._aoi_mode_stack.addWidget(self._aoi_step)           # index 0
-
-        # Page 1: simple HUC8 entry panel
-        self._aoi_mode_stack.addWidget(self._build_huc8_step_panel())  # index 1
-
-        v.addWidget(self._aoi_mode_stack, 1)
+        v.addWidget(self._aoi_step, 1)
         return page
-
-    def _on_aoi_choice_changed(self, combo_index: int):
-        # 0 = placeholder, 1 = AOI file, 2 = HUC8 IDs
-        # Switching modes clears the OTHER mode so only one can be confirmed at a time.
-        if combo_index == 0:
-            self._aoi_mode_stack.setVisible(False)
-        elif combo_index == 1:
-            # Switching to AOI file — wipe any HUC8 data
-            self._clear_huc8_selection()
-            self._aoi_mode_stack.setCurrentIndex(0)
-            self._aoi_mode_stack.setVisible(True)
-        else:
-            # Switching to HUC8 — wipe any AOI file data
-            self._clear_aoi_selection()
-            self._aoi_mode_stack.setCurrentIndex(1)
-            self._aoi_mode_stack.setVisible(True)
 
     def _clear_huc8_selection(self):
         """Wipe all HUC8 entries and state so AOI file becomes the active mode."""
@@ -1902,7 +1876,7 @@ class ModeFIMservWidget(QWidget):
         self._update_nav(idx)
         # When navigating past the AOI tab via tab-click (not "Next step ▶"),
         # commit any confirmed shapefile AOIs to ctx so aoi_features is populated.
-        if idx > _TAB_AOI and self._aoi_type_combo.currentIndex() == 1:
+        if idx > _TAB_AOI:
             try:
                 data = self._aoi_step.commit_confirmed_to_ctx()
                 if data:
@@ -1928,7 +1902,7 @@ class ModeFIMservWidget(QWidget):
     def go_next(self):
         i = self._tabs.currentIndex()
         # Commit shapefile AOIs when advancing past the AOI tab via the nav button.
-        if i == _TAB_AOI and self._aoi_type_combo.currentIndex() == 1:
+        if i == _TAB_AOI:
             try:
                 data = self._aoi_step.commit_confirmed_to_ctx()
                 if data:
@@ -1950,19 +1924,19 @@ class ModeFIMservWidget(QWidget):
             self._proj_step.reset()
         if hasattr(self._aoi_step, "reset"):
             self._aoi_step.reset()
-        # Reset AOI combo + HUC8 entry panel
-        self._aoi_type_combo.setCurrentIndex(0)
-        self._aoi_mode_stack.setVisible(False)
-        self._aoi_mode_stack.setCurrentIndex(0)
-        self._aoi_huc8_entry.clear()
-        self._aoi_huc8_ids.clear()
-        self._rebuild_huc8_rows()
+        # The HUC8 entry panel is no longer built — AOI upload is the only
+        # input mode — so clear its widgets only if they happen to exist.
+        if hasattr(self, "_aoi_huc8_entry"):
+            self._aoi_huc8_entry.clear()
+            self._aoi_huc8_ids.clear()
+            self._rebuild_huc8_rows()
+            self._aoi_huc8_map.setVisible(False)
+            self._aoi_huc8_map_placeholder.setVisible(True)
+            self._aoi_huc8_status.setVisible(False)
+            self._huc8_detail_gb.setVisible(False)
+            self._huc8_detail_lbl.setText(
+                "(click any HUC8 ID above to see details here)")
         self._aoi_huc8_gdf = None
-        self._aoi_huc8_map.setVisible(False)
-        self._aoi_huc8_map_placeholder.setVisible(True)
-        self._aoi_huc8_status.setVisible(False)
-        self._huc8_detail_gb.setVisible(False)
-        self._huc8_detail_lbl.setText("(click any HUC8 ID above to see details here)")
         self._huc8_detail_cache.clear()
         self._huc8_selected_id = None
         # Reset streamflow tab — cards rebuild fresh (each defaults to
