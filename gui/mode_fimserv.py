@@ -1232,16 +1232,37 @@ class ModeFIMservWidget(QWidget):
         rbv = QVBoxLayout(retro_box)
         rbv.setContentsMargins(0, 0, 0, 0); rbv.setSpacing(6)
 
+        # Simulation period: a duration (date range) or one/more specific
+        # times.  Kept as a combo — the two hidden radio buttons below stay as
+        # the single source of truth so every existing read
+        # (`rb_range.isChecked()`) keeps working unchanged.
         date_grp = QButtonGroup(card)
         rb_range    = QRadioButton("Date range")
         rb_specific = QRadioButton("Specific date(s)")
         rb_range.setChecked(True)
         date_grp.addButton(rb_range,    0)
         date_grp.addButton(rb_specific, 1)
+        rb_range.setVisible(False)
+        rb_specific.setVisible(False)
+
+        period_combo = QComboBox()
+        period_combo.addItem("Duration  (start → end date)", "range")
+        period_combo.addItem("Specific time(s)", "specific")
+        period_combo.setFixedWidth(240)
+        period_combo.setToolTip(
+            "Duration: FIMserv pulls NWM discharge over the whole period and "
+            "maps the flood for it.\n"
+            "Specific time(s): map the flood at one or more exact timestamps.")
+        period_combo.currentIndexChanged.connect(
+            lambda i, rr_=rb_range, rs_=rb_specific:
+                (rr_ if i == 0 else rs_).setChecked(True)
+        )
         mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("<b>Simulation period:</b>"))
+        mode_row.addWidget(period_combo)
+        mode_row.addStretch()
         mode_row.addWidget(rb_range)
         mode_row.addWidget(rb_specific)
-        mode_row.addStretch()
         rbv.addLayout(mode_row)
 
         range_box = QWidget()
@@ -1395,6 +1416,7 @@ class ModeFIMservWidget(QWidget):
             # retrospective dates
             "rb_range":      rb_range,
             "rb_specific":   rb_specific,
+            "period_combo":  period_combo,
             "date_grp":      date_grp,
             "start_dt":      start_dt,
             "end_dt":        end_dt,
@@ -1512,6 +1534,8 @@ class ModeFIMservWidget(QWidget):
     def _sf_set_cfg(self, refs: dict, cfg: dict):
         (refs["rb_src_fore"] if cfg["source"] == "forecast"
          else refs["rb_src_retro"]).setChecked(True)
+        refs["period_combo"].setCurrentIndex(
+            0 if cfg["date_mode"] == "range" else 1)
         (refs["rb_range"] if cfg["date_mode"] == "range"
          else refs["rb_specific"]).setChecked(True)
         refs["start_dt"].setDateTime(cfg["start"])
