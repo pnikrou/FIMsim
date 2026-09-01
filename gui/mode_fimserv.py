@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 import time
 
-from PyQt6.QtCore import pyqtSignal, Qt, QDateTime
+from PyQt6.QtCore import pyqtSignal, Qt, QDateTime, QTime
 from PyQt6.QtGui import QFont
 
 from gui.step_fimserv_project import StepFimservProjectWidget
@@ -1311,9 +1311,9 @@ class ModeFIMservWidget(QWidget):
         sv = QVBoxLayout(specific_box)
         sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(4)
         sp_row = QHBoxLayout()
-        sp_row.addWidget(QLabel("Date / time:"))
+        sp_row.addWidget(QLabel("Date / time (UTC, hourly):"))
         specific_dt = QDateTimeEdit()
-        specific_dt.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        specific_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
         specific_dt.setCalendarPopup(True)
         specific_dt.setDateTime(QDateTime.fromString("2020-05-21 00:00", "yyyy-MM-dd HH:mm"))
         sp_row.addWidget(specific_dt)
@@ -1409,15 +1409,19 @@ class ModeFIMservWidget(QWidget):
         # accepts ONLY "%Y-%m-%d" or "%Y-%m-%d %H:%M:%S"; anything else (e.g.
         # "2016-10-15 15:00") is treated as invalid and it silently downloads
         # nothing.  So always store the seconds.
-        _SPEC_FMT = "yyyy-MM-dd HH:mm:ss"
-        sp_add.clicked.connect(
-            lambda _checked, sdt=specific_dt, sl=specific_list: (
-                sl.addItem(sdt.dateTime().toString(_SPEC_FMT))
-                if sdt.dateTime().toString(_SPEC_FMT)
-                not in [sl.item(i).text() for i in range(sl.count())]
-                else None
-            )
-        )
+        def _add_specific(_checked=False, sdt=specific_dt, sl=specific_list):
+            # NWM retrospective is HOURLY, so snap to the top of the hour —
+            # a time like 00:15 has no timestep and fimserve returns an EMPTY
+            # discharge file, which yields a blank flood map.
+            dt = sdt.dateTime()
+            t = dt.time()
+            if t.minute() or t.second():
+                dt = QDateTime(dt.date(), QTime(t.hour(), 0, 0))
+                sdt.setDateTime(dt)
+            text = dt.toString("yyyy-MM-dd HH:mm:ss")
+            if text not in [sl.item(i).text() for i in range(sl.count())]:
+                sl.addItem(text)
+        sp_add.clicked.connect(_add_specific)
         sp_rem.clicked.connect(
             lambda _checked, sl=specific_list: [
                 sl.takeItem(sl.row(it)) for it in sl.selectedItems()

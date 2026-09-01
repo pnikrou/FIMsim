@@ -69,6 +69,11 @@ def _normalize_value_time(value) -> str:
         return text
     if len(text) <= 10:                      # date only
         return dt.strftime("%Y-%m-%d")
+    # NWM retrospective is hourly — a sub-hour time matches no timestep and
+    # fimserve then writes an EMPTY discharge file (header only), which
+    # produces a blank flood map.  Snap to the top of the hour.
+    if dt.minute or dt.second:
+        dt = dt.replace(minute=0, second=0, microsecond=0)
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -316,11 +321,18 @@ class FIMservAPI:
                 # return without raising and write nothing (e.g. when the
                 # HUC8's feature_IDs.csv is missing), which previously showed
                 # up as "ready" and then a FIM run with nothing to map.
-                if not self.discharge_csv_for(huc):
+                csv_path = self.discharge_csv_for(huc)
+                if not csv_path:
                     raise RuntimeError(
                         "no discharge file was written — check the date is "
                         "within NWM coverage and that the HUC8 downloaded "
                         "successfully")
+                if self._csv_row_count(csv_path) == 0:
+                    raise RuntimeError(
+                        f"the discharge file {Path(csv_path).name} is EMPTY "
+                        "(header only) — NWM has no data at that timestep. "
+                        "NWM retrospective is hourly, so use a whole hour "
+                        "(e.g. 15:00, not 15:30)")
                 self.log(f"Discharge [{i}/{len(huc8_ids)}] ready: {huc}")
             except Exception as exc:
                 failures.append((huc, str(exc)))
@@ -555,6 +567,27 @@ class FIMservAPI:
         if data_dir.is_dir() and any(data_dir.iterdir()):
             return True
         return (base / "fim_inputs.csv").exists()
+
+    @staticmethod
+    def _count_wet(raster_path) -> int:
+        """Inundated cells in a FIM raster, ignoring nodata."""
+        try:
+            with rasterio.open(raster_path) as src:
+                a = src.read(1)
+                if src.nodata is not None:
+                    a = a[a != src.nodata]
+                return int((a > 0).sum())
+        except Exception:
+            return -1
+
+    @staticmethod
+    def _csv_row_count(path) -> int:
+        """Number of DATA rows in a CSV (0 when it is header-only/empty)."""
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return max(sum(1 for _ in fh) - 1, 0)
+        except Exception:
+            return 0
 
     def discharge_csv_for(self, huc8: str) -> Optional[str]:
         """Return any existing NWM discharge CSV for this HUC8, else None."""
@@ -829,6 +862,20 @@ class FIMservAPI:
                 clipped = self.clip_to_aoi(
                     mosaic_path, str(aoi_path), f"clipped_{fam}_FIM.tif"
                 )
+                # A raster of all-dry cells is a real, common outcome (the
+                # chosen timestep simply had no flooding).  Say so — otherwise
+                # the preview is a featureless rectangle and looks broken.
+                if clipped:
+                    wet = self._count_wet(clipped)
+                    if wet == 0:
+                        self.log(
+                            f"  ⚠ {Path(clipped).name} contains NO inundated "
+                            "cells — the model ran, but nothing flooded at "
+                            "this timestep.  Try the event peak, or check the "
+                            "discharge values.")
+                    else:
+                        self.log(f"  {wet:,} inundated cell(s) in "
+                                 f"{Path(clipped).name}")
                 summary["outputs"].setdefault(f"{fam}_clipped", clipped)
 
         self.log("FIM workflow complete.")
