@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QAbstractItemView,
     QButtonGroup, QMessageBox, QSizePolicy, QFrame,
 )
+import time
+
 from PyQt6.QtCore import pyqtSignal, Qt, QDateTime
 from PyQt6.QtGui import QFont
 
@@ -1209,6 +1211,20 @@ class ModeFIMservWidget(QWidget):
         header.addWidget(remove_btn)
         outer.addLayout(header)
 
+        # ── Run progress: one line per stage, kept on screen ─────────────────
+        # A long FIM run (HAND download, discharge, model, mosaic, clip) can
+        # take many minutes with no visible change.  Each finished stage is
+        # appended here and STAYS, with the current stage last, so the user can
+        # see both what is happening now and everything already done.
+        stages_lbl = QLabel("")
+        stages_lbl.setStyleSheet(
+            "color:#2d3748; font-size:11px; padding:4px 6px; "
+            "background:#f7fafc; border:1px solid #e2e8f0; border-radius:4px;")
+        stages_lbl.setWordWrap(True)
+        stages_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        stages_lbl.setVisible(False)
+        outer.addWidget(stages_lbl)
+
         # ── Body — shown only when the card is expanded ───────────────────────
         body = QWidget()
         body.setVisible(False)
@@ -1437,6 +1453,9 @@ class ModeFIMservWidget(QWidget):
             "forecast_box":  forecast_box,
             # status (header)
             "status_lbl":    status_lbl,
+            # accumulating per-stage progress (below the header)
+            "stages_lbl":    stages_lbl,
+            "stages":        [],
         }
         # Edit/Done toggle (single-card accordion) and Remove.
         toggle_btn.clicked.connect(lambda _c=False, r=refs: self._on_sf_toggle(r))
@@ -1722,6 +1741,83 @@ class ModeFIMservWidget(QWidget):
         card["status_lbl"].setVisible(True)
         self._fim_advance()
 
+    # ── Per-stage run progress (accumulating, stays on screen) ───────────────
+
+    def _fim_stage_reset(self, card):
+        """Clear the stage list at the start of a card's run."""
+        if card is None:
+            return
+        card["stages"] = []
+        card["stages_lbl"].setText("")
+        card["stages_lbl"].setVisible(False)
+        self._fim_stage_t0 = time.time()
+
+    @staticmethod
+    def _fim_fmt_elapsed(seconds: float) -> str:
+        seconds = int(max(seconds, 0))
+        return f"{seconds // 60}m {seconds % 60:02d}s" if seconds >= 60 \
+            else f"{seconds}s"
+
+    def _fim_stage(self, card, text: str, *, running: bool = False,
+                   failed: bool = False):
+        """Append a stage line and repaint the card's progress panel.
+
+        Finished stages keep a green check and their duration; the stage in
+        progress is shown last with an hourglass so it is obvious the run is
+        alive rather than stuck.
+        """
+        if card is None:
+            return
+        now = time.time()
+        # Close off the previous "running" line with its elapsed time.
+        stages = card.setdefault("stages", [])
+        if stages and stages[-1].get("running"):
+            prev = stages[-1]
+            prev["running"] = False
+            prev["elapsed"] = now - prev["t0"]
+        stages.append({"text": text, "running": running, "failed": failed,
+                       "t0": now, "elapsed": None})
+        self._fim_stage_repaint(card)
+
+    def _fim_stage_repaint(self, card):
+        lines = []
+        for st in card.get("stages", []):
+            if st["failed"]:
+                icon, colour = "✗", "#c53030"
+            elif st["running"]:
+                icon, colour = "⏳", "#744210"
+            else:
+                icon, colour = "✓", "#276749"
+            took = ("" if st["elapsed"] is None
+                    else f"  <span style='color:#a0aec0;'>"
+                         f"({self._fim_fmt_elapsed(st['elapsed'])})</span>")
+            lines.append(
+                f"<span style='color:{colour};'>{icon}</span> {st['text']}{took}")
+        card["stages_lbl"].setText("<br>".join(lines))
+        card["stages_lbl"].setVisible(bool(lines))
+
+    def _fim_stage_done(self, card, text: str):
+        """Mark the stage in progress finished, replacing its text in place.
+
+        Keeps one line per stage — the line that read "Downloading … ⏳"
+        becomes "Downloaded … ✓ (1m 20s)" rather than adding a second line.
+        """
+        if card is None:
+            return
+        stages = card.get("stages") or []
+        if stages and stages[-1].get("running"):
+            st = stages[-1]
+            st["running"] = False
+            st["elapsed"] = time.time() - st["t0"]
+            st["text"] = text
+            self._fim_stage_repaint(card)
+        else:
+            self._fim_stage(card, text)
+
+    def _fim_stage_finish(self, card, text: str, failed: bool = False):
+        """Close the last running stage and append a final line."""
+        self._fim_stage(card, text, running=False, failed=failed)
+
     def _fim_start_card(self):
         if not self._sf_pending:
             set_ready(self._sf_btn)
@@ -1798,6 +1894,10 @@ class ModeFIMservWidget(QWidget):
                        "downloading OWP HAND rasters …")
         card["status_lbl"].setText("⏳ HAND rasters …")
         card["status_lbl"].setVisible(True)
+        self._fim_stage_reset(card)
+        self._fim_stage(
+            card, f"Downloading OWP HAND rasters — {len(huc8_ids)} HUC8 "
+                  f"({', '.join(huc8_ids)}) …", running=True)
         self._start_worker(
             download_huc8_mode, done=self._fim_after_download,
             on_error=self._fim_card_failed,
@@ -1813,6 +1913,8 @@ class ModeFIMservWidget(QWidget):
         self._fim_cur_huc8s = list(ok)
         if card is not None:
             card["status_lbl"].setText("⏳ discharge …")
+            self._fim_stage_done(card, f"HAND rasters downloaded ({len(ok)} HUC8)")
+            self._fim_stage(card, "Downloading NWM discharge …", running=True)
         self._set_busy(self._sf_status,
                        f"AOI {idx}/{self._fim_total} — fetching NWM discharge …")
         self._start_worker(
@@ -1827,6 +1929,14 @@ class ModeFIMservWidget(QWidget):
         card = self._sf_current_card
         idx = self._fim_done + 1
         if card is not None:
+            n_csv = len((result or {}).get("hydrographs", {})) \
+                if isinstance(result, dict) else 0
+            self._fim_stage_done(
+                card, "NWM discharge downloaded"
+                      + (f" ({n_csv} file(s))" if n_csv else ""))
+            self._fim_stage(
+                card, "Running OWP HAND FIM, then mosaic + clip to AOI …",
+                running=True)
             card["status_lbl"].setText("⏳ generating FIM …")
         self._set_busy(self._sf_status,
                        f"AOI {idx}/{self._fim_total} — generating flood inundation map …")
@@ -1842,6 +1952,14 @@ class ModeFIMservWidget(QWidget):
         card = self._sf_current_card
         outputs = result.get("outputs", {}) if isinstance(result, dict) else {}
         if card is not None:
+            clipped = outputs.get("extent_clipped") or outputs.get("extent_mosaic")
+            if outputs:
+                self._fim_stage_done(card, "Flood map generated, mosaicked and clipped")
+                if clipped:
+                    self._fim_stage(card, f"Result: {clipped}")
+            else:
+                self._fim_stage_finish(
+                    card, "No flood map was produced — see log", failed=True)
             card["status_lbl"].setText("✓ FIM ready" if outputs
                                        else "⚠ no FIM produced — see log")
             card["status_lbl"].setVisible(True)
@@ -1852,6 +1970,8 @@ class ModeFIMservWidget(QWidget):
         card = self._sf_current_card
         self._log(f"FIM error: {msg}")
         if card is not None:
+            self._fim_stage_finish(
+                card, f"Failed: {msg.splitlines()[0][:120]}", failed=True)
             card["status_lbl"].setText("⚠ failed — see log")
             card["status_lbl"].setVisible(True)
         self._fim_advance()
