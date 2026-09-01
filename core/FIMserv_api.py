@@ -57,6 +57,21 @@ def _as_dt(value) -> Optional[datetime]:
         return None
 
 
+def _normalize_value_time(value) -> str:
+    """Return a timestamp fimserve accepts: 'YYYY-MM-DD HH:MM:SS'.
+
+    A bare date is left as 'YYYY-MM-DD' (also valid).  Unparseable input is
+    returned unchanged so the caller still sees a meaningful error.
+    """
+    text = str(value).strip()
+    dt = _as_dt(text)
+    if dt is None:
+        return text
+    if len(text) <= 10:                      # date only
+        return dt.strftime("%Y-%m-%d")
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def validate_discharge_window(source: str, start_date=None, end_date=None,
                               value_times=None, forecast_date=None) -> None:
     """Raise a clear error when the requested dates have no NWM data.
@@ -233,6 +248,12 @@ class FIMservAPI:
         Returns the source used.
         """
         fm = _import_fimserve()
+        # fimserve's determinedatatimeformat() only accepts "%Y-%m-%d" or
+        # "%Y-%m-%d %H:%M:%S"; any other shape ("2016-10-15 15:00") is judged
+        # invalid and it silently writes no discharge.  Normalise here so no
+        # caller can hit that.
+        if value_times:
+            value_times = [_normalize_value_time(t) for t in value_times]
         specific = bool(value_times)
         # Fail fast with a clear message when the dates have no NWM data —
         # otherwise fimserve errors per-HUC and FIM runs with no discharge,
