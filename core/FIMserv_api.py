@@ -354,7 +354,8 @@ class FIMservAPI:
 
     # Generate FIM 
     def generate_fim(self, huc8_ids: List[str], depth: bool = False,
-                     force: bool = False) -> List[str]:
+                     force: bool = False,
+                     fim_tags: Optional[List[str]] = None) -> List[str]:
         """Run OWP HAND FIM for each HUC8.  Returns the IDs that produced output.
 
         A HUC8 whose inundation raster already exists is skipped unless
@@ -364,7 +365,7 @@ class FIMservAPI:
         ok: List[str] = []
         for i, huc in enumerate(huc8_ids, 1):
             try:
-                if not force and self.has_fim(huc):
+                if not force and self.has_fim(huc, fim_tags=fim_tags):
                     self.log(f"FIM [{i}/{len(huc8_ids)}] already exists — skipping: {huc}")
                     ok.append(huc)
                     continue
@@ -373,7 +374,7 @@ class FIMservAPI:
                 # Only count it when a raster really exists — runOWPHANDFIM
                 # returns normally even when it produced nothing (no discharge),
                 # which previously reported "generated" for an empty run.
-                if not self.has_fim(huc):
+                if not self.has_fim(huc, fim_tags=fim_tags):
                     self.log(
                         f"FIM [{i}/{len(huc8_ids)}] produced NO raster for {huc} "
                         f"(expected {self.output_dir / f'flood_{huc}' / f'{huc}_inundation'})")
@@ -534,12 +535,19 @@ class FIMservAPI:
             self.log(f"  Could not clip {Path(raster_path).name}: {exc}")
             return None
 
-    def _find_fim_rasters(self, huc8_ids: List[str]) -> Dict[str, List[str]]:
+    def _find_fim_rasters(self, huc8_ids: List[str],
+                          fim_tags: Optional[List[str]] = None) -> Dict[str, List[str]]:
         """Return {"extent": [...], "depth": [...]} of FIM GeoTIFFs per HUC8.
 
         FIMserv writes output to ``output/flood_<huc>/<huc>_inundation/``.  We
         pick the inundation extent rasters and any ``*_depth.tif`` rasters; the
         depth list is empty when depth output was not requested.
+
+        ``fim_tags`` restricts the result to the rasters produced by ONE
+        discharge request (see :func:`fim_tags_for_request`).  Without it a
+        folder that has been run more than once — say a specific timestep and
+        then a duration — returns every raster ever generated, and they get
+        mosaicked together into a map that blends two different events.
         """
         found = {"extent": [], "depth": []}
         for huc in huc8_ids:
@@ -548,6 +556,10 @@ class FIMservAPI:
                 continue
             for tif in sorted(glob.glob(str(base / "*.tif"))):
                 name = Path(tif).name.lower()
+                if fim_tags and not any(
+                        name.startswith(f"{t.lower()}_{huc.lower()}")
+                        for t in fim_tags):
+                    continue
                 if name.endswith("_depth.tif"):
                     found["depth"].append(tif)
                 elif "inundation" in name and "binary" not in name:
@@ -625,10 +637,23 @@ class FIMservAPI:
             stamp = self._ymd(value_time)
         return self._inputs_dir() / f"NWM_{stamp}_{huc8}.csv"
 
-    def has_fim(self, huc8: str) -> bool:
-        """True when a FIM inundation raster already exists for this HUC8."""
+    def has_fim(self, huc8: str, fim_tags: Optional[List[str]] = None) -> bool:
+        """True when a FIM inundation raster already exists for this HUC8.
+
+        ``fim_tags`` narrows the question to one discharge request, so a folder
+        that already holds (say) a specific-timestep raster is not mistaken for
+        one that has already been run for a duration.
+        """
         base = self.output_dir / f"flood_{huc8}" / f"{huc8}_inundation"
-        return base.is_dir() and bool(glob.glob(str(base / "*.tif")))
+        if not base.is_dir():
+            return False
+        tifs = glob.glob(str(base / "*.tif"))
+        if not fim_tags:
+            return bool(tifs)
+        return any(
+            Path(t).name.lower().startswith(f"{tag.lower()}_{huc8.lower()}")
+            for t in tifs for tag in fim_tags
+        )
 
     # HUC8 polygons
     def huc8_polygons(self, huc8_ids: List[str]):
@@ -1011,8 +1036,43 @@ def streamflow_mode(project_dir, huc8_ids, source="retrospective",
             "timesteps": timesteps}
 
 
+def fim_tags_for_request(source="retrospective", value_times=None,
+                         start_date=None, end_date=None, sort_by=None):
+    """Filename prefixes FIMserv gives the rasters for ONE discharge request.
+
+    FIMserv names each inundation raster after the discharge CSV that produced
+    it, so the prefix identifies the run:
+      * specific time(s) -> ``NWM_<YYYYMMDDHHMMSS>``   (per event time)
+      * duration         -> ``NWM_<YYYYMMDD>_<YYYYMMDD>_<sortby>``
+
+    Returns ``None`` for a forecast run (its naming is not pinned down), which
+    means "no filter" — the previous behaviour.
+    """
+    import datetime as _dt
+    if source == "forecast":
+        return None
+    if value_times:
+        tags = []
+        for vt in value_times:
+            text = str(vt)
+            for fmt, out in (("%Y-%m-%d %H:%M:%S", "%Y%m%d%H%M%S"),
+                             ("%Y-%m-%d %H:%M", "%Y%m%d%H%M%S"),
+                             ("%Y-%m-%d", "%Y%m%d")):
+                try:
+                    tags.append("NWM_" + _dt.datetime.strptime(text, fmt).strftime(out))
+                    break
+                except ValueError:
+                    continue
+        return tags or None
+    if start_date and end_date:
+        def _ymd(d):
+            return str(d).split(" ")[0].replace("-", "")
+        return [f"NWM_{_ymd(start_date)}_{_ymd(end_date)}_{sort_by or 'maximum'}"]
+    return None
+
+
 def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
-                      binary=True, clip=True, log_fn=print):
+                      binary=True, clip=True, fim_tags=None, log_fn=print):
     """Tab 4 — generate the FIM, make it binary, mosaic, and clip to the AOI.
 
     Reuses the existing per-step methods so this stays consistent with the
@@ -1022,12 +1082,17 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
     clip = clip and bool(aoi_path)
     outputs: Dict = {}
 
-    ok = api.generate_fim(list(huc8_ids), depth=depth)
+    ok = api.generate_fim(list(huc8_ids), depth=depth, fim_tags=fim_tags)
     if not ok:
         log_fn("No FIM generated.")
         return {"outputs": outputs, "huc8_ids": ok}
 
-    rasters = api._find_fim_rasters(ok)
+    # Only mosaic the rasters this discharge request produced — a folder that
+    # was run before (e.g. a specific timestep) still holds its own rasters.
+    rasters = api._find_fim_rasters(ok, fim_tags=fim_tags)
+    if fim_tags:
+        log_fn(f"Mosaicking {len(rasters['extent'])} extent raster(s) "
+               f"for this run ({', '.join(fim_tags)}).")
     multi = len(ok) >= 2
     families = {"extent": rasters["extent"]}
     if depth:

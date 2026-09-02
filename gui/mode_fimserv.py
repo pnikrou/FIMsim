@@ -41,6 +41,7 @@ from core.state_lookup import detect_us_state
 from core.FIMserv_api import (
     FIMservAPI,
     resolve_huc8_mode, download_huc8_mode, streamflow_mode, generate_fim_mode,
+    fim_tags_for_request,
     discover_existing,
 )
 
@@ -1954,12 +1955,21 @@ class ModeFIMservWidget(QWidget):
             card["status_lbl"].setText("⏳ generating FIM …")
         self._set_busy(self._sf_status,
                        f"AOI {idx}/{self._fim_total} — generating flood inundation map …")
+        # Map ONLY the rasters this discharge request produces, so re-running
+        # the same AOI folder for a different period does not mosaic the two.
+        d = self._fim_cur_dischg or {}
+        tags = fim_tags_for_request(
+            source=d.get("source", "retrospective"),
+            value_times=d.get("value_times"),
+            start_date=d.get("start_date"), end_date=d.get("end_date"),
+            sort_by=d.get("sort_by"))
         self._start_worker(
             generate_fim_mode, done=self._fim_after_generate,
             on_error=self._fim_card_failed,
             project_dir=self._fim_cur_projdir, huc8_ids=self._fim_cur_huc8s,
             aoi_path=self._fim_cur_aoipath,
             depth=self._depth_chk.isChecked(), binary=True, clip=True,
+            fim_tags=tags,
         )
 
     def _fim_after_generate(self, result: dict):
