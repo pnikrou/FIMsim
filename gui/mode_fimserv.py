@@ -1350,13 +1350,15 @@ class ModeFIMservWidget(QWidget):
                 return
             step = st.currentData() or 1
             n_steps = int(secs // 3600 // step) + 1
-            # Measured on a 2-HUC8 AOI: ~20 s discharge per timestep per HUC8,
-            # plus FIM.  Deliberately rough — it is a warning, not a promise.
-            mins = n_steps * 1.5
+            # Measured end-to-end on a 2-HUC8 AOI: ~16 s discharge per
+            # timestep per HUC8 plus ~37 s FIM, i.e. roughly a minute per
+            # timestep in total.  Deliberately rough — a warning, not a promise.
+            mins = n_steps * 1.0
             lb.setText(
                 f"→ {n_steps} timestep map(s). Rough estimate ≈ "
                 + (f"{mins/60:.1f} hours" if mins >= 90 else f"{mins:.0f} min")
-                + " per HUC8 — increase the interval to cut this down.")
+                + " total (plus the one-off HAND download) — increase the "
+                  "interval to cut this down.")
 
         for w in (start_dt, end_dt):
             w.dateTimeChanged.connect(_update_ts_est)

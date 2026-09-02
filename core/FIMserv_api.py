@@ -292,8 +292,12 @@ class FIMservAPI:
                 if specific:
                     # One CSV per requested timestamp — skip the timestamps whose
                     # exact CSV already exists; only fetch the missing ones.
+                    # An EMPTY csv must not count as present: a previous run
+                    # could have written header-only files (see the teehr
+                    # caching note below), and skipping those would keep the
+                    # timestep permanently dry.
                     todo = [t for t in value_times
-                            if force or not self.expected_event_csv(huc, t).exists()]
+                            if force or self._csv_row_count(self.expected_event_csv(huc, t)) == 0]
                     have = len(value_times) - len(todo)
                     if have:
                         self.log(f"Discharge [{i}/{len(huc8_ids)}] {have} event time(s) already present — skipping those: {huc}")
@@ -301,9 +305,34 @@ class FIMservAPI:
                         self.log(f"Discharge [{i}/{len(huc8_ids)}] all event time(s) present: {huc}")
                         continue
                     self.log(f"Discharge [{i}/{len(huc8_ids)}]: {huc} — {len(todo)} event time(s) …")
-                    fm.getNWMretrospectivedata(huc_event_dict={huc: todo})
+                    # Download the whole window ONCE, then extract each
+                    # timestep from it.  Extracting per timestep on its own
+                    # does not work: fimserve asks for a +/-1h window per
+                    # timestamp, but teehr caches its parquet by DATE, so only
+                    # the FIRST timestamp's window is ever downloaded and every
+                    # later one filters against hours that are not there and
+                    # writes an EMPTY csv (which then maps as a dry FIM).
+                    # fimserve's own _process_huc_request downloads the range
+                    # first and only then extracts the value_times, so make the
+                    # single combined call it is built for.
+                    lo, hi = self._event_window(todo)
+                    fm.getNWMretrospectivedata(
+                        huc=huc, start_date=lo, end_date=hi, value_times=todo)
+                    # Verify every timestep really got data — an empty CSV is
+                    # silent here and only shows up as a blank flood map.
+                    empty = [t for t in todo
+                             if self._csv_row_count(self.expected_event_csv(huc, t)) == 0]
+                    if empty:
+                        self.log(f"Discharge [{i}/{len(huc8_ids)}] ⚠ {len(empty)} of "
+                                 f"{len(todo)} timestep(s) came back EMPTY for {huc} "
+                                 f"(first: {empty[0]}) — those maps would be dry.")
+                    # Every timestep in `todo` had no usable discharge before
+                    # this fetch, so any FIM raster already sitting there was
+                    # built from nothing and is dry.  Drop it, or runOWPHANDFIM
+                    # would see the file and skip regenerating it.
+                    self._drop_stale_fim(huc, [t for t in todo if t not in empty])
 
-                if start_date and end_date and source != "forecast":
+                if start_date and end_date and not specific and source != "forecast":
                     # Range + aggregation: skip when this exact request's CSV
                     # (NWM_<start>_<end>_<sortby>_<huc>.csv) is already on disk.
                     expected = self.expected_range_csv(huc, start_date, end_date, agg)
@@ -619,6 +648,43 @@ class FIMservAPI:
     @staticmethod
     def _ymd(date_str) -> str:
         return str(date_str).replace("-", "").replace(":", "").replace(" ", "")[:8]
+
+    def _drop_stale_fim(self, huc8: str, value_times: List[str]) -> int:
+        """Delete the FIM rasters for these timestamps so they are rebuilt.
+
+        runOWPHANDFIM skips any timestamp whose raster already exists, so a
+        raster produced from missing or empty discharge would survive forever
+        as a permanently dry map.
+        """
+        base = self.output_dir / f"flood_{huc8}" / f"{huc8}_inundation"
+        if not base.is_dir():
+            return 0
+        removed = 0
+        for t in value_times:
+            stem = self.expected_event_csv(huc8, t).stem      # NWM_<stamp>_<huc>
+            for f in base.glob(f"{stem}_inundation*.tif"):
+                try:
+                    f.unlink(); removed += 1
+                except OSError:
+                    pass
+        if removed:
+            self.log(f"Removed {removed} stale (dry) FIM raster(s) for {huc8} "
+                     f"so they regenerate with the new discharge.")
+        return removed
+
+    @staticmethod
+    def _event_window(value_times: List[str]):
+        """Datetime bounds covering every requested timestamp, with an hour of
+        margin, as "%Y-%m-%d %H:%M:%S" — the range to pre-download so each
+        timestep can be extracted from it."""
+        import datetime as _dt
+        dts = [d for d in (_as_dt(t) for t in value_times) if d is not None]
+        if not dts:
+            return None, None
+        lo = min(dts) - _dt.timedelta(hours=1)
+        hi = max(dts) + _dt.timedelta(hours=1)
+        return (lo.strftime("%Y-%m-%d %H:%M:%S"),
+                hi.strftime("%Y-%m-%d %H:%M:%S"))
 
     @staticmethod
     def expand_timesteps(start_date, end_date, step_hours: int = 1) -> List[str]:
@@ -1138,10 +1204,11 @@ def fim_tags_for_request(source="retrospective", value_times=None,
                     break
                 except ValueError:
                     continue
-    if start_date and end_date:
+    # With per-timestep output the aggregate is NOT requested (the overview is
+    # the maximum across the timestep maps), so do not expect its raster.
+    if start_date and end_date and not value_times:
         def _ymd(d):
             return str(d).split(" ")[0].replace("-", "")
-        # The aggregated map goes LAST so callers can treat it as the overview.
         tags.append(f"NWM_{_ymd(start_date)}_{_ymd(end_date)}_{sort_by or 'maximum'}")
     return tags or None
 
@@ -1265,8 +1332,7 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
     # happens, take the maximum across the per-timestep maps instead, which is
     # the same thing measured on the maps actually produced.
     if made and not outputs.get("extent_clipped") and not outputs.get("extent_mosaic"):
-        log_fn("Aggregated discharge unavailable — building the maximum-extent "
-               "overview from the per-timestep maps instead.")
+        log_fn("Building the maximum-extent overview from the per-timestep maps.")
         mx = api.max_stack([m["path"] for m in made], "clipped_extent_FIM.tif")
         if mx:
             outputs["extent_clipped"] = mx
