@@ -1314,6 +1314,57 @@ class ModeFIMservWidget(QWidget):
         range_note.setStyleSheet("color:#718096; font-size:11px;")
         rbv.addWidget(range_note)
 
+        # Save every timestep as its own raster (like the hydraulic models'
+        # time-series output), not just the aggregated overview.
+        ts_box = QWidget()
+        tsr = QHBoxLayout(ts_box)
+        tsr.setContentsMargins(0, 2, 0, 0)
+        ts_chk = QCheckBox("Also save one flood map per timestep")
+        ts_chk.setChecked(True)
+        tsr.addWidget(ts_chk)
+        tsr.addSpacing(8)
+        tsr.addWidget(QLabel("every"))
+        ts_step = QComboBox()
+        for lbl, hrs in (("1 h (hourly)", 1), ("3 h", 3), ("6 h", 6),
+                         ("12 h", 12), ("24 h (daily)", 24)):
+            ts_step.addItem(lbl, hrs)
+        ts_step.setCurrentIndex(2)          # 6 h — a sane default for a
+                                            # multi-day event (see estimate)
+        tsr.addWidget(ts_step)
+        tsr.addStretch(1)
+        rbv.addWidget(ts_box)
+
+        ts_est = QLabel("")
+        ts_est.setWordWrap(True)
+        ts_est.setStyleSheet("color:#975a16; font-size:11px;")
+        rbv.addWidget(ts_est)
+
+        def _update_ts_est(*_a, sd=start_dt, ed=end_dt, cb=ts_chk,
+                           st=ts_step, lb=ts_est):
+            if not cb.isChecked():
+                lb.setText("")
+                return
+            secs = sd.dateTime().secsTo(ed.dateTime())
+            if secs <= 0:
+                lb.setText("⚠ End must be after start.")
+                return
+            step = st.currentData() or 1
+            n_steps = int(secs // 3600 // step) + 1
+            # Measured on a 2-HUC8 AOI: ~20 s discharge per timestep per HUC8,
+            # plus FIM.  Deliberately rough — it is a warning, not a promise.
+            mins = n_steps * 1.5
+            lb.setText(
+                f"→ {n_steps} timestep map(s). Rough estimate ≈ "
+                + (f"{mins/60:.1f} hours" if mins >= 90 else f"{mins:.0f} min")
+                + " per HUC8 — increase the interval to cut this down.")
+
+        for w in (start_dt, end_dt):
+            w.dateTimeChanged.connect(_update_ts_est)
+        ts_chk.toggled.connect(lambda c, b=ts_step: b.setEnabled(c))
+        ts_chk.toggled.connect(_update_ts_est)
+        ts_step.currentIndexChanged.connect(_update_ts_est)
+        _update_ts_est()
+
         specific_box = QWidget()
         sv = QVBoxLayout(specific_box)
         sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(4)
@@ -1394,8 +1445,10 @@ class ModeFIMservWidget(QWidget):
         )
         # Date-mode toggle within Retrospective.
         rb_range.toggled.connect(
-            lambda checked, rb=range_box, sb=specific_box, rn=range_note:
+            lambda checked, rb=range_box, sb=specific_box, rn=range_note,
+                   tb=ts_box, te=ts_est:
                 (rb.setVisible(checked), rn.setVisible(checked),
+                 tb.setVisible(checked), te.setVisible(checked),
                  sb.setVisible(not checked))
         )
         # Forecast: "latest run" disables the manual date/hour pickers.
@@ -1462,6 +1515,8 @@ class ModeFIMservWidget(QWidget):
             "specific_dt":   specific_dt,
             "specific_list": specific_list,
             "range_box":     range_box,
+            "ts_chk":        ts_chk,
+            "ts_step":       ts_step,
             "specific_box":  specific_box,
             "retro_box":     retro_box,
             # forecast
@@ -1860,6 +1915,15 @@ class ModeFIMservWidget(QWidget):
                           start_date=start.strftime("%Y-%m-%d"),
                           end_date=end.strftime("%Y-%m-%d"),
                           sort_by="maximum")
+            # Optionally also map every timestep in the window, each saved as
+            # its own raster (the aggregated map stays as the overview).
+            if card["ts_chk"].isChecked():
+                steps = FIMservAPI.expand_timesteps(
+                    start, end, card["ts_step"].currentData() or 1)
+                if steps:
+                    kwargs["value_times"] = steps
+                    self._log(f"Duration will also save {len(steps)} "
+                              f"per-timestep flood map(s).")
         else:
             times = [card["specific_list"].item(i).text()
                      for i in range(card["specific_list"].count())]
@@ -1949,8 +2013,12 @@ class ModeFIMservWidget(QWidget):
             self._fim_stage_done(
                 "NWM discharge downloaded"
                 + (f" ({n_csv} file(s))" if n_csv else ""))
+            n_steps = len((self._fim_cur_dischg or {}).get("value_times") or [])
             self._fim_stage(
-                "Running OWP HAND FIM, then mosaic + clip to AOI …",
+                ("Running OWP HAND FIM for "
+                 f"{n_steps} timestep(s) + the maximum, then mosaic + clip …"
+                 if n_steps else
+                 "Running OWP HAND FIM, then mosaic + clip to AOI …"),
                 running=True)
             card["status_lbl"].setText("⏳ generating FIM …")
         self._set_busy(self._sf_status,
@@ -1979,8 +2047,15 @@ class ModeFIMservWidget(QWidget):
             clipped = outputs.get("extent_clipped") or outputs.get("extent_mosaic")
             if outputs:
                 self._fim_stage_done("Flood map generated, mosaicked and clipped")
+                steps = outputs.get("timestep_maps") or []
+                if steps:
+                    self._fim_stage_done(
+                        f"{len(steps)} per-timestep flood map(s) saved "
+                        f"({steps[0]['time']} → {steps[-1]['time']})")
+                    self._fim_stage(f"Timesteps: {outputs.get('timesteps_dir')}")
                 if clipped:
-                    self._fim_stage(f"Result: {clipped}")
+                    self._fim_stage(
+                        f"Result{' (maximum extent)' if steps else ''}: {clipped}")
             else:
                 self._fim_stage_finish(
                     "No flood map was produced — see log", failed=True)

@@ -289,7 +289,7 @@ class FIMservAPI:
                         kw["sort_by"] = sort_by
                     fm.getNWMForecasteddata(huc, forecast_range, **kw)
 
-                elif specific:
+                if specific:
                     # One CSV per requested timestamp — skip the timestamps whose
                     # exact CSV already exists; only fetch the missing ones.
                     todo = [t for t in value_times
@@ -303,7 +303,7 @@ class FIMservAPI:
                     self.log(f"Discharge [{i}/{len(huc8_ids)}]: {huc} — {len(todo)} event time(s) …")
                     fm.getNWMretrospectivedata(huc_event_dict={huc: todo})
 
-                else:
+                if start_date and end_date and source != "forecast":
                     # Range + aggregation: skip when this exact request's CSV
                     # (NWM_<start>_<end>_<sortby>_<huc>.csv) is already on disk.
                     expected = self.expected_range_csv(huc, start_date, end_date, agg)
@@ -614,6 +614,27 @@ class FIMservAPI:
     def _ymd(date_str) -> str:
         return str(date_str).replace("-", "").replace(":", "").replace(" ", "")[:8]
 
+    @staticmethod
+    def expand_timesteps(start_date, end_date, step_hours: int = 1) -> List[str]:
+        """Every timestamp in [start, end] at ``step_hours`` spacing.
+
+        NWM retrospective is hourly, so timestamps are snapped to the hour and
+        emitted as "%Y-%m-%d %H:%M:%S" — the only datetime shape fimserve's
+        determinedatatimeformat() accepts.
+        """
+        import datetime as _dt
+        a = _as_dt(start_date); b = _as_dt(end_date)
+        if a is None or b is None or b < a:
+            return []
+        step = max(1, int(step_hours))
+        a = a.replace(minute=0, second=0, microsecond=0)
+        b = b.replace(minute=0, second=0, microsecond=0)
+        out, t = [], a
+        while t <= b:
+            out.append(t.strftime("%Y-%m-%d %H:%M:%S"))
+            t += _dt.timedelta(hours=step)
+        return out
+
     def expected_range_csv(self, huc8: str, start_date, end_date, sort_by: str) -> Path:
         """The exact CSV getNWMretrospectivedata writes for a range+sortby:
         ``NWM_<start>_<end>_<sortby>_<huc>.csv``."""
@@ -650,9 +671,13 @@ class FIMservAPI:
         tifs = glob.glob(str(base / "*.tif"))
         if not fim_tags:
             return bool(tifs)
-        return any(
-            Path(t).name.lower().startswith(f"{tag.lower()}_{huc8.lower()}")
-            for t in tifs for tag in fim_tags
+        # Every requested run must have its raster — with several tags (a
+        # duration saving one map per timestep) "any" would skip generation
+        # as soon as the first timestep existed.
+        return all(
+            any(Path(t).name.lower().startswith(f"{tag.lower()}_{huc8.lower()}")
+                for t in tifs)
+            for tag in fim_tags
         )
 
     # HUC8 polygons
@@ -1051,8 +1076,8 @@ def fim_tags_for_request(source="retrospective", value_times=None,
     import datetime as _dt
     if source == "forecast":
         return None
+    tags = []
     if value_times:
-        tags = []
         for vt in value_times:
             text = str(vt)
             for fmt, out in (("%Y-%m-%d %H:%M:%S", "%Y%m%d%H%M%S"),
@@ -1063,20 +1088,41 @@ def fim_tags_for_request(source="retrospective", value_times=None,
                     break
                 except ValueError:
                     continue
-        return tags or None
     if start_date and end_date:
         def _ymd(d):
             return str(d).split(" ")[0].replace("-", "")
-        return [f"NWM_{_ymd(start_date)}_{_ymd(end_date)}_{sort_by or 'maximum'}"]
-    return None
+        # The aggregated map goes LAST so callers can treat it as the overview.
+        tags.append(f"NWM_{_ymd(start_date)}_{_ymd(end_date)}_{sort_by or 'maximum'}")
+    return tags or None
+
+
+
+def _is_event_tag(tag: str) -> bool:
+    """True for a single-timestamp tag (NWM_YYYYMMDD[HHMMSS]) as opposed to an
+    aggregated duration tag (NWM_<start>_<end>_<sortby>)."""
+    parts = str(tag).split("_")
+    return len(parts) == 2 and parts[1].isdigit()
+
+
+def _stamp_to_text(stamp: str) -> str:
+    """NWM stamp -> readable time, for logs and the results list."""
+    st = str(stamp)
+    if len(st) == 14:
+        return f"{st[0:4]}-{st[4:6]}-{st[6:8]} {st[8:10]}:{st[10:12]}"
+    if len(st) == 8:
+        return f"{st[0:4]}-{st[4:6]}-{st[6:8]}"
+    return st
 
 
 def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
                       binary=True, clip=True, fim_tags=None, log_fn=print):
     """Tab 4 — generate the FIM, make it binary, mosaic, and clip to the AOI.
 
-    Reuses the existing per-step methods so this stays consistent with the
-    full-workflow path.  Clipping only runs when an AOI was provided.
+    ``fim_tags`` names the discharge run(s) to map.  A duration asked to save
+    every timestep passes many: one tag per timestamp plus the aggregated tag
+    last.  Each tag is mosaicked and clipped ON ITS OWN, so the per-timestep
+    maps stay separate rasters instead of being merged into a single map, and
+    the aggregated one becomes the overview.
     """
     api = FIMservAPI(project_dir, log_fn=log_fn)
     clip = clip and bool(aoi_path)
@@ -1087,46 +1133,81 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
         log_fn("No FIM generated.")
         return {"outputs": outputs, "huc8_ids": ok}
 
-    # Only mosaic the rasters this discharge request produced — a folder that
-    # was run before (e.g. a specific timestep) still holds its own rasters.
-    rasters = api._find_fim_rasters(ok, fim_tags=fim_tags)
-    if fim_tags:
-        log_fn(f"Mosaicking {len(rasters['extent'])} extent raster(s) "
-               f"for this run ({', '.join(fim_tags)}).")
     multi = len(ok) >= 2
-    families = {"extent": rasters["extent"]}
-    if depth:
-        families["depth"] = rasters["depth"]
 
-    for fam, paths in families.items():
-        if not paths:
-            continue
-        work_paths = paths
-        if fam == "depth":
-            # FIMserv depth is in mm — convert to metres before mosaic/clip so
-            # the saved product (and its 'Depth (m)' legend) are in metres.
-            work_paths = api.depth_mm_to_m(paths)
-        elif binary:
-            bin_paths = api.make_binary(paths)
-            outputs[f"{fam}_binary"] = bin_paths
-            if bin_paths:
-                work_paths = bin_paths
-        if multi:
-            merge_method = "max" if fam == "depth" else "first"
-            mosaic_path = api.mosaic(work_paths, f"mosaicked_allhuc_{fam}.tif",
-                                     method=merge_method)
-        else:
-            mosaic_path = work_paths[0] if work_paths else None
-            if mosaic_path:
-                # Single HUC8 — re-save with LZW so the size stays low.
-                mosaic_path = api._save_lzw(
-                    mosaic_path, f"{fam}_{Path(mosaic_path).name}"
-                )
-        outputs[f"{fam}_mosaic"] = mosaic_path
-        if clip and mosaic_path:
-            outputs[f"{fam}_clipped"] = api.clip_to_aoi(
-                mosaic_path, str(aoi_path), f"clipped_{fam}_FIM.tif"
-            )
+    def _build(tags, name_fn):
+        """Binary → mosaic → clip one discharge run.  Returns {family: path}."""
+        rasters = api._find_fim_rasters(ok, fim_tags=tags)
+        families = {"extent": rasters["extent"]}
+        if depth:
+            families["depth"] = rasters["depth"]
+        res: Dict = {}
+        for fam, paths in families.items():
+            if not paths:
+                continue
+            work_paths = paths
+            if fam == "depth":
+                # FIMserv depth is in mm — convert to metres before mosaic/clip
+                # so the saved product (and its 'Depth (m)' legend) are metres.
+                work_paths = api.depth_mm_to_m(paths)
+            elif binary:
+                bin_paths = api.make_binary(paths)
+                res[f"{fam}_binary"] = bin_paths
+                if bin_paths:
+                    work_paths = bin_paths
+            if multi:
+                merge_method = "max" if fam == "depth" else "first"
+                mosaic_path = api.mosaic(work_paths, name_fn(fam, "mosaic"),
+                                         method=merge_method)
+            else:
+                mosaic_path = work_paths[0] if work_paths else None
+                if mosaic_path:
+                    # Single HUC8 — re-save with LZW so the size stays low.
+                    mosaic_path = api._save_lzw(mosaic_path,
+                                                name_fn(fam, "single"))
+            res[f"{fam}_mosaic"] = mosaic_path
+            if clip and mosaic_path:
+                res[f"{fam}_clipped"] = api.clip_to_aoi(
+                    mosaic_path, str(aoi_path), name_fn(fam, "clipped"))
+        return res
+
+    tags = list(fim_tags or [])
+    # Per-timestep tags are the event ones (NWM_<stamp>); the aggregated
+    # duration tag (NWM_<start>_<end>_<sortby>) is the overview.
+    step_tags = [t for t in tags if _is_event_tag(t)]
+    agg_tags = [t for t in tags if not _is_event_tag(t)]
+    # A single requested time needs no per-timestep folder — it IS the map, and
+    # keeping that path unchanged preserves the plain specific-time behaviour.
+    if len(step_tags) < 2 and not agg_tags:
+        step_tags = []
+    overview_tags = agg_tags or (tags or None)
+
+    if step_tags:
+        ts_dir = api.project_dir / "timesteps"
+        ts_dir.mkdir(parents=True, exist_ok=True)
+        made = []
+        log_fn(f"Building {len(step_tags)} per-timestep flood map(s) …")
+        for k, tag in enumerate(step_tags, 1):
+            stamp = tag.split("_", 1)[1] if "_" in tag else tag
+            r = _build([tag], lambda fam, kind, st=stamp:
+                       f"timesteps/{fam}_{st}_{kind}.tif")
+            path = r.get("extent_clipped") or r.get("extent_mosaic")
+            if path:
+                made.append({"time": _stamp_to_text(stamp), "path": path,
+                             "depth": r.get("depth_clipped") or r.get("depth_mosaic")})
+            log_fn(f"  timestep [{k}/{len(step_tags)}] {_stamp_to_text(stamp)}"
+                   + (f" -> {Path(path).name}" if path else " -> no raster"))
+        outputs["timestep_maps"] = made
+        outputs["timesteps_dir"] = str(ts_dir)
+        log_fn(f"Saved {len(made)} per-timestep flood map(s) in {ts_dir}")
+
+    # Overview (the aggregated map for a duration, or the single requested run)
+    if overview_tags:
+        outputs.update(_build(
+            overview_tags,
+            lambda fam, kind: (f"clipped_{fam}_FIM.tif" if kind == "clipped"
+                               else (f"mosaicked_allhuc_{fam}.tif" if kind == "mosaic"
+                                     else f"{fam}_mosaic.tif"))))
 
     log_fn("FIM generation complete.")
     return {"outputs": outputs, "huc8_ids": ok}
