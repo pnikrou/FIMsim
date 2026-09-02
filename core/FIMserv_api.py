@@ -365,7 +365,8 @@ class FIMservAPI:
         ok: List[str] = []
         for i, huc in enumerate(huc8_ids, 1):
             try:
-                if not force and self.has_fim(huc, fim_tags=fim_tags):
+                if not force and self.has_fim(huc, fim_tags=fim_tags,
+                                              require_all=True):
                     self.log(f"FIM [{i}/{len(huc8_ids)}] already exists — skipping: {huc}")
                     ok.append(huc)
                     continue
@@ -380,7 +381,12 @@ class FIMservAPI:
                         f"(expected {self.output_dir / f'flood_{huc}' / f'{huc}_inundation'})")
                     continue
                 ok.append(huc)
-                self.log(f"FIM [{i}/{len(huc8_ids)}] generated: {huc}")
+                made = len(self._find_fim_rasters([huc], fim_tags=fim_tags)["extent"])
+                missing = (len(fim_tags) - made) if fim_tags else 0
+                self.log(
+                    f"FIM [{i}/{len(huc8_ids)}] generated: {huc}"
+                    + (f" — {made} raster(s)" if fim_tags else "")
+                    + (f"; {missing} requested run(s) produced none" if missing > 0 else ""))
             except Exception as exc:
                 self.log(f"FIM [{i}/{len(huc8_ids)}] failed for {huc}: {exc}")
 
@@ -635,6 +641,45 @@ class FIMservAPI:
             t += _dt.timedelta(hours=step)
         return out
 
+    def max_stack(self, raster_paths: List[str], out_name: str) -> Optional[str]:
+        """Cell-wise maximum across rasters that share a grid.
+
+        Used to build the duration overview from the per-timestep maps, so the
+        overview is exactly the greatest extent of the maps that were saved.
+        It is also the fallback when fimserve cannot write its aggregated
+        discharge (its get_aggregated_discharge looks for a parquet named
+        "<start>_<end>.parquet", which does not exist for a same-day range).
+        """
+        paths = [p for p in raster_paths if p and Path(p).exists()]
+        if not paths:
+            return None
+        acc = None; profile = None; nodata = None
+        for pth in paths:
+            with rasterio.open(pth) as ds:
+                arr = ds.read(1)
+                if acc is None:
+                    profile = ds.profile.copy(); nodata = ds.nodata
+                    acc = arr.copy()
+                    continue
+                if arr.shape != acc.shape:
+                    self.log(f"max_stack: skipping {Path(pth).name} — grid mismatch")
+                    continue
+                if nodata is None:
+                    acc = np.maximum(acc, arr)
+                else:
+                    # nodata must not win the maximum
+                    a = np.where(acc == nodata, arr, acc)
+                    b = np.where(arr == nodata, acc, arr)
+                    acc = np.where((acc == nodata) & (arr == nodata), nodata,
+                                   np.maximum(a, b))
+        if acc is None:
+            return None
+        profile.update(compress="lzw", tiled=True, blockxsize=256, blockysize=256)
+        dst = self.project_dir / out_name
+        with rasterio.open(dst, "w", **profile) as out:
+            out.write(acc, 1)
+        return str(dst)
+
     def expected_range_csv(self, huc8: str, start_date, end_date, sort_by: str) -> Path:
         """The exact CSV getNWMretrospectivedata writes for a range+sortby:
         ``NWM_<start>_<end>_<sortby>_<huc>.csv``."""
@@ -658,7 +703,8 @@ class FIMservAPI:
             stamp = self._ymd(value_time)
         return self._inputs_dir() / f"NWM_{stamp}_{huc8}.csv"
 
-    def has_fim(self, huc8: str, fim_tags: Optional[List[str]] = None) -> bool:
+    def has_fim(self, huc8: str, fim_tags: Optional[List[str]] = None,
+                require_all: bool = False) -> bool:
         """True when a FIM inundation raster already exists for this HUC8.
 
         ``fim_tags`` narrows the question to one discharge request, so a folder
@@ -671,14 +717,18 @@ class FIMservAPI:
         tifs = glob.glob(str(base / "*.tif"))
         if not fim_tags:
             return bool(tifs)
-        # Every requested run must have its raster — with several tags (a
-        # duration saving one map per timestep) "any" would skip generation
-        # as soon as the first timestep existed.
-        return all(
-            any(Path(t).name.lower().startswith(f"{tag.lower()}_{huc8.lower()}")
+        def _present(tag):
+            return any(
+                Path(t).name.lower().startswith(f"{tag.lower()}_{huc8.lower()}")
                 for t in tifs)
-            for tag in fim_tags
-        )
+        # Two different questions, two different rules:
+        #   require_all=True  -> "is there nothing left to do?"  (skip check)
+        #   require_all=False -> "did this HUC8 produce anything?" (success)
+        # Using all() for the success check made a run with 17 good timesteps
+        # report "produced NO raster" merely because the aggregated map was
+        # missing.
+        return all(map(_present, fim_tags)) if require_all \
+            else any(map(_present, fim_tags))
 
     # HUC8 polygons
     def huc8_polygons(self, huc8_ids: List[str]):
@@ -1182,10 +1232,10 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
         step_tags = []
     overview_tags = agg_tags or (tags or None)
 
+    made: List[Dict] = []
     if step_tags:
         ts_dir = api.project_dir / "timesteps"
         ts_dir.mkdir(parents=True, exist_ok=True)
-        made = []
         log_fn(f"Building {len(step_tags)} per-timestep flood map(s) …")
         for k, tag in enumerate(step_tags, 1):
             stamp = tag.split("_", 1)[1] if "_" in tag else tag
@@ -1208,6 +1258,20 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
             lambda fam, kind: (f"clipped_{fam}_FIM.tif" if kind == "clipped"
                                else (f"mosaicked_allhuc_{fam}.tif" if kind == "mosaic"
                                      else f"{fam}_mosaic.tif"))))
+
+    # fimserve writes no aggregated discharge when its expected parquet name
+    # does not exist — notably for a same-day duration, where it looks for
+    # "<date>_<date>.parquet" but teehr wrote "<date>.parquet".  When that
+    # happens, take the maximum across the per-timestep maps instead, which is
+    # the same thing measured on the maps actually produced.
+    if made and not outputs.get("extent_clipped") and not outputs.get("extent_mosaic"):
+        log_fn("Aggregated discharge unavailable — building the maximum-extent "
+               "overview from the per-timestep maps instead.")
+        mx = api.max_stack([m["path"] for m in made], "clipped_extent_FIM.tif")
+        if mx:
+            outputs["extent_clipped"] = mx
+            outputs["extent_max_from_timesteps"] = True
+            log_fn(f"Maximum-extent overview: {mx}")
 
     log_fn("FIM generation complete.")
     return {"outputs": outputs, "huc8_ids": ok}
