@@ -1306,6 +1306,12 @@ class ModeFIMservWidget(QWidget):
         rr.addWidget(end_dt)
         rr.addStretch()
         rbv.addWidget(range_box)
+        range_note = QLabel(
+            "★ The map shows the <b>maximum</b> flood extent reached during "
+            "this period (NWM discharge aggregated to its peak per reach).")
+        range_note.setWordWrap(True)
+        range_note.setStyleSheet("color:#718096; font-size:11px;")
+        rbv.addWidget(range_note)
 
         specific_box = QWidget()
         sv = QVBoxLayout(specific_box)
@@ -1387,8 +1393,9 @@ class ModeFIMservWidget(QWidget):
         )
         # Date-mode toggle within Retrospective.
         rb_range.toggled.connect(
-            lambda checked, rb=range_box, sb=specific_box:
-                (rb.setVisible(checked), sb.setVisible(not checked))
+            lambda checked, rb=range_box, sb=specific_box, rn=range_note:
+                (rb.setVisible(checked), rn.setVisible(checked),
+                 sb.setVisible(not checked))
         )
         # Forecast: "latest run" disables the manual date/hour pickers.
         def _sync_latest(checked, lbl=fc_date_lbl, dt=fc_date,
@@ -1844,9 +1851,14 @@ class ModeFIMservWidget(QWidget):
             if end <= start:
                 self._fim_skip_card(card, "⚠ End date must be after start — skipped.")
                 return
+            # Over a duration there is one FIM per timestep, which is far
+            # too many to show.  Aggregate the discharge to its MAXIMUM over
+            # the period, so the map is the greatest flood extent reached
+            # during that window.
             kwargs = dict(source="retrospective",
                           start_date=start.strftime("%Y-%m-%d"),
-                          end_date=end.strftime("%Y-%m-%d"))
+                          end_date=end.strftime("%Y-%m-%d"),
+                          sort_by="maximum")
         else:
             times = [card["specific_list"].item(i).text()
                      for i in range(card["specific_list"].count())]
@@ -1911,7 +1923,12 @@ class ModeFIMservWidget(QWidget):
         if card is not None:
             card["status_lbl"].setText("⏳ discharge …")
             self._fim_stage_done(f"HAND rasters downloaded ({len(ok)} HUC8)")
-            self._fim_stage("Downloading NWM discharge …", running=True)
+            _agg = (self._fim_cur_dischg or {}).get("sort_by")
+            self._fim_stage(
+                "Downloading NWM discharge"
+                + (f" ({_agg} over the period)" if _agg == "maximum"
+                   and (self._fim_cur_dischg or {}).get("start_date") else "")
+                + " …", running=True)
         self._set_busy(self._sf_status,
                        f"AOI {idx}/{self._fim_total} — fetching NWM discharge …")
         self._start_worker(
