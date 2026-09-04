@@ -1925,7 +1925,8 @@ class ModeFIMservWidget(QWidget):
                 if steps:
                     kwargs["value_times"] = steps
                     self._log(f"Duration will also save {len(steps)} "
-                              f"per-timestep flood map(s).")
+                              f"per-timestep flood map(s) in the AOI's "
+                              f"'FloodMaps' folder.")
         else:
             times = [card["specific_list"].item(i).text()
                      for i in range(card["specific_list"].count())]
@@ -2052,12 +2053,16 @@ class ModeFIMservWidget(QWidget):
                 steps = outputs.get("timestep_maps") or []
                 if steps:
                     self._fim_stage_done(
-                        f"{len(steps)} per-timestep flood map(s) saved "
+                        f"{len(steps)} flood map(s) saved — one per timestep "
                         f"({steps[0]['time']} → {steps[-1]['time']})")
-                    self._fim_stage(f"Timesteps: {outputs.get('timesteps_dir')}")
+                    self._fim_stage_done(
+                        f"All timestep rasters → {outputs.get('timesteps_dir')}")
+                    if outputs.get("timestep_index"):
+                        self._fim_stage_done(
+                            "index.csv lists each timestep and its inundated area")
                 if clipped:
                     self._fim_stage(
-                        f"Result{' (maximum extent)' if steps else ''}: {clipped}")
+                        f"Overview{' (maximum extent)' if steps else ''}: {clipped}")
             else:
                 self._fim_stage_finish(
                     "No flood map was produced — see log", failed=True)

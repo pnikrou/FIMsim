@@ -707,6 +707,43 @@ class FIMservAPI:
             t += _dt.timedelta(hours=step)
         return out
 
+    def write_flood_map_index(self, maps: List[Dict], out_dir) -> Optional[str]:
+        """Write FloodMaps/index.csv describing the per-timestep series.
+
+        One row per timestep with the file name and how much of the AOI it
+        inundates, so the series can be plotted or compared without opening
+        every raster.
+        """
+        if not maps:
+            return None
+        out = Path(out_dir) / "index.csv"
+        try:
+            import csv
+            with open(out, "w", newline="", encoding="utf-8") as fh:
+                w = csv.writer(fh)
+                w.writerow(["time", "file", "inundated_cells",
+                            "inundated_km2", "depth_file"])
+                for m in maps:
+                    cells = km2 = ""
+                    try:
+                        with rasterio.open(m["path"]) as ds:
+                            a = ds.read(1)
+                            nod = ds.nodata
+                            wet = int(((a > 0) & (a != nod)).sum()) if nod is not None \
+                                else int((a > 0).sum())
+                            cs = abs(ds.transform.a)
+                            cells, km2 = wet, round(wet * cs * cs / 1e6, 3)
+                    except Exception:
+                        pass
+                    w.writerow([m.get("time", ""), Path(m["path"]).name,
+                                cells, km2,
+                                Path(m["depth"]).name if m.get("depth") else ""])
+            self.log(f"Wrote {out.name} — {len(maps)} timestep(s) with inundated area.")
+            return str(out)
+        except Exception as exc:
+            self.log(f"Could not write the flood-map index: {exc}")
+            return None
+
     def max_stack(self, raster_paths: List[str], out_name: str) -> Optional[str]:
         """Cell-wise maximum across rasters that share a grid.
 
@@ -1221,6 +1258,19 @@ def _is_event_tag(tag: str) -> bool:
     return len(parts) == 2 and parts[1].isdigit()
 
 
+FLOOD_MAPS_DIRNAME = "FloodMaps"
+
+
+def _stamp_to_slug(stamp: str) -> str:
+    """NWM stamp -> a readable, sortable filename part: 2016-10-12_0000."""
+    st = str(stamp)
+    if len(st) == 14:
+        return f"{st[0:4]}-{st[4:6]}-{st[6:8]}_{st[8:10]}{st[10:12]}"
+    if len(st) == 8:
+        return f"{st[0:4]}-{st[4:6]}-{st[6:8]}"
+    return st
+
+
 def _stamp_to_text(stamp: str) -> str:
     """NWM stamp -> readable time, for logs and the results list."""
     st = str(stamp)
@@ -1301,21 +1351,52 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
 
     made: List[Dict] = []
     if step_tags:
-        ts_dir = api.project_dir / "timesteps"
+        # One flood raster per timestep, in a plainly-named folder next to the
+        # overview: FloodMaps/FIM_<YYYY-MM-DD_HHMM>.tif
+        ts_dir = api.project_dir / FLOOD_MAPS_DIRNAME
         ts_dir.mkdir(parents=True, exist_ok=True)
         log_fn(f"Building {len(step_tags)} per-timestep flood map(s) …")
         for k, tag in enumerate(step_tags, 1):
             stamp = tag.split("_", 1)[1] if "_" in tag else tag
-            r = _build([tag], lambda fam, kind, st=stamp:
-                       f"timesteps/{fam}_{st}_{kind}.tif")
+            slug = _stamp_to_slug(stamp)
+
+            def _name(fam, kind, sl=slug):
+                stem = "FIM" if fam == "extent" else "depth"
+                if kind == "clipped":
+                    return f"{FLOOD_MAPS_DIRNAME}/{stem}_{sl}.tif"
+                # Mosaic/single-HUC8 output is an intermediate when the result
+                # is then clipped to the AOI; keep it out of the way and drop
+                # it below so the folder holds only the finished maps.
+                return f"{FLOOD_MAPS_DIRNAME}/_wip_{stem}_{sl}.tif"
+
+            r = _build([tag], _name)
+            for fam in ("extent", "depth"):
+                clipped, wip = r.get(f"{fam}_clipped"), r.get(f"{fam}_mosaic")
+                if clipped and wip and Path(wip).name.startswith("_wip_"):
+                    try:
+                        Path(wip).unlink()
+                    except OSError:
+                        pass
+                elif wip and Path(wip).name.startswith("_wip_"):
+                    # No clip happened — the mosaic IS the map, so give it the
+                    # real name rather than leaving a _wip_ file behind.
+                    final = Path(wip).with_name(Path(wip).name[len("_wip_"):])
+                    try:
+                        Path(wip).replace(final); r[f"{fam}_mosaic"] = str(final)
+                    except OSError:
+                        pass
             path = r.get("extent_clipped") or r.get("extent_mosaic")
             if path:
-                made.append({"time": _stamp_to_text(stamp), "path": path,
+                made.append({"time": _stamp_to_text(stamp), "stamp": stamp,
+                             "path": path,
                              "depth": r.get("depth_clipped") or r.get("depth_mosaic")})
             log_fn(f"  timestep [{k}/{len(step_tags)}] {_stamp_to_text(stamp)}"
                    + (f" -> {Path(path).name}" if path else " -> no raster"))
         outputs["timestep_maps"] = made
         outputs["timesteps_dir"] = str(ts_dir)
+        idx = api.write_flood_map_index(made, ts_dir)
+        if idx:
+            outputs["timestep_index"] = idx
         log_fn(f"Saved {len(made)} per-timestep flood map(s) in {ts_dir}")
 
     # Overview (the aggregated map for a duration, or the single requested run)
