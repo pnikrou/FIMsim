@@ -1347,7 +1347,13 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
     # keeping that path unchanged preserves the plain specific-time behaviour.
     if len(step_tags) < 2 and not agg_tags:
         step_tags = []
-    overview_tags = agg_tags or (tags or None)
+    # With per-timestep output the overview is the cell-wise MAXIMUM across the
+    # timestep maps (built below), NOT a mosaic of every timestep raster: for a
+    # single HUC8 that returns work_paths[0] — the FIRST timestep — and across
+    # HUC8s rasterio's "first" merge rule likewise keeps whichever raster came
+    # first.  Neither is the maximum, and on a falling hydrograph the two
+    # coincide, which hides the error.
+    overview_tags = None if step_tags else (agg_tags or tags or None)
 
     made: List[Dict] = []
     if step_tags:
@@ -1407,18 +1413,23 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
                                else (f"mosaicked_allhuc_{fam}.tif" if kind == "mosaic"
                                      else f"{fam}_mosaic.tif"))))
 
-    # fimserve writes no aggregated discharge when its expected parquet name
-    # does not exist — notably for a same-day duration, where it looks for
-    # "<date>_<date>.parquet" but teehr wrote "<date>.parquet".  When that
-    # happens, take the maximum across the per-timestep maps instead, which is
-    # the same thing measured on the maps actually produced.
+    # Maximum-extent overview, taken across the per-timestep maps.  This is
+    # also what covers a duration whose aggregated discharge fimserve could not
+    # write (it looks for "<start>_<end>.parquet", which does not exist for a
+    # same-day window).
     if made and not outputs.get("extent_clipped") and not outputs.get("extent_mosaic"):
-        log_fn("Building the maximum-extent overview from the per-timestep maps.")
+        log_fn(f"Building the maximum-extent overview from {len(made)} "
+               f"per-timestep map(s) …")
         mx = api.max_stack([m["path"] for m in made], "clipped_extent_FIM.tif")
         if mx:
             outputs["extent_clipped"] = mx
             outputs["extent_max_from_timesteps"] = True
             log_fn(f"Maximum-extent overview: {mx}")
+        depths = [m["depth"] for m in made if m.get("depth")]
+        if depths:
+            dmx = api.max_stack(depths, "clipped_depth_FIM.tif")
+            if dmx:
+                outputs["depth_clipped"] = dmx
 
     log_fn("FIM generation complete.")
     return {"outputs": outputs, "huc8_ids": ok}
