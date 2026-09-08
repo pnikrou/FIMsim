@@ -499,17 +499,26 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
     # the user can still override at run time.
     cfg = {**(feat_ctx.get("nencarta_streamflow") or {}), **(cfg or {})}
 
-    dem_dir  = feat_ctx.get("dem_dir") or str(Path(folder) / "dem")
     flowline = feat_ctx.get("arc_flowline_path")
     if not flowline:
         raise RuntimeError("No flowline for this AOI — run the Flowline step first.")
 
-    # The DEM folder also holds lulc.tif (and temp rasters) from the Land Cover
-    # step, and NenCarta globs dem_dir with dem_filter (default "*"), so it
-    # would ingest the land-cover raster as if it were a DEM.  Pin the filter to
-    # the actual DEM file instead.
+    # NenCarta globs dem_dir with dem_filter, so both must point at the DEM
+    # that was actually written.  Take them from dem_tif_path rather than
+    # trusting ctx["dem_dir"]: prepare_dem saves the GeoTIFF in the AOI folder
+    # while the DEM step records dem_dir as <AOI>/dem (which holds only the
+    # ASCII), so using dem_dir alone finds no DEM at all.  Pinning the filter
+    # also keeps lulc.tif and the Land Cover step's temp rasters out.
     dem_tif = feat_ctx.get("dem_tif_path")
-    dem_filter = Path(dem_tif).name if dem_tif else "*.tif"
+    if dem_tif and Path(dem_tif).exists():
+        dem_dir = str(Path(dem_tif).parent)
+        dem_filter = Path(dem_tif).name
+    else:
+        dem_dir = feat_ctx.get("dem_dir") or str(Path(folder) / "dem")
+        dem_filter = "*.tif"
+    if not any(Path(dem_dir).glob(dem_filter)):
+        raise RuntimeError(
+            f"No DEM matching '{dem_filter}' in {dem_dir} — run the DEM step.")
 
     out_dir = str(Path(folder) / "nencarta-output")
     return build_watershed(
