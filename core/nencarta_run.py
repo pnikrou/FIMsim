@@ -26,9 +26,18 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# NenCarta accepts only these two streamflow sources
-# (nencarta/main.py :: get_streamids_from_source).
-STREAMFLOW_SOURCES = ("GEOGLOWS", "NWM")
+# NenCarta accepts GEOGLOWS or an NWM forecast range.  get_streamids_from_source
+# matches any name starting "NWM", but validate_forecast_hours only knows these
+# three, and each constrains the forecast hour differently.
+STREAMFLOW_SOURCES = ("GEOGLOWS", "NWM_short_range",
+                      "NWM_medium_range", "NWM_long_range")
+
+# nencarta/main.py :: validate_forecast_hours
+FORECAST_HOURS = {
+    "NWM_short_range":  [f"{i:02d}" for i in range(24)],
+    "NWM_medium_range": ["00", "06", "12", "18"],
+    "NWM_long_range":   ["00"],
+}
 
 # The reach-id / downstream-id fields NenCarta reads off the flowline for each
 # source.  GEOGLOWS keys on its own TDX-Hydro network, NWM on NHD COMIDs.
@@ -50,6 +59,22 @@ FLOODMAP_MODES = ("forecast", "user")
 
 class NenCartaError(RuntimeError):
     """NenCarta could not be run, or reported a failure."""
+
+
+def _as_yyyymmdd(value) -> str:
+    """NenCarta's forensic_forecast_date format, from anything date-like."""
+    import datetime as _dt
+    text = str(value).strip()
+    if isinstance(value, (_dt.date, _dt.datetime)):
+        return value.strftime("%Y%m%d")
+    for fmt in ("%Y%m%d", "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M"):
+        try:
+            return _dt.datetime.strptime(text, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+    raise NenCartaError(
+        f"Could not read {value!r} as a date — NenCarta wants YYYYMMDD.")
 
 
 def flood_mapping_cli() -> Optional[str]:
@@ -80,6 +105,7 @@ def build_watershed(
     floodmap_mode: str = "forecast",
     user_flow_files: Optional[List[str]] = None,
     mannings_text_file: Optional[str] = None,
+    specify_depths_for_bathy_mask: Optional[List[float]] = None,
     dem_filter: str = "*",
     clean_dem: bool = False,
     bathy_use_banks: bool = False,
@@ -98,14 +124,18 @@ def build_watershed(
     None are omitted entirely so NenCarta applies its own default rather than
     being handed a null it did not expect.
     """
-    src = (streamflow_source or "GEOGLOWS").upper()
+    src = streamflow_source or "GEOGLOWS"
+    # Match NenCarta's own casing: it compares GEOGLOWS upper-cased but the NWM
+    # names carry their lowercase range suffix.
+    src = "GEOGLOWS" if src.upper() == "GEOGLOWS" else src
     if src not in STREAMFLOW_SOURCES:
         raise NenCartaError(
             f"streamflow_source must be one of {', '.join(STREAMFLOW_SOURCES)} "
             f"— got {streamflow_source!r}.")
-    if src == "NWM" and not nwm_api_key:
+    if src.upper().startswith("NWM") and not nwm_api_key:
         raise NenCartaError(
-            "NenCarta requires nwm_api_key when streamflow_source is NWM.")
+            "NenCarta requires nwm_api_key when streamflow_source is NWM "
+            "(apply for one through CIROH).")
     if mapper not in ALL_MAPPERS:
         raise NenCartaError(
             f"mapper must be one of {ALL_MAPPERS} — got {mapper!r}.")
@@ -145,13 +175,40 @@ def build_watershed(
     }
     if src == "GEOGLOWS" and geoglows_vpu not in (None, ""):
         w["geoglows_vpu"] = int(geoglows_vpu)
-    if src == "NWM":
+    if src.upper().startswith("NWM"):
         w["nwm_api_key"] = nwm_api_key
     if forensic_forecast_date:
-        w["forensic_forecast_date"] = str(forensic_forecast_date)
+        # NenCarta parses this as YYYYMMDD (or "%Y-%m-%d %H:%M:%S %Z") and
+        # raises on anything else — and it does so at RUN time, long after the
+        # config looks fine, so normalise here.
+        w["forensic_forecast_date"] = _as_yyyymmdd(forensic_forecast_date)
         # GEOGLOWS is daily — NenCarta ignores the hour for it.
         if forensic_forecast_hour not in (None, "") and src != "GEOGLOWS":
-            w["forensic_forecast_hour"] = int(forensic_forecast_hour)
+            # It must be a TWO-DIGIT STRING, and each NWM range allows a
+            # different set (validate_forecast_hours).
+            hour = f"{int(forensic_forecast_hour):02d}"
+            allowed = FORECAST_HOURS.get(src)
+            if allowed and hour not in allowed:
+                raise NenCartaError(
+                    f"forecast hour {hour} is not valid for {src} — "
+                    f"allowed: {', '.join(allowed)}.")
+            w["forensic_forecast_hour"] = hour
+
+    # NenCarta defaults use_specified_depth_for_bathy_mask to True and then
+    # REQUIRES specify_depths_for_bathy_mask — one float when clean_dem is
+    # False, two when it is True — so its own defaults cannot run.  State the
+    # choice explicitly rather than tripping that at run time.
+    if specify_depths_for_bathy_mask:
+        depths = [float(d) for d in specify_depths_for_bathy_mask]
+        want = 2 if clean_dem else 1
+        if len(depths) != want:
+            raise NenCartaError(
+                f"specify_depths_for_bathy_mask needs exactly {want} value(s) "
+                f"when clean_dem is {bool(clean_dem)} — got {len(depths)}.")
+        w["use_specified_depth_for_bathy_mask"] = True
+        w["specify_depths_for_bathy_mask"] = depths
+    else:
+        w["use_specified_depth_for_bathy_mask"] = False
     # Always emit user_flow_files, even empty.  NenCarta 0.2.1's
     # validate_user_floodmaps() ends with
     #     return floodmap_mode, [os.path.normpath(f) for f in user_flow_files]
