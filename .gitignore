@@ -37,3 +37,9 @@ lisflood-manual-v5.9.6.pdf
 # Large sample input data (too big for GitHub)
 ARC-Curve2Flood_input_formats/DEM_projected/DEM.tif
 ARC-Curve2Flood_input_formats/DEM_projected/DEM.tif.aux.xml
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Local AOI shapefiles — user data, not app code
+AOIs/
