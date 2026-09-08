@@ -65,6 +65,20 @@ class ArcFlowConfigPanel(QWidget):
         src_row.addStretch()
         layout.addLayout(src_row)
 
+        # Snapshot vs duration.  ARC-Curve2Flood is steady state, so a duration
+        # is a SET of independent snapshots — NenCarta maps one raster per
+        # timestep via floodmap_mode "user" + user_flow_files.
+        p_row = QHBoxLayout()
+        p_row.addWidget(QLabel("Simulation period:"))
+        self._period = QComboBox()
+        self._period.addItem("Specific time  (one flood map)", "snapshot")
+        self._period.addItem("Duration  (one flood map per timestep)", "duration")
+        self._period.setFixedWidth(300)
+        self._period.currentIndexChanged.connect(self._on_src_changed)
+        p_row.addWidget(self._period)
+        p_row.addStretch()
+        layout.addLayout(p_row)
+
         # Event date.  Left off, NenCarta uses the latest available forecast.
         d_row = QHBoxLayout()
         self._use_date = QCheckBox("Map a past event on:")
@@ -87,6 +101,36 @@ class ArcFlowConfigPanel(QWidget):
         d_row.addWidget(self._fhour)
         d_row.addStretch()
         layout.addLayout(d_row)
+
+        self._dur_box = QWidget()
+        dr = QHBoxLayout(self._dur_box)
+        dr.setContentsMargins(0, 0, 0, 0)
+        dr.addWidget(QLabel("From:"))
+        self._start = QDateEdit(); self._start.setDisplayFormat("yyyy-MM-dd")
+        self._start.setCalendarPopup(True)
+        self._start.setDate(QDate.currentDate().addDays(-37))
+        self._start.dateChanged.connect(self._refresh_dur)
+        dr.addWidget(self._start)
+        dr.addWidget(QLabel("to:"))
+        self._end = QDateEdit(); self._end.setDisplayFormat("yyyy-MM-dd")
+        self._end.setCalendarPopup(True)
+        self._end.setDate(QDate.currentDate().addDays(-30))
+        self._end.dateChanged.connect(self._refresh_dur)
+        dr.addWidget(self._end)
+        dr.addWidget(QLabel("every"))
+        self._step = QComboBox()
+        for lbl, hrs in (("24 h (daily)", 24), ("12 h", 12), ("6 h", 6),
+                         ("3 h", 3), ("1 h", 1)):
+            self._step.addItem(lbl, hrs)
+        self._step.currentIndexChanged.connect(self._refresh_dur)
+        dr.addWidget(self._step)
+        dr.addStretch(1)
+        layout.addWidget(self._dur_box)
+
+        self._dur_note = QLabel("")
+        self._dur_note.setWordWrap(True)
+        self._dur_note.setStyleSheet("color:#975a16; font-size:11px;")
+        layout.addWidget(self._dur_note)
 
         a_row = QHBoxLayout()
         a_row.addWidget(QLabel("Look back at most:"))
@@ -122,9 +166,32 @@ class ArcFlowConfigPanel(QWidget):
 
     # ── behaviour ────────────────────────────────────────────────────────────
 
+    def _refresh_dur(self, *_):
+        """Timestep count + the daily-data caveat for a duration."""
+        if not hasattr(self, "_dur_note"):
+            return
+        days = self._start.date().daysTo(self._end.date())
+        step = self._step.currentData() or 24
+        if days < 0:
+            self._dur_note.setText("⚠ The end date must be after the start.")
+        else:
+            cnt = int(days * 24 / step) + 1
+            msg = f"→ {cnt} flood map(s), one per timestep."
+            if self._src_combo.currentData() == "GEOGLOWS" and step < 24:
+                msg += ("  ⚠ GEOGLOWS retrospective is DAILY — sub-daily steps "
+                        "repeat the same day's discharge. Use NWM for hourly.")
+            self._dur_note.setText(msg)
+        self.config_changed.emit()
+
     def _on_src_changed(self, *_):
         src = self._src_combo.currentData()
         is_nwm = str(src).upper().startswith("NWM")
+        is_dur = (self._period.currentData() == "duration")
+        for w in ("_dur_box", "_dur_note"):
+            if hasattr(self, w):
+                getattr(self, w).setVisible(is_dur)
+        self._use_date.setVisible(not is_dur)
+        self._fdate.setVisible(not is_dur)
         self._key_row.setVisible(is_nwm)
         self._fdate.setEnabled(self._use_date.isChecked())
 
@@ -143,7 +210,8 @@ class ArcFlowConfigPanel(QWidget):
         # Remember whether an hour applies at all.  get_config must NOT test
         # isVisible(): a widget whose window has not been shown yet reports
         # False, which silently dropped the cycle hour from the config.
-        self._hour_applies = bool(hours) and self._use_date.isChecked()
+        self._hour_applies = (bool(hours) and self._use_date.isChecked()
+                              and not is_dur)
         self._fhour.setVisible(self._hour_applies)
         self._hour_lbl.setVisible(self._hour_applies)
 
@@ -171,8 +239,13 @@ class ArcFlowConfigPanel(QWidget):
     def get_config(self) -> dict:
         """NenCarta watershed keys, passed straight through by step 7."""
         cfg = {"streamflow_source": self._src_combo.currentData(),
-               "age_of_forecast_days": int(self._age.value())}
-        if self._use_date.isChecked():
+               "age_of_forecast_days": int(self._age.value()),
+               "period_mode": self._period.currentData()}
+        if cfg["period_mode"] == "duration":
+            cfg["start_date"] = self._start.date().toString("yyyy-MM-dd")
+            cfg["end_date"]   = self._end.date().toString("yyyy-MM-dd")
+            cfg["step_hours"] = int(self._step.currentData() or 24)
+        elif self._use_date.isChecked():
             cfg["forensic_forecast_date"] = self._fdate.date().toString("yyyyMMdd")
             if getattr(self, "_hour_applies", False) and self._fhour.currentText():
                 cfg["forensic_forecast_hour"] = self._fhour.currentText()
@@ -185,6 +258,17 @@ class ArcFlowConfigPanel(QWidget):
         cfg = cfg or {}
         idx = self._src_combo.findData(cfg.get("streamflow_source", "GEOGLOWS"))
         self._src_combo.setCurrentIndex(max(idx, 0))
+        pi = self._period.findData(cfg.get("period_mode", "snapshot"))
+        self._period.setCurrentIndex(max(pi, 0))
+        for key, w in (("start_date", self._start), ("end_date", self._end)):
+            if cfg.get(key):
+                qd = QDate.fromString(str(cfg[key]), "yyyy-MM-dd")
+                if qd.isValid():
+                    w.setDate(qd)
+        if cfg.get("step_hours"):
+            si = self._step.findData(int(cfg["step_hours"]))
+            if si >= 0:
+                self._step.setCurrentIndex(si)
         d = cfg.get("forensic_forecast_date")
         self._use_date.setChecked(bool(d))
         if d:
@@ -303,6 +387,12 @@ class AOIArcFlowCard(QFrame):
     def _refresh_status(self):
         cfg = self._panel.get_config()
         src = cfg.get("streamflow_source", "GEOGLOWS")
+        if cfg.get("period_mode") == "duration":
+            self._status_lbl.setText(
+                f"<i>{src}</i> &nbsp;·&nbsp; {cfg.get('start_date')} → "
+                f"{cfg.get('end_date')} &nbsp;·&nbsp; every "
+                f"{cfg.get('step_hours', 24)} h")
+            return
         date = cfg.get("forensic_forecast_date")
         if date:
             when = f"{date[:4]}-{date[4:6]}-{date[6:8]}"

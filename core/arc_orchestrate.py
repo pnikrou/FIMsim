@@ -486,6 +486,33 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
 
         if src_is_geoglows and feat_ctx.get("geoglows_vpu"):
             cfg.setdefault("geoglows_vpu", feat_ctx["geoglows_vpu"])
+
+        # Duration -> one flow file per timestep.  ARC-Curve2Flood is steady
+        # state, so a duration is a set of independent snapshots; NenCarta maps
+        # them via floodmap_mode "user" + user_flow_files, writing one raster
+        # per file (run_user_floodmaps) off the single set of ARC curves.
+        if cfg.pop("period_mode", "snapshot") == "duration":
+            from core.arc_flowseries import build_flow_series
+            flowline = feat_ctx.get("arc_flowline_path")
+            if not flowline:
+                raise RuntimeError(
+                    f"'{name}': a duration needs the flowline — run step 5 first.")
+            files = build_flow_series(
+                flowline,
+                cfg.pop("start_date", None), cfg.pop("end_date", None),
+                int(cfg.pop("step_hours", 24) or 24),
+                Path(folder) / "arc-files" / "flow_series",
+                id_field=("LINKNO" if src_is_geoglows else "COMID"),
+                log_fn=lambda m: log_fn("  " + str(m)))
+            if not files:
+                raise RuntimeError(f"'{name}': no discharge found for that period.")
+            feat_ctx["nencarta_flow_files"] = files
+            cfg["n_timesteps"] = len(files)
+        else:
+            for k in ("start_date", "end_date", "step_hours"):
+                cfg.pop(k, None)
+            feat_ctx.pop("nencarta_flow_files", None)
+
         feat_ctx["nencarta_streamflow"] = cfg
         _save_feat_ctx(feat_ctx_path, feat_ctx)
         summary.append({"name": name, "folder": folder, **cfg})
@@ -532,6 +559,11 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
             f"No DEM matching '{dem_filter}' in {dem_dir} — run the DEM step.")
 
     out_dir = str(Path(folder) / "nencarta-output")
+    # A duration run maps each timestep's flow file separately.
+    flow_files = [f for f in (feat_ctx.get("nencarta_flow_files") or [])
+                  if Path(f).exists()]
+    if flow_files:
+        log_fn(f"  '{name}': duration run — {len(flow_files)} timestep map(s).")
     # Build the stream network the first time; on a re-run the gpkg is already
     # there and NenCarta's own default (skip) is the faster, correct choice.
     strm_done = any(Path(out_dir, name, "STRM").glob("*StrmShp*.gpkg"))
@@ -551,6 +583,8 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         forensic_forecast_date=cfg.get("forensic_forecast_date"),
         forensic_forecast_hour=cfg.get("forensic_forecast_hour"),
         mapper=cfg.get("mapper", "Curve2Flood-Kernel Weighted"),
+        floodmap_mode=("user" if flow_files else "forecast"),
+        user_flow_files=(flow_files or None),
         mannings_text_file=feat_ctx.get("arc_mannings_n_path"),
         bathy_use_banks=cfg.get("bathy_use_banks", False),
         find_banks_based_on_landcover=cfg.get("find_banks_based_on_landcover", True),
@@ -619,6 +653,10 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
     for (feat_ctx_path, feat_ctx, name, folder) in targets:
         out_dir = str(Path(folder) / "nencarta-output")
         maps = find_flood_maps(out_dir, name)
+        n_steps = len(feat_ctx.get("nencarta_flow_files") or [])
+        if n_steps:
+            log_fn(f"  '{name}': duration produced {len(maps)} raster(s) "
+                   f"from {n_steps} timestep(s).")
         feat_ctx["nencarta_output_dir"] = out_dir
         feat_ctx["arc_flood_map"] = maps[0] if maps else None
         feat_ctx["nencarta_flood_maps"] = maps
