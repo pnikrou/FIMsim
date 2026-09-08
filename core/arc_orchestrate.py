@@ -457,71 +457,120 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
 
 # ── Step 7: Run ARC + Curve2Flood ─────────────────────────────────────────────
 
+def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
+                    log_fn=print) -> dict:
+    """One NenCarta watersheds[] entry built from an AOI's saved context."""
+    from core.nencarta_run import build_watershed
+
+    dem_dir  = feat_ctx.get("dem_dir") or str(Path(folder) / "dem")
+    flowline = feat_ctx.get("arc_flowline_path")
+    if not flowline:
+        raise RuntimeError("No flowline for this AOI — run the Flowline step first.")
+
+    # The DEM folder also holds lulc.tif (and temp rasters) from the Land Cover
+    # step, and NenCarta globs dem_dir with dem_filter (default "*"), so it
+    # would ingest the land-cover raster as if it were a DEM.  Pin the filter to
+    # the actual DEM file instead.
+    dem_tif = feat_ctx.get("dem_tif_path")
+    dem_filter = Path(dem_tif).name if dem_tif else "*.tif"
+
+    out_dir = str(Path(folder) / "nencarta-output")
+    return build_watershed(
+        name=name,
+        flowline=flowline,
+        dem_dir=dem_dir,
+        output_dir=out_dir,
+        dem_filter=dem_filter,
+        streamflow_source=cfg.get("streamflow_source", "GEOGLOWS"),
+        geoglows_vpu=cfg.get("geoglows_vpu", feat_ctx.get("geoglows_vpu")),
+        nwm_api_key=cfg.get("nwm_api_key"),
+        forensic_forecast_date=cfg.get("forensic_forecast_date"),
+        forensic_forecast_hour=cfg.get("forensic_forecast_hour"),
+        mapper=cfg.get("mapper", "Curve2Flood-Kernel Weighted"),
+        mannings_text_file=feat_ctx.get("arc_mannings_n_path"),
+        bathy_use_banks=cfg.get("bathy_use_banks", False),
+        find_banks_based_on_landcover=cfg.get("find_banks_based_on_landcover", True),
+        clean_dem=cfg.get("clean_dem", False),
+        make_depth_maps=cfg.get("make_depth_maps", True),
+        make_velocity_maps=cfg.get("make_velocity_maps", False),
+        make_wse_maps=cfg.get("make_wse_maps", False),
+    )
+
+
 def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
                                      per_aoi_configs: list = None,
                                      run_cfg: dict = None, log_fn=print) -> dict:
-    """Assemble the ARC Main_Directory and run ARC -> Curve2Flood per AOI.
+    """Write nencarta.json for every AOI and run NenCarta's flood-mapping CLI.
 
-    ``per_aoi_configs``: one settings dict per AOI (mapper, make_gpkg,
-    bathy_use_banks, use_land_cover_to_find_banks).  ``run_cfg`` (legacy) is
-    used for every AOI when per_aoi_configs is None.
+    FIMsim does not call ARC or Curve2Flood itself — NenCarta is the authors'
+    orchestrator and drives both.  All AOIs go into ONE json as separate
+    ``watersheds`` entries, which is the batch form NenCarta is built for, and
+    it is run with --serial so its log lines stay interleaved in order.
     """
-    from core.arc_run import run_arc_curve2flood
+    from core.nencarta_run import (write_nencarta_json, validate_with_nencarta,
+                                   run_flood_mapping, find_flood_maps,
+                                   NenCartaError)
 
     aoi_features = ctx.get("aoi_features", [])
-
-    def _one(feat_ctx_path, feat_ctx, arc_dir, cfg):
-        res = run_arc_curve2flood(
-            arc_dir,
-            dem_tif=feat_ctx.get("dem_tif_path"),
-            lulc_tif=feat_ctx.get("arc_lulc_tif_path"),
-            mannings_txt=feat_ctx.get("arc_mannings_n_path"),
-            flowline_shp=feat_ctx.get("arc_flowline_path"),
-            flow_csv=feat_ctx.get("arc_flow_csv"),
-            lulc_source=feat_ctx.get("lulc_source"),
-            log_fn=log_fn, **cfg)
-        feat_ctx["arc_flood_map"]  = res.get("flood_map")
-        feat_ctx["arc_curve_file"] = res.get("curve_file")
-        _save_feat_ctx(feat_ctx_path, feat_ctx)
-        return res
+    entries, targets = [], []
 
     if not aoi_features:
         cfg = (per_aoi_configs or [run_cfg or {}])[0] or {}
-        arc_dir = ctx.get("arc_dir") or str(
-            Path(ctx.get("project_dir", ".")) / "arc-files")
-        res = _one(ctx_path, ctx, arc_dir, cfg)
-        ctx.update({"arc_flood_map": res.get("flood_map"),
-                    "arc_curve_file": res.get("curve_file")})
-        return ctx
+        folder = ctx.get("project_dir", ".")
+        name = ctx.get("aoi_name") or Path(folder).name
+        entries.append(_nencarta_entry(name, folder, ctx, cfg, log_fn))
+        targets.append((ctx_path, ctx, name, folder))
+    else:
+        n = len(aoi_features)
+        if per_aoi_configs is not None and len(per_aoi_configs) != n:
+            raise RuntimeError(
+                f"per_aoi_configs has {len(per_aoi_configs)} entries but "
+                f"there are {n} AOIs.")
+        for i, feat in enumerate(aoi_features, 1):
+            folder = feat["folder_path"]
+            feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
+            cfg = ((per_aoi_configs[i - 1] if per_aoi_configs else run_cfg) or {})
+            name = feat.get("folder_name") or feat["name"]
+            try:
+                entries.append(_nencarta_entry(name, folder, feat_ctx, cfg, log_fn))
+                targets.append((feat_ctx_path, feat_ctx, name, folder))
+            except Exception as exc:
+                log_fn(f"✗ Skipping '{name}': {exc}")
 
-    n = len(aoi_features)
-    if per_aoi_configs is not None and len(per_aoi_configs) != n:
+    if not entries:
         raise RuntimeError(
-            f"per_aoi_configs has {len(per_aoi_configs)} entries but "
-            f"there are {n} AOIs.")
+            "No AOI had the inputs NenCarta needs (DEM folder + flowline).")
+
+    # Fail on a bad entry in milliseconds rather than mid-run.
+    validate_with_nencarta(entries, log_fn=log_fn)
+
+    json_path = str(Path(ctx.get("project_dir", ".")) / "nencarta.json")
+    write_nencarta_json(json_path, entries, log_fn=log_fn)
+    ctx["nencarta_json"] = json_path
+
+    log_fn(f"▶ NenCarta: {len(entries)} watershed(s) …")
+    run_flood_mapping(json_path, serial=True, log_fn=log_fn)
 
     summary = []
-    for i, feat in enumerate(aoi_features, 1):
-        try:
-            log_fn(f"▶ ARC-Curve2Flood [{i}/{n}]: '{feat['name']}' ...")
-            folder = feat["folder_path"]
-            arc_dir = _arc_model_dir(folder)
-            feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
-            cfg = ((per_aoi_configs[i - 1] if per_aoi_configs else run_cfg)
-                   or {})
-            res = _one(feat_ctx_path, feat_ctx, arc_dir, cfg)
-            summary.append({"name": feat["name"], "folder": folder,
-                            "flood_map": res.get("flood_map"),
-                            "curve_file": res.get("curve_file")})
-            log_fn(f"✓ ARC-Curve2Flood [{i}/{n}] finished: '{feat['name']}'")
-        except Exception as _exc:
-            import traceback
-            log_fn(f"✗ ARC-Curve2Flood [{i}/{n}] ERROR for '{feat['name']}': {_exc}")
-            log_fn(traceback.format_exc())
-            summary.append({"name": feat.get("name", f"AOI {i}"),
-                            "failed": True, "error": str(_exc)})
+    for (feat_ctx_path, feat_ctx, name, folder) in targets:
+        out_dir = str(Path(folder) / "nencarta-output")
+        maps = find_flood_maps(out_dir, name)
+        feat_ctx["nencarta_output_dir"] = out_dir
+        feat_ctx["arc_flood_map"] = maps[0] if maps else None
+        feat_ctx["nencarta_flood_maps"] = maps
+        if feat_ctx_path:
+            _save_feat_ctx(feat_ctx_path, feat_ctx)
+        summary.append({"name": name, "folder": folder,
+                        "flood_map": maps[0] if maps else None,
+                        "flood_maps": maps,
+                        "output_dir": out_dir})
+        log_fn(f"  '{name}': {len(maps)} flood map(s) in {out_dir}"
+               if maps else
+               f"  ⚠ '{name}': NenCarta produced no flood raster in {out_dir}")
 
     ctx["arc_run_per_aoi"] = summary
+    if not aoi_features and summary:
+        ctx["arc_flood_map"] = summary[0]["flood_map"]
     try:
         with open(ctx_path, "w", encoding="utf-8") as wf:
             json.dump(ctx, wf, indent=2, default=str)
