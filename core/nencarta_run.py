@@ -178,24 +178,54 @@ def write_nencarta_json(json_path, watersheds: List[Dict], log_fn=print) -> str:
     return str(p)
 
 
+_VALIDATE_SNIPPET = """
+import json, sys
+from nencarta.main import (verify_required_keys, validate_user_floodmaps,
+                           normalize_mapper_name)
+ws = json.load(open(sys.argv[1]))["watersheds"]
+for w in ws:
+    verify_required_keys(w)
+    validate_user_floodmaps(w)
+    normalize_mapper_name(w.get("mapper"))
+print("OK %d" % len(ws))
+"""
+
+
 def validate_with_nencarta(watersheds: List[Dict], log_fn=print) -> None:
     """Run NenCarta's OWN validators over the entries before launching.
 
     Catches a bad JSON in milliseconds instead of after the CLI has started
-    processing.  If NenCarta cannot be imported the check is skipped — the CLI
-    run itself remains the real gate.
+    processing.
+
+    This runs in a SUBPROCESS on purpose.  ``import nencarta.main`` pulls in
+    PyQt5 (via its gui_app), and FIMsim is PyQt6 — loading both into one
+    process is what makes Qt abort with "python quit unexpectedly".  A failure
+    to validate is never fatal here; the CLI run itself remains the real gate.
     """
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump({"watersheds": watersheds}, fh)
+        tmp = fh.name
+    env = dict(os.environ)
+    env.pop("QT_API", None)
     try:
-        from nencarta.main import (verify_required_keys, validate_user_floodmaps,
-                                   normalize_mapper_name)
+        r = subprocess.run([sys.executable, "-c", _VALIDATE_SNIPPET, tmp],
+                           capture_output=True, text=True, timeout=120, env=env)
     except Exception as exc:                       # pragma: no cover
-        log_fn(f"(Skipping NenCarta pre-validation — could not import: {exc})")
+        log_fn(f"(Skipping NenCarta pre-validation — {exc})")
         return
-    for w in watersheds:
-        verify_required_keys(w)
-        validate_user_floodmaps(w)
-        normalize_mapper_name(w.get("mapper"))
-    log_fn(f"NenCarta accepted all {len(watersheds)} watershed entry(s).")
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    if r.returncode == 0:
+        log_fn(f"NenCarta accepted all {len(watersheds)} watershed entry(s).")
+        return
+    detail = (r.stderr or r.stdout or "").strip().splitlines()
+    raise NenCartaError(
+        "NenCarta rejected the watershed configuration: "
+        + (detail[-1] if detail else "unknown error"))
 
 
 def run_flood_mapping(json_path, serial: bool = True, num_workers=None,

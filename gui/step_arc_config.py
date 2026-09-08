@@ -38,10 +38,12 @@ _RUN_STEP_RE = re.compile(r"^▶\s+ARC-Curve2Flood\s+\[(\d+)/(\d+)\]")
 _RUN_DONE_RE = re.compile(r"^✓\s+ARC-Curve2Flood\s+\[(\d+)/(\d+)\]\s+finished")
 
 # Real Curve2Flood mapper options (see curve2flood.core).
+# NenCarta's own mapper list (nencarta/main.py :: ALL_MAPPERS).
 _MAPPERS = [
     "Curve2Flood-Kernel Weighted",
     "Curve2Flood-FLDPLNpy",
     "Curve2Flood-Multi-Point Interpolation",
+    "FloodSpreader",
 ]
 
 
@@ -74,14 +76,8 @@ class ArcRunConfigPanel(QWidget):
         mp_row.addStretch()
         layout.addLayout(mp_row)
 
-        self._gpkg = QCheckBox(
-            "Also write the flood map as GeoPackage  (Make_Output_GPKG)")
-        self._gpkg.setChecked(True)
-        self._gpkg.toggled.connect(lambda *_: self.config_changed.emit())
-        layout.addWidget(self._gpkg)
-
         self._banks_lc = QCheckBox(
-            "Find channel banks from land cover  (use_land_cover_to_find_banks)")
+            "Find channel banks from land cover  (find_banks_based_on_landcover)")
         self._banks_lc.setChecked(True)
         self._banks_lc.setToolTip(
             "ARC option: locate the channel banks from the land-cover raster "
@@ -98,10 +94,31 @@ class ArcRunConfigPanel(QWidget):
         self._bathy_banks.toggled.connect(lambda *_: self.config_changed.emit())
         layout.addWidget(self._bathy_banks)
 
+        self._clean_dem = QCheckBox("Clean the DEM before processing  (clean_dem)")
+        self._clean_dem.setChecked(False)
+        self._clean_dem.toggled.connect(lambda *_: self.config_changed.emit())
+        layout.addWidget(self._clean_dem)
+
+        # Extra products NenCarta can write alongside the flood extent.
+        self._depth = QCheckBox("Water-depth maps  (make_depth_maps)")
+        self._depth.setChecked(True)
+        self._depth.toggled.connect(lambda *_: self.config_changed.emit())
+        layout.addWidget(self._depth)
+
+        self._wse = QCheckBox("Water-surface-elevation maps  (make_wse_maps)")
+        self._wse.toggled.connect(lambda *_: self.config_changed.emit())
+        layout.addWidget(self._wse)
+
+        self._vel = QCheckBox("Velocity maps  (make_velocity_maps)")
+        self._vel.toggled.connect(lambda *_: self.config_changed.emit())
+        layout.addWidget(self._vel)
+
         note = QLabel(
-            "The run rasterizes the streams, builds a rating curve for every "
-            "reach (ARC), then maps the step-6 peak flow (Curve2Flood). It can "
-            "take several minutes per AOI.")
+            "FIMsim writes <b>nencarta.json</b> and runs NenCarta's "
+            "<code>flood-mapping</code>, which drives ARC (rating curves) and "
+            "Curve2Flood (flood mapping) and fetches its own streamflow and "
+            "land cover. The streamflow source and event date come from the "
+            "Streamflow step. This can take several minutes per AOI.")
         note.setWordWrap(True)
         note.setStyleSheet("color:#718096; font-size:11px;")
         layout.addWidget(note)
@@ -110,23 +127,32 @@ class ArcRunConfigPanel(QWidget):
         return True
 
     def get_config(self) -> dict:
+        """Keys here are NenCarta watershed keys, passed straight through."""
         return {
-            "mapper":    self._mapper.currentText(),
-            "make_gpkg": self._gpkg.isChecked(),
-            "use_land_cover_to_find_banks": self._banks_lc.isChecked(),
-            "bathy_use_banks": self._bathy_banks.isChecked(),
+            "mapper":  self._mapper.currentText(),
+            "find_banks_based_on_landcover": self._banks_lc.isChecked(),
+            "bathy_use_banks":   self._bathy_banks.isChecked(),
+            "clean_dem":         self._clean_dem.isChecked(),
+            "make_depth_maps":   self._depth.isChecked(),
+            "make_wse_maps":     self._wse.isChecked(),
+            "make_velocity_maps": self._vel.isChecked(),
         }
 
     def set_config(self, cfg: dict):
         cfg = cfg or {}
         if cfg.get("mapper") in _MAPPERS:
             self._mapper.setCurrentText(cfg["mapper"])
-        if "make_gpkg" in cfg:
-            self._gpkg.setChecked(bool(cfg["make_gpkg"]))
-        if "use_land_cover_to_find_banks" in cfg:
-            self._banks_lc.setChecked(bool(cfg["use_land_cover_to_find_banks"]))
-        if "bathy_use_banks" in cfg:
-            self._bathy_banks.setChecked(bool(cfg["bathy_use_banks"]))
+        # "use_land_cover_to_find_banks" is the old ARC-era key; NenCarta calls
+        # it find_banks_based_on_landcover.  Accept both so saved projects load.
+        for key, w in (("find_banks_based_on_landcover", self._banks_lc),
+                       ("use_land_cover_to_find_banks", self._banks_lc),
+                       ("bathy_use_banks",    self._bathy_banks),
+                       ("clean_dem",          self._clean_dem),
+                       ("make_depth_maps",    self._depth),
+                       ("make_wse_maps",      self._wse),
+                       ("make_velocity_maps", self._vel)):
+            if key in cfg:
+                w.setChecked(bool(cfg[key]))
 
 
 # ── Per-AOI card (mirrors AOIDEMCard chrome) ──────────────────────────────────
@@ -234,12 +260,17 @@ class AOIArcRunCard(QFrame):
         cfg = self._panel.get_config()
         mapper_short = cfg["mapper"].replace("Curve2Flood-", "")
         opts = []
-        if cfg.get("make_gpkg"):
-            opts.append("GPKG")
-        if cfg.get("use_land_cover_to_find_banks"):
+        if cfg.get("find_banks_based_on_landcover"):
             opts.append("LC banks")
         if cfg.get("bathy_use_banks"):
             opts.append("bank bathy")
+        if cfg.get("clean_dem"):
+            opts.append("clean DEM")
+        for key, label in (("make_depth_maps", "depth"),
+                           ("make_wse_maps", "WSE"),
+                           ("make_velocity_maps", "velocity")):
+            if cfg.get(key):
+                opts.append(label)
         self._status_lbl.setText(
             f"<i>Mapper:</i> {mapper_short}"
             + (f" &nbsp;·&nbsp; {', '.join(opts)}" if opts else ""))
