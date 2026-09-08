@@ -386,36 +386,65 @@ def _save_feat_ctx(feat_ctx_path: str, feat_ctx: dict):
 def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                                   per_aoi_configs: list = None,
                                   flow_cfg: dict = None, log_fn=print) -> dict:
-    """Build the ARC flow file (COMID,base,max via NWM) for every AOI.
+    """Record each AOI's NenCarta streamflow settings.
 
-    ``per_aoi_configs``: one settings dict per AOI (source "nwm_retro" |
-    "nwm_forecast", start_dt/end_dt, forecast_date/forecast_range/
-    forecast_hour, base_percentile) — each AOI can have its own event window.
-    ``flow_cfg`` (legacy) is used for every AOI when per_aoi_configs is None.
+    FIMsim used to download NWM flows here and write ARC a flow.csv.  It no
+    longer does: NenCarta fetches its own streamflow (GEOGLOWS or NWM) as part
+    of the run, so this step only captures WHICH source and event to ask it
+    for.  The settings are validated against NenCarta's rules now — a bad
+    forecast hour or a missing API key is far cheaper to catch here than part
+    way into the run — then saved for the Run step to put in the JSON.
     """
-    from core.arc_flowfile import build_arc_flow_file
+    from core.nencarta_run import (STREAMFLOW_SOURCES, FORECAST_HOURS,
+                                   _as_yyyymmdd, NenCartaError)
+
+    def _check(cfg: dict, where: str) -> dict:
+        cfg = dict(cfg or {})
+        src = cfg.get("streamflow_source", "GEOGLOWS")
+        if src not in STREAMFLOW_SOURCES:
+            raise RuntimeError(
+                f"{where}: streamflow_source must be one of "
+                f"{', '.join(STREAMFLOW_SOURCES)} — got {src!r}.")
+        if str(src).upper().startswith("NWM") and not cfg.get("nwm_api_key"):
+            raise RuntimeError(
+                f"{where}: NWM needs an API key (apply through CIROH), or "
+                f"switch the source to GEOGLOWS.")
+        if cfg.get("forensic_forecast_date"):
+            cfg["forensic_forecast_date"] = _as_yyyymmdd(
+                cfg["forensic_forecast_date"])
+        hour = cfg.get("forensic_forecast_hour")
+        if hour not in (None, "") and src != "GEOGLOWS":
+            hour = f"{int(hour):02d}"
+            allowed = FORECAST_HOURS.get(src)
+            if allowed and hour not in allowed:
+                raise RuntimeError(
+                    f"{where}: cycle hour {hour} is not valid for {src} — "
+                    f"allowed: {', '.join(allowed)}.")
+            cfg["forensic_forecast_hour"] = hour
+        elif src == "GEOGLOWS":
+            # GEOGLOWS forecasts are daily; NenCarta ignores the hour.
+            cfg.pop("forensic_forecast_hour", None)
+        return cfg
+
+    def _describe(cfg: dict) -> str:
+        d = cfg.get("forensic_forecast_date")
+        when = (f"{d[:4]}-{d[4:6]}-{d[6:8]}" if d else "latest forecast")
+        h = cfg.get("forensic_forecast_hour")
+        return (f"{cfg.get('streamflow_source', 'GEOGLOWS')}, {when}"
+                + (f" t{h}z" if h else ""))
 
     aoi_features = ctx.get("aoi_features", [])
 
-    def _one(feat_ctx_path, feat_ctx, arc_dir, cfg):
-        flowline = feat_ctx.get("arc_flowline_path")
-        if not flowline or not Path(flowline).exists():
-            raise RuntimeError("No flowline for this AOI — run step 5 first.")
-        res = build_arc_flow_file(
-            flowline, Path(arc_dir) / "flow.csv", log_fn=log_fn, **cfg)
-        feat_ctx["arc_flow_csv"]      = res["flow_csv"]
-        feat_ctx["arc_flow_reaches"]  = res["n_reaches"]
-        feat_ctx["arc_flow_source"]   = cfg.get("source", "nwm_retro")
-        _save_feat_ctx(feat_ctx_path, feat_ctx)
-        return res
-
     if not aoi_features:
-        cfg = (per_aoi_configs or [flow_cfg or {}])[0] or {}
-        arc_dir = ctx.get("arc_dir") or str(
-            Path(ctx.get("project_dir", ".")) / "arc-files")
-        res = _one(ctx_path, ctx, arc_dir, cfg)
-        ctx.update({"arc_flow_csv": res["flow_csv"],
-                    "arc_flow_reaches": res["n_reaches"]})
+        cfg = _check((per_aoi_configs or [flow_cfg or {}])[0] or {}, "Streamflow")
+        ctx["nencarta_streamflow"] = cfg
+        log_fn(f"✓ Streamflow: {_describe(cfg)}")
+        if ctx_path:
+            try:
+                with open(ctx_path, "w", encoding="utf-8") as wf:
+                    json.dump(ctx, wf, indent=2, default=str)
+            except Exception:
+                pass
         return ctx
 
     n = len(aoi_features)
@@ -426,27 +455,32 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
 
     summary = []
     for i, feat in enumerate(aoi_features, 1):
-        try:
-            log_fn(f"▶ Flow file [{i}/{n}]: '{feat['name']}' ...")
-            folder = feat["folder_path"]
-            arc_dir = _arc_model_dir(folder)
-            feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
-            cfg = ((per_aoi_configs[i - 1] if per_aoi_configs else flow_cfg)
-                   or {})
-            res = _one(feat_ctx_path, feat_ctx, arc_dir, cfg)
-            summary.append({"name": feat["name"], "folder": folder,
-                            "flow_csv": res["flow_csv"],
-                            "reaches": res["n_reaches"],
-                            "source": cfg.get("source", "nwm_retro")})
-            log_fn(f"✓ Flow file [{i}/{n}] finished: '{feat['name']}'")
-        except Exception as _exc:
-            import traceback
-            log_fn(f"✗ Flow file [{i}/{n}] ERROR for '{feat['name']}': {_exc}")
-            log_fn(traceback.format_exc())
-            summary.append({"name": feat.get("name", f"AOI {i}"),
-                            "failed": True, "error": str(_exc)})
+        name = feat.get("name", f"AOI {i}")
+        log_fn(f"▶ Streamflow [{i}/{n}]: '{name}' ...")
+        folder = feat["folder_path"]
+        feat_ctx_path, feat_ctx = _load_feat_ctx(folder)
+        cfg = _check((per_aoi_configs[i - 1] if per_aoi_configs else flow_cfg)
+                     or {}, f"'{name}'")
 
-    ctx["arc_flowfile_per_aoi"] = summary
+        # NenCarta reads GEOGLOWS reach ids from LINKNO and NWM ids from COMID,
+        # so the flowline chosen in step 5 has to match the source picked here.
+        src_is_geoglows = cfg.get("streamflow_source", "GEOGLOWS") == "GEOGLOWS"
+        fl_src = feat_ctx.get("arc_flowline_source")
+        if fl_src and src_is_geoglows != (fl_src == "geoglows"):
+            log_fn(f"  ⚠ '{name}': streamflow is "
+                   f"{cfg.get('streamflow_source')} but the flowline came from "
+                   f"'{fl_src}'. GEOGLOWS needs the GEOGLOWS network (LINKNO) "
+                   f"and NWM needs NHDPlus (COMID) — re-run the Flowline step "
+                   f"with the matching source or the run will find no flow.")
+
+        if src_is_geoglows and feat_ctx.get("geoglows_vpu"):
+            cfg.setdefault("geoglows_vpu", feat_ctx["geoglows_vpu"])
+        feat_ctx["nencarta_streamflow"] = cfg
+        _save_feat_ctx(feat_ctx_path, feat_ctx)
+        summary.append({"name": name, "folder": folder, **cfg})
+        log_fn(f"✓ Streamflow [{i}/{n}] finished: '{name}' — {_describe(cfg)}")
+
+    ctx["arc_flow_per_aoi"] = summary
     try:
         with open(ctx_path, "w", encoding="utf-8") as wf:
             json.dump(ctx, wf, indent=2, default=str)
@@ -455,12 +489,15 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
     return ctx
 
 
-# ── Step 7: Run ARC + Curve2Flood ─────────────────────────────────────────────
-
 def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
                     log_fn=print) -> dict:
     """One NenCarta watersheds[] entry built from an AOI's saved context."""
     from core.nencarta_run import build_watershed
+
+    # The Streamflow step stored NenCarta's streamflow keys on this AOI; the
+    # Run step's own panel supplies the mapping keys.  Run-panel values win so
+    # the user can still override at run time.
+    cfg = {**(feat_ctx.get("nencarta_streamflow") or {}), **(cfg or {})}
 
     dem_dir  = feat_ctx.get("dem_dir") or str(Path(folder) / "dem")
     flowline = feat_ctx.get("arc_flowline_path")
@@ -482,6 +519,7 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         output_dir=out_dir,
         dem_filter=dem_filter,
         streamflow_source=cfg.get("streamflow_source", "GEOGLOWS"),
+        age_of_forecast_days=cfg.get("age_of_forecast_days", 7),
         geoglows_vpu=cfg.get("geoglows_vpu", feat_ctx.get("geoglows_vpu")),
         nwm_api_key=cfg.get("nwm_api_key"),
         forensic_forecast_date=cfg.get("forensic_forecast_date"),

@@ -18,7 +18,7 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
-    QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox,
+    QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QDate
@@ -37,7 +37,12 @@ _F_CYCLES = ["Auto", "00", "06", "12", "18"]
 # ── Config panel (shared by single-AOI page and each card) ────────────────────
 
 class ArcFlowConfigPanel(QWidget):
-    """NWM source + event window + baseflow percentile for ONE AOI."""
+    """NenCarta streamflow settings for ONE AOI.
+
+    NenCarta fetches its own streamflow — FIMsim does not build a flow file.
+    These are its watershed keys (streamflow_source, forensic_forecast_date /
+    _hour, age_of_forecast_days, nwm_api_key) and are passed through verbatim.
+    """
 
     config_changed = pyqtSignal()
 
@@ -50,182 +55,151 @@ class ArcFlowConfigPanel(QWidget):
         src_row = QHBoxLayout()
         src_row.addWidget(QLabel("Streamflow source:"))
         self._src_combo = QComboBox()
-        self._src_combo.addItem("NWM Retrospective (1979-2023)", "nwm_retro")
-        self._src_combo.addItem("NWM Forecast (2019-now)", "nwm_forecast")
-        self._src_combo.setFixedWidth(250)
+        self._src_combo.addItem("GEOGLOWS  (no API key needed)", "GEOGLOWS")
+        self._src_combo.addItem("NWM short range", "NWM_short_range")
+        self._src_combo.addItem("NWM medium range", "NWM_medium_range")
+        self._src_combo.addItem("NWM long range", "NWM_long_range")
+        self._src_combo.setFixedWidth(260)
         self._src_combo.currentIndexChanged.connect(self._on_src_changed)
         src_row.addWidget(self._src_combo)
         src_row.addStretch()
         layout.addLayout(src_row)
 
-        # Retrospective event window (per AOI — floods differ per AOI)
-        self._retro_row = QWidget()
-        rr = QHBoxLayout(self._retro_row)
-        rr.setContentsMargins(0, 0, 0, 0)
-        rr.addWidget(QLabel("Event window:"))
-        self._start = QDateEdit(QDate(2017, 8, 25))
-        self._start.setCalendarPopup(True)
-        self._start.setDisplayFormat("yyyy-MM-dd")
-        self._start.dateChanged.connect(lambda *_: self.config_changed.emit())
-        rr.addWidget(self._start)
-        rr.addWidget(QLabel("to"))
-        self._end = QDateEdit(QDate(2017, 9, 1))
-        self._end.setCalendarPopup(True)
-        self._end.setDisplayFormat("yyyy-MM-dd")
-        self._end.dateChanged.connect(lambda *_: self.config_changed.emit())
-        rr.addWidget(self._end)
-        rr.addStretch()
-        layout.addWidget(self._retro_row)
-
-        # Forecast controls
-        self._fcst_row = QWidget()
-        fr = QHBoxLayout(self._fcst_row)
-        fr.setContentsMargins(0, 0, 0, 0)
-        fr.addWidget(QLabel("Issue date:"))
-        self._fdate = QDateEdit(QDate.currentDate())
-        self._fdate.setCalendarPopup(True)
+        # Event date.  Left off, NenCarta uses the latest available forecast.
+        d_row = QHBoxLayout()
+        self._use_date = QCheckBox("Map a past event on:")
+        self._use_date.setChecked(True)
+        self._use_date.toggled.connect(self._on_src_changed)
+        d_row.addWidget(self._use_date)
+        self._fdate = QDateEdit()
         self._fdate.setDisplayFormat("yyyy-MM-dd")
+        self._fdate.setCalendarPopup(True)
+        self._fdate.setDate(QDate.currentDate().addDays(-30))
         self._fdate.dateChanged.connect(lambda *_: self.config_changed.emit())
-        fr.addWidget(self._fdate)
-        fr.addWidget(QLabel("Range:"))
-        self._frange = QComboBox()
-        self._frange.addItems(_F_RANGES)
-        self._frange.setCurrentText("medium_range")
-        fr.addWidget(self._frange)
-        fr.addWidget(QLabel("Cycle:"))
-        self._fcycle = QComboBox()
-        self._fcycle.addItems(_F_CYCLES)
-        fr.addWidget(self._fcycle)
-        fr.addStretch()
-        layout.addWidget(self._fcst_row)
+        d_row.addWidget(self._fdate)
+        d_row.addSpacing(10)
+        self._hour_lbl = QLabel("cycle hour:")
+        d_row.addWidget(self._hour_lbl)
+        self._fhour = QComboBox()
+        self._fhour.setFixedWidth(80)
+        self._fhour.currentIndexChanged.connect(
+            lambda *_: self.config_changed.emit())
+        d_row.addWidget(self._fhour)
+        d_row.addStretch()
+        layout.addLayout(d_row)
 
-        # Baseflow — ARC carves the channel to convey this flow before any
-        # water goes overbank, so it must be a long-term (climatological)
-        # statistic, not a statistic of the flood window.
-        bf_row = QHBoxLayout()
-        bf_row.addWidget(QLabel("Baseflow (channel-forming):"))
-        self._base_mode = QComboBox()
-        self._base_mode.addItem("Long-term climatology (recommended)", "longterm")
-        self._base_mode.addItem("From the event window only", "window")
-        self._base_mode.setFixedWidth(250)
-        self._base_mode.setToolTip(
-            "ARC uses the baseflow column as the channel-forming (bankfull) "
-            "discharge and carves the channel deep enough to convey it.\n\n"
-            "Long-term climatology: median of a multi-year NWM retrospective "
-            "record (what ARC's own tooling does).\n\n"
-            "Event window only: median of your selected dates — this is much "
-            "higher during a flood, over-carves the channel, and badly "
-            "UNDER-predicts inundated area.")
-        self._base_mode.currentIndexChanged.connect(self._on_base_mode_changed)
-        bf_row.addWidget(self._base_mode)
-        bf_row.addStretch()
-        layout.addLayout(bf_row)
+        a_row = QHBoxLayout()
+        a_row.addWidget(QLabel("Look back at most:"))
+        self._age = QSpinBox()
+        self._age.setRange(1, 60)
+        self._age.setValue(7)
+        self._age.setSuffix(" days")
+        self._age.setToolTip(
+            "age_of_forecast_days — how far back NenCarta will accept a "
+            "forecast when the requested one is unavailable.")
+        self._age.valueChanged.connect(lambda *_: self.config_changed.emit())
+        a_row.addWidget(self._age)
+        a_row.addStretch()
+        layout.addLayout(a_row)
 
-        bp_row = QHBoxLayout()
-        bp_row.addWidget(QLabel("Baseflow percentile:"))
-        self._base_pct = QDoubleSpinBox()
-        self._base_pct.setRange(0.0, 90.0)
-        self._base_pct.setValue(50.0)
-        self._base_pct.setSuffix(" %")
-        self._base_pct.setFixedWidth(90)
-        self._base_pct.setToolTip(
-            "Which percentile of the record is used as baseflow. ARC's own "
-            "tooling uses the median (50%); the peak of the event window is "
-            "always used as the flood flow.")
-        self._base_pct.valueChanged.connect(lambda *_: self.config_changed.emit())
-        bp_row.addWidget(self._base_pct)
-        bp_row.addWidget(QLabel("over"))
-        self._base_years = QSpinBox()
-        self._base_years.setRange(1, 40)
-        self._base_years.setValue(10)
-        self._base_years.setSuffix(" yr")
-        self._base_years.setFixedWidth(80)
-        self._base_years.valueChanged.connect(lambda *_: self.config_changed.emit())
-        bp_row.addWidget(self._base_years)
-        bp_row.addStretch()
-        layout.addLayout(bp_row)
+        self._key_row = QWidget()
+        kr = QHBoxLayout(self._key_row)
+        kr.setContentsMargins(0, 0, 0, 0)
+        kr.addWidget(QLabel("NWM API key:"))
+        self._api_key = QLineEdit()
+        self._api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._api_key.setPlaceholderText("required for NWM — apply via CIROH")
+        self._api_key.textChanged.connect(lambda *_: self.config_changed.emit())
+        kr.addWidget(self._api_key, 1)
+        layout.addWidget(self._key_row)
 
-        self._bp_hint = QLabel(
-            "★ 50 % = median, ARC's convention. The flood flow is always the "
-            "peak of the event window above.")
-        self._bp_hint.setWordWrap(True)
-        self._bp_hint.setStyleSheet("color:#718096; font-size:11px;")
-        layout.addWidget(self._bp_hint)
+        self._note = QLabel("")
+        self._note.setWordWrap(True)
+        self._note.setStyleSheet("color:#718096; font-size:11px;")
+        layout.addWidget(self._note)
 
         self._on_src_changed()
-        self._on_base_mode_changed()
 
-    def _on_base_mode_changed(self, *_):
-        longterm = (self._base_mode.currentData() == "longterm")
-        self._base_years.setVisible(longterm)
-        if longterm:
-            self._bp_hint.setText(
-                "★ 50 % = median, ARC's convention. Baseflow is taken from a "
-                "multi-year NWM record (an extra, quick daily download). The "
-                "flood flow is always the peak of the event window above.")
-            self._bp_hint.setStyleSheet("color:#718096; font-size:11px;")
-        else:
-            self._bp_hint.setText(
-                "⚠ Baseflow from the flood window is much higher than the true "
-                "channel-forming flow — ARC over-carves the channel and the "
-                "flood map will show far too little inundated area.")
-            self._bp_hint.setStyleSheet("color:#c05621; font-size:11px;")
-        self.config_changed.emit()
+    # ── behaviour ────────────────────────────────────────────────────────────
 
     def _on_src_changed(self, *_):
-        is_retro = (self._src_combo.currentData() == "nwm_retro")
-        self._retro_row.setVisible(is_retro)
-        self._fcst_row.setVisible(not is_retro)
+        src = self._src_combo.currentData()
+        is_nwm = str(src).upper().startswith("NWM")
+        self._key_row.setVisible(is_nwm)
+        self._fdate.setEnabled(self._use_date.isChecked())
+
+        # Each NWM range allows a different cycle hour; GEOGLOWS is daily and
+        # NenCarta ignores the hour entirely (validate_forecast_hours).
+        hours = {"NWM_short_range":  [f"{i:02d}" for i in range(24)],
+                 "NWM_medium_range": ["00", "06", "12", "18"],
+                 "NWM_long_range":   ["00"]}.get(src, [])
+        prev = self._fhour.currentText()
+        self._fhour.blockSignals(True)
+        self._fhour.clear()
+        self._fhour.addItems(hours)
+        if prev in hours:
+            self._fhour.setCurrentText(prev)
+        self._fhour.blockSignals(False)
+        # Remember whether an hour applies at all.  get_config must NOT test
+        # isVisible(): a widget whose window has not been shown yet reports
+        # False, which silently dropped the cycle hour from the config.
+        self._hour_applies = bool(hours) and self._use_date.isChecked()
+        self._fhour.setVisible(self._hour_applies)
+        self._hour_lbl.setVisible(self._hour_applies)
+
+        if src == "GEOGLOWS":
+            self._note.setText(
+                "★ GEOGLOWS forecasts are <b>daily</b>, so no cycle hour is "
+                "used. The reach ids come from the GEOGLOWS flowline "
+                "downloaded in the Flowline step. Leave the date unticked to "
+                "use the latest available forecast.")
+        else:
+            self._note.setText(
+                "★ NWM needs an API key and a flowline keyed on <b>COMID</b>, "
+                "so choose the NHDPlus flowline in the Flowline step — the "
+                "GEOGLOWS network will not match.")
         self.config_changed.emit()
 
+    # ── config ───────────────────────────────────────────────────────────────
+
     def is_ready(self) -> bool:
+        src = self._src_combo.currentData()
+        if str(src).upper().startswith("NWM"):
+            return bool(self._api_key.text().strip())
         return True
 
     def get_config(self) -> dict:
-        cfg = {"base_percentile": float(self._base_pct.value()),
-               "baseflow_mode": self._base_mode.currentData(),
-               "baseflow_years": int(self._base_years.value())}
-        if self._src_combo.currentData() == "nwm_retro":
-            cfg["source"]   = "nwm_retro"
-            cfg["start_dt"] = self._start.date().toString("yyyy-MM-dd")
-            cfg["end_dt"]   = self._end.date().toString("yyyy-MM-dd")
-        else:
-            cfg["source"]         = "nwm_forecast"
-            cfg["forecast_date"]  = self._fdate.date().toString("yyyy-MM-dd")
-            cfg["forecast_range"] = self._frange.currentText()
-            cyc = self._fcycle.currentText()
-            cfg["forecast_hour"]  = None if cyc == "Auto" else int(cyc)
+        """NenCarta watershed keys, passed straight through by step 7."""
+        cfg = {"streamflow_source": self._src_combo.currentData(),
+               "age_of_forecast_days": int(self._age.value())}
+        if self._use_date.isChecked():
+            cfg["forensic_forecast_date"] = self._fdate.date().toString("yyyyMMdd")
+            if getattr(self, "_hour_applies", False) and self._fhour.currentText():
+                cfg["forensic_forecast_hour"] = self._fhour.currentText()
+        key = self._api_key.text().strip()
+        if key:
+            cfg["nwm_api_key"] = key
         return cfg
 
     def set_config(self, cfg: dict):
         cfg = cfg or {}
-        src = cfg.get("source", "nwm_retro")
-        idx = self._src_combo.findData(src)
+        idx = self._src_combo.findData(cfg.get("streamflow_source", "GEOGLOWS"))
         self._src_combo.setCurrentIndex(max(idx, 0))
-        if cfg.get("start_dt"):
-            self._start.setDate(QDate.fromString(cfg["start_dt"], "yyyy-MM-dd"))
-        if cfg.get("end_dt"):
-            self._end.setDate(QDate.fromString(cfg["end_dt"], "yyyy-MM-dd"))
-        if cfg.get("forecast_date"):
-            self._fdate.setDate(
-                QDate.fromString(cfg["forecast_date"], "yyyy-MM-dd"))
-        if cfg.get("forecast_range") in _F_RANGES:
-            self._frange.setCurrentText(cfg["forecast_range"])
-        fh = cfg.get("forecast_hour")
-        self._fcycle.setCurrentText("Auto" if fh is None else f"{int(fh):02d}")
-        if cfg.get("base_percentile") is not None:
-            self._base_pct.setValue(float(cfg["base_percentile"]))
-        bm = cfg.get("baseflow_mode")
-        if bm:
-            i = self._base_mode.findData(bm)
-            if i >= 0:
-                self._base_mode.setCurrentIndex(i)
-        if cfg.get("baseflow_years"):
-            self._base_years.setValue(int(cfg["baseflow_years"]))
-        self._on_base_mode_changed()
+        d = cfg.get("forensic_forecast_date")
+        self._use_date.setChecked(bool(d))
+        if d:
+            qd = QDate.fromString(str(d), "yyyyMMdd")
+            if qd.isValid():
+                self._fdate.setDate(qd)
+        if cfg.get("age_of_forecast_days"):
+            self._age.setValue(int(cfg["age_of_forecast_days"]))
+        if cfg.get("nwm_api_key"):
+            self._api_key.setText(str(cfg["nwm_api_key"]))
+        self._on_src_changed()
+        h = cfg.get("forensic_forecast_hour")
+        if h is not None:
+            self._fhour.setCurrentText(f"{int(h):02d}")
 
-
-# ── Per-AOI card (mirrors AOIDEMCard chrome) ──────────────────────────────────
 
 class AOIArcFlowCard(QFrame):
     expand_requested = pyqtSignal(object)
@@ -328,19 +302,18 @@ class AOIArcFlowCard(QFrame):
 
     def _refresh_status(self):
         cfg = self._panel.get_config()
-        if cfg["source"] == "nwm_retro":
-            src = (f"<i>NWM Retro:</i> {cfg.get('start_dt')} → "
-                   f"{cfg.get('end_dt')}")
+        src = cfg.get("streamflow_source", "GEOGLOWS")
+        date = cfg.get("forensic_forecast_date")
+        if date:
+            when = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+            hour = cfg.get("forensic_forecast_hour")
+            if hour:
+                when += f" t{hour}z"
         else:
-            cyc = cfg.get("forecast_hour")
-            cyc_txt = "auto" if cyc is None else f"t{cyc:02d}z"
-            src = (f"<i>NWM Forecast:</i> {cfg.get('forecast_date')} "
-                   f"({cfg.get('forecast_range')}, {cyc_txt})")
-        bm = ("long-term" if cfg.get("baseflow_mode") == "longterm"
-              else "window")
+            when = "latest forecast"
         self._status_lbl.setText(
-            f"{src} &nbsp;·&nbsp; <i>base:</i> p{cfg.get('base_percentile'):g} "
-            f"({bm})")
+            f"<i>{src}</i> &nbsp;·&nbsp; {when} &nbsp;·&nbsp; "
+            f"back to {cfg.get('age_of_forecast_days', 7)}d")
 
     def _forward_config_changed(self):
         self._refresh_status()
