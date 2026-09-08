@@ -39,6 +39,14 @@ def _prepare_gdal_env():
     os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
     os.environ.setdefault("CPL_VSIL_CURL_CACHE_SIZE", "200000000")
     os.environ.setdefault("VSI_CACHE", "TRUE")
+    # The DEM step sets CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff,.vrt"
+    # process-wide (core/dem.py), which makes GDAL refuse to open ANY other
+    # remote file — so a flowline download attempted after a DEM download fails
+    # with a bare DataSourceError on streams_<VPU>.gpkg.  Extend the list
+    # rather than replacing it, so the DEM step keeps its restriction too.
+    allowed = os.environ.get("CPL_VSIL_CURL_ALLOWED_EXTENSIONS")
+    if allowed and ".gpkg" not in allowed.lower():
+        os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = allowed + ",.gpkg"
 
 
 def _aoi_bbox_in(aoi_path: str, crs) -> Tuple[float, float, float, float]:
@@ -112,6 +120,7 @@ def find_vpu(aoi_path: str, log_fn=print) -> int:
     log_fn(f"AOI falls in {len(cands)} candidate VPU(s) {cands} — "
            f"checking which actually has reaches here …")
     best, best_n = None, 0
+    errors = []
     for v in cands:
         try:
             g = pyogrio.read_dataframe(_streams_uri(v),
@@ -123,9 +132,20 @@ def find_vpu(aoi_path: str, log_fn=print) -> int:
             if best_n:
                 break
         except Exception as exc:
-            log_fn(f"    VPU {v}: could not read ({type(exc).__name__})")
+            # Report WHY, not just that it failed — "no reaches found" sent an
+            # earlier debugging session looking at the AOI when the real cause
+            # was GDAL refusing the download.
+            errors.append(f"VPU {v}: {type(exc).__name__}: {exc}")
+            log_fn(f"    VPU {v}: could not read — {type(exc).__name__}: "
+                   f"{str(exc)[:160]}")
     if best is None:
-        raise ValueError("No GEOGLOWS reaches found in any candidate VPU.")
+        if errors:
+            raise ValueError(
+                "Could not read any candidate GEOGLOWS VPU. First error — "
+                + errors[0])
+        raise ValueError(
+            "No GEOGLOWS reaches fall inside this AOI (checked VPU(s) "
+            + ", ".join(str(c) for c in cands) + ").")
     log_fn(f"GEOGLOWS VPU for this AOI: {best} ({best_n} reach(es))")
     return best
 
