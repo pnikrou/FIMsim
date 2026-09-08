@@ -58,27 +58,39 @@ def prepare_arc_flowline(ctx_path, ctx: dict, source: str = "nhd",
         Path(ctx.get("project_dir", ".")) / "arc-files")
     Path(arc_dir).mkdir(parents=True, exist_ok=True)
 
+    geoglows_vpu = None
     if source == "user":
         clipped = _load_user_flowline(user_path, log_fn)
+    elif source == "geoglows":
+        # NenCarta keys GEOGLOWS streamflow on the flowline's LINKNO values,
+        # which must be real GEOGLOWS v2 (TDX-Hydro) reach ids — an NHD network
+        # renamed to LINKNO matches nothing in their forecast.
+        from core.geoglows_streams import read_geoglows_streams
+        clipped, geoglows_vpu = read_geoglows_streams(aoi_path, log_fn=log_fn)
     else:
         log_fn("Downloading NHD flowlines for the AOI …")
         clipped, _main = lookup_nhd_flowlines_clipped(aoi_path, fidx, log_fn=log_fn)
     if clipped is None or clipped.empty:
         raise RuntimeError(
-            "No NHD flowlines were found for this AOI (check the AOI extent / "
+            "No flowlines were found for this AOI (check the AOI extent / "
             "internet connection).")
 
-    # ARC keys everything on the stream id (COMID == NWM feature_id).  Fail
-    # loudly here rather than at ARC run time if the column is missing.
+    # Fail loudly here rather than at run time if the reach-id column is
+    # missing.  Which id NenCarta reads depends on the streamflow source:
+    # LINKNO/DSLINKNO for GEOGLOWS, COMID/TOCOMID for NWM
+    # (nencarta/main.py :: get_streamids_from_source).
+    if source == "geoglows":
+        id_candidates = ("linkno",)
+        id_label = "LINKNO"
+    else:
+        id_candidates = ("comid", "featureid", "feature_id", "nhdplusid", "linkno")
+        id_label = "COMID / feature-id"
     comid_col = next(
-        (c for c in clipped.columns
-         if c.lower() in ("comid", "featureid", "feature_id", "nhdplusid")),
-        None)
+        (c for c in clipped.columns if c.lower() in id_candidates), None)
     if comid_col is None:
         raise RuntimeError(
-            "The downloaded NHD flowlines have no COMID / feature-id column — "
-            "ARC cannot link streamflow to reaches. Columns: "
-            f"{list(clipped.columns)}")
+            f"The flowlines have no {id_label} column — streamflow cannot be "
+            f"linked to reaches. Columns: {list(clipped.columns)}")
     n_ids = int(clipped[comid_col].dropna().nunique())
     log_fn(f"  Stream id column: '{comid_col}' ({n_ids} unique reach ids)")
 
@@ -97,6 +109,9 @@ def prepare_arc_flowline(ctx_path, ctx: dict, source: str = "nhd",
     ctx["arc_flowline_path"]   = str(saved)
     ctx["arc_flowline_count"]  = int(len(clipped))
     ctx["arc_flowline_source"] = source
+    if geoglows_vpu is not None:
+        # Passed straight through to NenCarta as geoglows_vpu.
+        ctx["geoglows_vpu"] = int(geoglows_vpu)
     log_fn(f"✓ Saved {len(clipped)} flowline reach(es) → {Path(saved).name}")
 
     if ctx_path:

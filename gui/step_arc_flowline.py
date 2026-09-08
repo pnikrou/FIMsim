@@ -44,9 +44,13 @@ class ArcFlowlineConfigPanel(QWidget):
         src_row = QHBoxLayout()
         src_row.addWidget(QLabel("Flowline source:"))
         self._src_combo = QComboBox()
+        # GEOGLOWS first: NenCarta keys streamflow on the flowline's reach ids,
+        # so with streamflow_source "GEOGLOWS" the network must BE the GEOGLOWS
+        # one — NHD COMIDs renamed to LINKNO match nothing in its forecast.
+        self._src_combo.addItem("Download GEOGLOWS v2  (for NenCarta)", "geoglows")
         self._src_combo.addItem("Download from NHDPlus (auto)", "nhd")
         self._src_combo.addItem("I have a stream shapefile", "user")
-        self._src_combo.setFixedWidth(250)
+        self._src_combo.setFixedWidth(280)
         self._src_combo.currentIndexChanged.connect(self._on_src_changed)
         src_row.addWidget(self._src_combo)
         src_row.addStretch()
@@ -76,12 +80,24 @@ class ArcFlowlineConfigPanel(QWidget):
         self._note.setStyleSheet("color:#718096; font-size:11px;")
         layout.addWidget(self._note)
 
+        self._gg_note = QLabel(
+            "★ Downloads the reaches covering this AOI from the GEOGLOWS v2 "
+            "network (<b>LINKNO</b> / <b>DSLINKNO</b>), which is what NenCarta "
+            "needs when the streamflow source is GEOGLOWS. Only the AOI's "
+            "reaches are read — nothing large is downloaded."
+        )
+        self._gg_note.setWordWrap(True)
+        self._gg_note.setStyleSheet("color:#718096; font-size:11px;")
+        layout.addWidget(self._gg_note)
+
         self._on_src_changed()
 
     def _on_src_changed(self, *_):
-        is_user = (self._src_combo.currentData() == "user")
+        src = self._src_combo.currentData()
+        is_user = (src == "user")
         self._file_row.setVisible(is_user)
         self._note.setVisible(is_user)
+        self._gg_note.setVisible(src == "geoglows")
         self.config_changed.emit()
 
     def _on_browse(self):
@@ -92,19 +108,21 @@ class ArcFlowlineConfigPanel(QWidget):
             self._path_edit.setText(path)
 
     def is_ready(self) -> bool:
-        if self._src_combo.currentData() == "nhd":
+        if self._src_combo.currentData() in ("nhd", "geoglows"):
             return True
         p = self._path_edit.text().strip()
         return bool(p) and Path(p).exists()
 
     def get_config(self) -> dict:
-        if self._src_combo.currentData() == "nhd":
-            return {"source": "nhd", "user_path": None}
+        src = self._src_combo.currentData()
+        if src in ("nhd", "geoglows"):
+            return {"source": src, "user_path": None}
         return {"source": "user", "user_path": self._path_edit.text().strip()}
 
     def set_config(self, cfg: dict):
-        src = (cfg or {}).get("source", "nhd")
-        idx = self._src_combo.findData("user" if src == "user" else "nhd")
+        src = (cfg or {}).get("source", "geoglows")
+        idx = self._src_combo.findData(
+            src if src in ("geoglows", "nhd", "user") else "geoglows")
         self._src_combo.setCurrentIndex(max(idx, 0))
         self._path_edit.setText((cfg or {}).get("user_path") or "")
 

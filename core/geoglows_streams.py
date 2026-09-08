@@ -130,15 +130,13 @@ def find_vpu(aoi_path: str, log_fn=print) -> int:
     return best
 
 
-def download_geoglows_streams(aoi_path: str, out_path: str,
-                              vpu: Optional[int] = None,
-                              buffer_m: float = 2000.0,
-                              log_fn=print) -> str:
-    """Write the GEOGLOWS reaches covering ``aoi_path`` to ``out_path``.
+def read_geoglows_streams(aoi_path: str, vpu: Optional[int] = None,
+                          buffer_m: float = 2000.0, log_fn=print):
+    """The GEOGLOWS reaches covering ``aoi_path``, as a GeoDataFrame.
 
     The AOI box is buffered slightly so reaches entering and leaving the domain
     are kept whole, which matters for the upstream/downstream topology NenCarta
-    walks via LINKNO/DSLINKNO.  Returns the written path.
+    walks via LINKNO/DSLINKNO.  Returns ``(gdf, vpu)``.
     """
     _prepare_gdal_env()
     import pyogrio
@@ -165,7 +163,16 @@ def download_geoglows_streams(aoi_path: str, out_path: str,
         raise ValueError(
             f"GEOGLOWS streams are missing {missing} — NenCarta needs both to "
             "resolve reach topology for streamflow_source 'GEOGLOWS'.")
+    return gdf, int(vpu)
 
+
+def download_geoglows_streams(aoi_path: str, out_path: str,
+                              vpu: Optional[int] = None,
+                              buffer_m: float = 2000.0,
+                              log_fn=print) -> str:
+    """Write the AOI's GEOGLOWS reaches to ``out_path``.  Returns the path."""
+    gdf, vpu = read_geoglows_streams(aoi_path, vpu=vpu, buffer_m=buffer_m,
+                                     log_fn=log_fn)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     # Shapefile truncates field names to 10 chars; every field we depend on
