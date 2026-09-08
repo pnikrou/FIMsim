@@ -83,14 +83,25 @@ def run_arc_dem_all(
             arc_dir = _arc_model_dir(folder)
             dem_dir = _arc_dem_dir(folder)
 
-            feat_ctx = dict(ctx)
+            # Start from the AOI's SAVED context, not a fresh copy of the
+            # project ctx: re-running the DEM step otherwise overwrites
+            # workflow_context.json and throws away the flowline and
+            # streamflow keys later steps put there.
+            _, _saved = _load_feat_ctx(folder)
+            feat_ctx = {**dict(ctx), **(_saved or {})}
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
-            if feat.get("working_crs_epsg") is not None:
-                feat_ctx["working_crs_epsg"]  = feat["working_crs_epsg"]
-            if feat.get("working_crs_label"):
-                feat_ctx["working_crs_label"] = feat["working_crs_label"]
+            # ARC-Curve2Flood needs a GEOGRAPHIC DEM.  NenCarta writes
+            # "Spatial_Units\tdeg" into the ARC input file unconditionally
+            # (nencarta/main.py :: _write_arc_input_section), so a projected
+            # metre DEM makes ARC size its cross-sections in degrees against a
+            # 10 m grid; it then produces no rating curves and the run dies
+            # later with "No VDT data was generated".  Force EPSG:4326 and give
+            # the resolution in degrees, matching 3DEP's native 1/3 arc-second.
+            feat_ctx["working_crs_epsg"]  = 4326
+            feat_ctx["working_crs_label"] = "WGS 84 (geographic)"
+            this_res_deg = this_res_m / 111320.0
             feat_ctx["project_dir"] = folder
             feat_ctx["arc_dir"]     = arc_dir
             feat_ctx["dem_dir"]     = dem_dir
@@ -105,7 +116,7 @@ def run_arc_dem_all(
 
             feat_ctx = prepare_dem(
                 ctx_path=feat_ctx_path, ctx=feat_ctx,
-                dem_res_m=this_res_m,
+                dem_res_m=this_res_deg,
                 has_dem=this_has_dem, user_dem_path=this_user_paths,
                 dem_source="3dep",
                 log_fn=log_fn,
@@ -521,7 +532,13 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
             f"No DEM matching '{dem_filter}' in {dem_dir} — run the DEM step.")
 
     out_dir = str(Path(folder) / "nencarta-output")
+    # Build the stream network the first time; on a re-run the gpkg is already
+    # there and NenCarta's own default (skip) is the faster, correct choice.
+    strm_done = any(Path(out_dir, name, "STRM").glob("*StrmShp*.gpkg"))
+    if strm_done:
+        log_fn(f"  '{name}': reusing the existing STRM network.")
     return build_watershed(
+        process_stream_network=not strm_done,
         name=name,
         flowline=flowline,
         dem_dir=dem_dir,

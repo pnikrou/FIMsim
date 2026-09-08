@@ -56,6 +56,35 @@ ALL_MAPPERS = ["FloodSpreader"] + CURVE2FLOOD_MAPPERS
 
 FLOODMAP_MODES = ("forecast", "user")
 
+# NenCarta reads several of these with bathy_args["key"] — direct indexing, not
+# .get() — so an empty dict dies with KeyError: 'X_Section_Dist' part-way into
+# the run.  These are NenCarta's OWN defaults, copied verbatim from the values
+# its GUI ships with (nencarta/gui_app.py), so a FIMsim run matches what a user
+# of their GUI would get.  Nothing here is invented.
+DEFAULT_BATHY_ARGS = {
+    "VDT_Database_NumIterations": 30,
+    "Make_Output_GPKG": "True",
+    "FS_ADJUST_FLOW_BY_FRACTION": 1.0,
+    "TW_MultFact": 1.5,
+    "TopWidthPlausibleLimit": 2000,
+    "Bathy_Trap_H": 0.2,
+    "X_Section_Dist": 5000.0,
+    "Degree_Manip": 6.1,
+    "Degree_Interval": 1.5,
+    "Low_Spot_Range": 2,
+    "Str_Limit_Val": 1,
+    "Gen_Dir_Dist": 10,
+    "Gen_Slope_Dist": 10,
+    "Stream_Slope_Method": "local_average_corrected",
+}
+
+DEFAULT_FLOODMAP_ARGS = {
+    "Make_Output_GPKG": "True",
+    "FS_ADJUST_FLOW_BY_FRACTION": 1.0,
+    "TW_MultFact": 1.5,
+    "TopWidthPlausibleLimit": 6000,
+}
+
 
 class NenCartaError(RuntimeError):
     """NenCarta could not be run, or reported a failure."""
@@ -105,6 +134,9 @@ def build_watershed(
     floodmap_mode: str = "forecast",
     user_flow_files: Optional[List[str]] = None,
     mannings_text_file: Optional[str] = None,
+    process_stream_network: bool = True,
+    bathy_args: Optional[Dict] = None,
+    floodmap_args: Optional[Dict] = None,
     specify_depths_for_bathy_mask: Optional[List[float]] = None,
     dem_filter: str = "*",
     clean_dem: bool = False,
@@ -169,6 +201,15 @@ def build_watershed(
         "make_depth_maps": bool(make_depth_maps),
         "make_velocity_maps": bool(make_velocity_maps),
         "make_wse_maps": bool(make_wse_maps),
+        # NenCarta defaults this to False, which SKIPS building
+        # <output>/<name>/STRM/..._StrmShp.gpkg from the supplied flowline and
+        # then reads it anyway — fine when a previous run made it, fatal on a
+        # first run with "DataSourceError: ... No such file or directory".
+        "process_stream_network": bool(process_stream_network),
+        # Start from NenCarta's defaults so every directly-indexed key exists,
+        # then let the caller override individual entries.
+        "bathy_args": {**DEFAULT_BATHY_ARGS, **(bathy_args or {})},
+        "floodmap_args": {**DEFAULT_FLOODMAP_ARGS, **(floodmap_args or {})},
         "make_curvefile": bool(make_curvefile),
         "overwrite_floodmaps": bool(overwrite_floodmaps),
         "quiet": bool(quiet),
