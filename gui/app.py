@@ -31,7 +31,6 @@ from gui.step_triton_dem     import StepTritonDEMWidget
 from gui.step_arc_project    import StepArcProjectWidget
 from gui.step_arc_aoi        import StepArcAOIWidget
 from gui.step_arc_dem        import StepArcDEMWidget
-from gui.step_arc_landcover  import StepArcLandCoverWidget
 from gui.step_arc_flowline   import StepArcFlowlineWidget
 from gui.step_arc_streamflow import StepArcStreamflowWidget
 from gui.step_arc_config     import StepArcConfigWidget
@@ -308,19 +307,23 @@ class MainWindow(QMainWindow):
         proj       = StepArcProjectWidget(log_fn, model="generic")
         aoi        = StepArcAOIWidget(log_fn, model="arc_curve2flood")
         dem        = StepArcDEMWidget(log_fn)
-        landcover  = StepArcLandCoverWidget(log_fn)
         flowline   = StepArcFlowlineWidget(log_fn)
         streamflow = StepArcStreamflowWidget(log_fn)
         config     = StepArcConfigWidget(log_fn)
 
+        # No Land Cover step: NenCarta downloads ESA WorldCover itself and
+        # builds both the LAND raster and its matching Manning table, and there
+        # is no watershed key for supplying your own.  A FIMsim-made LULC was
+        # never used, and its Manning table (ESRI classes 1-11, comma
+        # separated) actively broke ARC, which expects ESA codes in
+        # LC_ID/Description/Manning_n form.
         step_list = [
             ("1. Project",          proj),
             ("2. AOI",              aoi),
             ("3. DEM",              dem),
-            ("4. Land Cover",       landcover),
-            ("5. Flowline",         flowline),
-            ("6. Streamflow",       streamflow),
-            ("7. Run",              config),
+            ("4. Flowline",         flowline),
+            ("5. Streamflow",       streamflow),
+            ("6. Run",              config),
         ]
         widgets = [w for _, w in step_list]
 

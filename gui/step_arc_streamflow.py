@@ -1,4 +1,4 @@
-"""ARC-Curve2Flood Step 6 — Streamflow (per-AOI flow files from NWM).
+"""ARC-Curve2Flood Step 5 — Streamflow (per-AOI flow files from NWM).
 
 Multi-AOI controller matching the other steps:
   * 1 AOI   → one ArcFlowConfigPanel embedded directly.
@@ -484,7 +484,7 @@ class StepArcStreamflowWidget(QWidget):
         single_page = QWidget()
         sp_layout = QVBoxLayout(single_page)
         sp_layout.setContentsMargins(0, 0, 0, 0)
-        gb = QGroupBox("6. Streamflow")
+        gb = QGroupBox("5. Streamflow")
         gb_layout = QVBoxLayout(gb)
         self._single_panel = ArcFlowConfigPanel(self)
         self._single_panel.config_changed.connect(self._on_single_config_changed)

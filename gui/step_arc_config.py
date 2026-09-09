@@ -1,4 +1,4 @@
-"""ARC-Curve2Flood Step 7 — Run.
+"""ARC-Curve2Flood Step 6 — Run.
 
 Multi-AOI controller matching the other steps:
   * 1 AOI   → one ArcRunConfigPanel embedded directly.
@@ -354,7 +354,7 @@ class StepArcConfigWidget(QWidget):
         single_page = QWidget()
         sp_layout = QVBoxLayout(single_page)
         sp_layout.setContentsMargins(0, 0, 0, 0)
-        gb = QGroupBox("7. Run ARC-Curve2Flood")
+        gb = QGroupBox("6. Run ARC-Curve2Flood")
         gb_layout = QVBoxLayout(gb)
         self._single_panel = ArcRunConfigPanel(self)
         self._single_panel.config_changed.connect(self._on_single_config_changed)

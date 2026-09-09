@@ -1,4 +1,4 @@
-"""ARC-Curve2Flood Step 5 — Flowline.
+"""ARC-Curve2Flood Step 4 — Flowline.
 
 Multi-AOI controller that mirrors the TRITON/ARC DEM and Land Cover steps:
   * 1 AOI   → one ArcFlowlineConfigPanel embedded directly.
@@ -322,7 +322,7 @@ class StepArcFlowlineWidget(QWidget):
         single_page = QWidget()
         sp_layout = QVBoxLayout(single_page)
         sp_layout.setContentsMargins(0, 0, 0, 0)
-        gb = QGroupBox("5. Flowline")
+        gb = QGroupBox("4. Flowline")
         gb_layout = QVBoxLayout(gb)
         self._single_panel = ArcFlowlineConfigPanel(self)
         self._single_panel.config_changed.connect(self._on_single_config_changed)
