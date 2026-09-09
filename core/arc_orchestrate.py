@@ -503,6 +503,10 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 int(cfg.pop("step_hours", 24) or 24),
                 Path(folder) / "arc-files" / "flow_series",
                 id_field=("LINKNO" if src_is_geoglows else "COMID"),
+                source=cfg.get("streamflow_source", "GEOGLOWS"),
+                frange=str(cfg.get("streamflow_source", "")).replace(
+                    "NWM_", "") or "short_range",
+                cycle_hour=cfg.get("forensic_forecast_hour"),
                 log_fn=lambda m: log_fn("  " + str(m)))
             if not files:
                 raise RuntimeError(f"'{name}': no discharge found for that period.")

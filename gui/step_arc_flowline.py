@@ -48,7 +48,7 @@ class ArcFlowlineConfigPanel(QWidget):
         # so with streamflow_source "GEOGLOWS" the network must BE the GEOGLOWS
         # one — NHD COMIDs renamed to LINKNO match nothing in its forecast.
         self._src_combo.addItem("Download GEOGLOWS v2  (for NenCarta)", "geoglows")
-        self._src_combo.addItem("Download from NHDPlus (auto)", "nhd")
+        self._src_combo.addItem("Download from NHDPlus  (for NWM)", "nhd")
         self._src_combo.addItem("I have a stream shapefile", "user")
         self._src_combo.setFixedWidth(280)
         self._src_combo.currentIndexChanged.connect(self._on_src_changed)
@@ -118,6 +118,19 @@ class ArcFlowlineConfigPanel(QWidget):
         if src in ("nhd", "geoglows"):
             return {"source": src, "user_path": None}
         return {"source": "user", "user_path": self._path_edit.text().strip()}
+
+    def default_from_streamflow(self, streamflow_source: str):
+        """Pair the flowline with the streamflow source already chosen.
+
+        GEOGLOWS reads LINKNO, NWM reads COMID — the two steps have to agree.
+        """
+        want = ("nhd" if str(streamflow_source).upper().startswith("NWM")
+                else "geoglows")
+        if self._src_combo.currentData() in ("geoglows", "nhd") and \
+           self._src_combo.currentData() != want:
+            i = self._src_combo.findData(want)
+            if i >= 0:
+                self._src_combo.setCurrentIndex(i)
 
     def set_config(self, cfg: dict):
         src = (cfg or {}).get("source", "geoglows")

@@ -56,9 +56,12 @@ COVERAGE = {
     },
     "NWM": {
         "forecast":      ("2018-09-17", "today"),
-        "retro_hourly":  ("1979-02-01", "2023-01-31"),
-        "note": ("NWM needs an API key (CIROH).  Retrospective ENDS 2023-01-31, "
-                 "so later dates must use a forecast."),
+        "retro_hourly":  ("1979-02-01", "2023-02-01"),
+        "note": ("No API key needed — FIMsim reads the same public sources "
+                 "FIMserv does (NOAA retrospective zarr, Google NWM mirror) "
+                 "and hands NenCarta finished flow files.  Retrospective ENDS "
+                 "2023-02-01, so later dates use a forecast.  Needs the "
+                 "NHDPlus flowline (COMID)."),
     },
 }
 
@@ -227,6 +230,8 @@ def write_flow_series(series: Dict[_dt.datetime, Dict[int, float]], out_dir,
 
 def build_flow_series(flowline_path: str, start, end, step_hours: int,
                       out_dir, id_field: str = "LINKNO", hourly: bool = True,
+                      source: str = "GEOGLOWS", frange: str = "short_range",
+                      cycle_date=None, cycle_hour=None,
                       log_fn=print) -> List[str]:
     """Flowline + window -> one flow CSV per timestep.  Returns their paths.
 
@@ -237,8 +242,20 @@ def build_flow_series(flowline_path: str, start, end, step_hours: int,
     steps = expand_timesteps(start, end, step_hours)
     if not steps:
         raise ValueError("The period is empty — check the start and end dates.")
+    is_nwm = str(source).upper().startswith("NWM")
+    # NWM keys on the NHD COMID, GEOGLOWS on its own LINKNO.
+    if is_nwm and id_field.upper() == "LINKNO":
+        id_field = "COMID"
     ids = reach_ids_from_flowline(flowline_path, id_field=id_field)
     log_fn(f"{len(steps)} timestep(s) over {len(ids)} reach(es), "
-           f"{'hourly' if hourly else 'daily'} GEOGLOWS.")
-    series = fetch_geoglows(ids, steps, hourly=hourly, log_fn=log_fn)
-    return write_flow_series(series, out_dir, log_fn=log_fn)
+           + (f"NWM ({frange})." if is_nwm
+              else f"{'hourly' if hourly else 'daily'} GEOGLOWS."))
+    if is_nwm:
+        from core.nwm_flows import fetch_nwm
+        series = fetch_nwm(ids, steps, frange=frange, cycle_date=cycle_date,
+                           cycle_hour=cycle_hour, log_fn=log_fn)
+        header = "COMID"
+    else:
+        series = fetch_geoglows(ids, steps, hourly=hourly, log_fn=log_fn)
+        header = "rivid"
+    return write_flow_series(series, out_dir, id_header=header, log_fn=log_fn)

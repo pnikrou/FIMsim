@@ -166,7 +166,8 @@ class ArcFlowConfigPanel(QWidget):
         kr.addWidget(QLabel("NWM API key:"))
         self._api_key = QLineEdit()
         self._api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key.setPlaceholderText("required for NWM — apply via CIROH")
+        self._api_key.setPlaceholderText(
+            "optional — only if you want NenCarta to fetch NWM itself")
         self._api_key.textChanged.connect(lambda *_: self.config_changed.emit())
         kr.addWidget(self._api_key, 1)
         layout.addWidget(self._key_row)
@@ -257,18 +258,19 @@ class ArcFlowConfigPanel(QWidget):
                 "use the latest available forecast.")
         else:
             self._note.setText(
-                "★ NWM needs an API key and a flowline keyed on <b>COMID</b>, "
-                "so choose the NHDPlus flowline in the Flowline step — the "
-                "GEOGLOWS network will not match.")
+                "★ NWM needs a flowline keyed on <b>COMID</b>, so choose the "
+                "<b>NHDPlus</b> flowline in the previous step — the GEOGLOWS "
+                "network will not match. No API key is required: FIMsim reads "
+                "the same public NWM sources FIMserv uses.")
         self._refresh_coverage()
         self.config_changed.emit()
 
     # ── config ───────────────────────────────────────────────────────────────
 
     def is_ready(self) -> bool:
-        src = self._src_combo.currentData()
-        if str(src).upper().startswith("NWM"):
-            return bool(self._api_key.text().strip())
+        # No API-key gate: FIMsim fetches NWM itself from the public NOAA /
+        # Google sources and passes NenCarta finished flow files, so NenCarta
+        # never calls the CIROH API that would demand a key.
         return True
 
     def get_config(self) -> dict:
@@ -288,6 +290,19 @@ class ArcFlowConfigPanel(QWidget):
         if key:
             cfg["nwm_api_key"] = key
         return cfg
+
+    def default_from_flowline(self, flowline_source: str):
+        """Pair the streamflow source with the flowline the AOI actually has.
+
+        NenCarta reads LINKNO/DSLINKNO for GEOGLOWS and COMID/TOCOMID for NWM,
+        so the two must agree or the run finds no flow at all.
+        """
+        want = "GEOGLOWS" if str(flowline_source) == "geoglows" else "NWM_short_range"
+        if str(self._src_combo.currentData()).upper().startswith("NWM") != \
+           want.upper().startswith("NWM"):
+            i = self._src_combo.findData(want)
+            if i >= 0:
+                self._src_combo.setCurrentIndex(i)
 
     def set_config(self, cfg: dict):
         cfg = cfg or {}
@@ -486,6 +501,35 @@ class StepArcStreamflowWidget(QWidget):
         self._aoi_features = list(self._ctx.get("aoi_features", []) or [])
         self._clear_results()
         self._rebuild_for_aoi_count()
+        self._pair_with_flowline()
+
+    def _pair_with_flowline(self):
+        """Default each card's streamflow source to match its AOI's flowline.
+
+        GEOGLOWS reaches are keyed on LINKNO and NWM's on COMID, so a mismatch
+        finds no flow at all rather than failing outright.  Whatever the
+        Flowline step actually produced wins.
+        """
+        import json
+        for i, feat in enumerate(self._aoi_features):
+            folder = (feat or {}).get("folder_path")
+            if not folder:
+                continue
+            try:
+                with open(Path(folder) / "workflow_context.json",
+                          "r", encoding="utf-8") as fh:
+                    src = json.load(fh).get("arc_flowline_source")
+            except Exception:
+                continue
+            if not src:
+                continue
+            panel = None
+            if getattr(self, "_cards", None) and i < len(self._cards):
+                panel = self._cards[i].panel()
+            elif i == 0 and getattr(self, "_single_panel", None):
+                panel = self._single_panel
+            if panel is not None and hasattr(panel, "default_from_flowline"):
+                panel.default_from_flowline(src)
 
     def reset(self):
         self._aoi_features = []
