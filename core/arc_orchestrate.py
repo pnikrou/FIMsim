@@ -683,9 +683,33 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
     run_flood_mapping(json_path, serial=True, log_fn=log_fn)
 
     summary = []
+    cfg_all = ((per_aoi_configs[0] if per_aoi_configs else run_cfg) or {})
     for (feat_ctx_path, feat_ctx, name, folder) in targets:
         out_dir = str(Path(folder) / "nencarta-output")
         maps = find_flood_maps(out_dir, name)
+
+        # NenCarta must RUN in EPSG:4326 (Spatial_Units is hardcoded to "deg"
+        # in both nencarta and arc), but the products belong in the AOI's own
+        # CRS on a metric grid so they can be differenced against LISFLOOD-FP,
+        # TRITON and OWP HAND-FIM outputs.
+        aoi_for_crs = (feat_ctx.get("aoi_path")
+                       or (aoi_features[0]["source_file"] if aoi_features else None))
+        if maps and aoi_for_crs:
+            try:
+                from core.arc_reproject import reproject_flood_maps, summarise
+                made = reproject_flood_maps(
+                    maps, aoi_for_crs, Path(folder) / "FloodMaps",
+                    res_m=float(cfg_all.get("output_res_m", 10.0)),
+                    log_fn=lambda m: log_fn("  " + str(m)))
+                if made:
+                    feat_ctx["floodmaps_dir"] = str(Path(folder) / "FloodMaps")
+                    feat_ctx["floodmaps"] = [m["path"] for m in made]
+                    summarise([m["path"] for m in made
+                               if m["kind"] == "extent"][:4],
+                              log_fn=lambda m: log_fn("  " + str(m)))
+            except Exception as exc:
+                log_fn(f"  ⚠ could not reproject the flood maps: {exc}")
+
         n_steps = len(feat_ctx.get("nencarta_flow_files") or [])
         if n_steps:
             log_fn(f"  '{name}': duration produced {len(maps)} raster(s) "
