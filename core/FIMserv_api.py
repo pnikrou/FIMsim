@@ -1251,6 +1251,58 @@ def fim_tags_for_request(source="retrospective", value_times=None,
 
 
 
+def _run_key(raster_name: str, huc8: str) -> str:
+    """A per-run key from a FIMserv raster name, with the HUC8 removed.
+
+    ``shortrange_10230003_20240624_16UTC_inundation.tif`` -> ``shortrange_20240624_16UTC``
+
+    FIMserv names each raster after the discharge file that produced it, and a
+    forecast request yields one file PER FORECAST HOUR — 17 of them for NWM
+    short range.  Stripping the HUC8 gives a key that is the same across HUC8s,
+    so the per-hour rasters can be mosaicked hour by hour.
+    """
+    stem = raster_name
+    for suf in ("_inundation_binary.tif", "_inundation.tif", "_depth.tif", ".tif"):
+        if stem.endswith(suf):
+            stem = stem[: -len(suf)]
+            break
+    return stem.replace(f"_{huc8}_", "_").replace(f"_{huc8}", "").replace(f"{huc8}_", "")
+
+
+def discover_run_keys(api, huc8_ids: List[str]) -> List[str]:
+    """Distinct runs present in the output folders, oldest name first."""
+    keys = set()
+    for huc in huc8_ids:
+        base = api.output_dir / f"flood_{huc}" / f"{huc}_inundation"
+        if not base.is_dir():
+            continue
+        for tif in glob.glob(str(base / "*.tif")):
+            name = Path(tif).name
+            if name.endswith("_binary.tif") or name.endswith("_depth.tif"):
+                continue
+            keys.add(_run_key(name, huc))
+    return sorted(keys)
+
+
+def _rasters_for_run(api, huc8_ids: List[str], key: str) -> Dict[str, List[str]]:
+    """{"extent": [...], "depth": [...]} for ONE discovered run key."""
+    found = {"extent": [], "depth": []}
+    for huc in huc8_ids:
+        base = api.output_dir / f"flood_{huc}" / f"{huc}_inundation"
+        if not base.is_dir():
+            continue
+        for tif in sorted(glob.glob(str(base / "*.tif"))):
+            name = Path(tif).name
+            if _run_key(name, huc) != key:
+                continue
+            low = name.lower()
+            if low.endswith("_depth.tif"):
+                found["depth"].append(tif)
+            elif "inundation" in low and "binary" not in low:
+                found["extent"].append(tif)
+    return found
+
+
 def _is_event_tag(tag: str) -> bool:
     """True for a single-timestamp tag (NWM_YYYYMMDD[HHMMSS]) as opposed to an
     aggregated duration tag (NWM_<start>_<end>_<sortby>)."""
@@ -1281,6 +1333,46 @@ def _stamp_to_text(stamp: str) -> str:
     return st
 
 
+def _build_from(api, ok, rasters, depth, binary, clip, aoi_path, multi,
+                name_fn, log_fn=print):
+    """Binary → mosaic → clip ONE set of rasters.  Returns {family: path}.
+
+    Shared by the tag-driven path (retrospective) and the discovered-run path
+    (forecast), so both produce identical products.
+    """
+    families = {"extent": rasters["extent"]}
+    if depth:
+        families["depth"] = rasters["depth"]
+    res: Dict = {}
+    for fam, paths in families.items():
+        if not paths:
+            continue
+        work_paths = paths
+        if fam == "depth":
+            # FIMserv depth is in mm — convert to metres before mosaic/clip so
+            # the saved product (and its 'Depth (m)' legend) are in metres.
+            work_paths = api.depth_mm_to_m(paths)
+        elif binary:
+            bin_paths = api.make_binary(paths)
+            res[f"{fam}_binary"] = bin_paths
+            if bin_paths:
+                work_paths = bin_paths
+        if multi:
+            merge_method = "max" if fam == "depth" else "first"
+            mosaic_path = api.mosaic(work_paths, name_fn(fam, "mosaic"),
+                                     method=merge_method)
+        else:
+            mosaic_path = work_paths[0] if work_paths else None
+            if mosaic_path:
+                # Single HUC8 — re-save with LZW so the size stays low.
+                mosaic_path = api._save_lzw(mosaic_path, name_fn(fam, "single"))
+        res[f"{fam}_mosaic"] = mosaic_path
+        if clip and mosaic_path:
+            res[f"{fam}_clipped"] = api.clip_to_aoi(
+                mosaic_path, str(aoi_path), name_fn(fam, "clipped"))
+    return res
+
+
 def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
                       binary=True, clip=True, fim_tags=None, log_fn=print):
     """Tab 4 — generate the FIM, make it binary, mosaic, and clip to the AOI.
@@ -1304,39 +1396,20 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
 
     def _build(tags, name_fn):
         """Binary → mosaic → clip one discharge run.  Returns {family: path}."""
-        rasters = api._find_fim_rasters(ok, fim_tags=tags)
-        families = {"extent": rasters["extent"]}
-        if depth:
-            families["depth"] = rasters["depth"]
-        res: Dict = {}
-        for fam, paths in families.items():
-            if not paths:
-                continue
-            work_paths = paths
-            if fam == "depth":
-                # FIMserv depth is in mm — convert to metres before mosaic/clip
-                # so the saved product (and its 'Depth (m)' legend) are metres.
-                work_paths = api.depth_mm_to_m(paths)
-            elif binary:
-                bin_paths = api.make_binary(paths)
-                res[f"{fam}_binary"] = bin_paths
-                if bin_paths:
-                    work_paths = bin_paths
-            if multi:
-                merge_method = "max" if fam == "depth" else "first"
-                mosaic_path = api.mosaic(work_paths, name_fn(fam, "mosaic"),
-                                         method=merge_method)
-            else:
-                mosaic_path = work_paths[0] if work_paths else None
-                if mosaic_path:
-                    # Single HUC8 — re-save with LZW so the size stays low.
-                    mosaic_path = api._save_lzw(mosaic_path,
-                                                name_fn(fam, "single"))
-            res[f"{fam}_mosaic"] = mosaic_path
-            if clip and mosaic_path:
-                res[f"{fam}_clipped"] = api.clip_to_aoi(
-                    mosaic_path, str(aoi_path), name_fn(fam, "clipped"))
-        return res
+        return _build_from(api, ok, api._find_fim_rasters(ok, fim_tags=tags),
+                           depth, binary, clip, aoi_path, multi, name_fn, log_fn)
+
+
+    # No tags means a FORECAST run: FIMserv named the rasters after the
+    # forecast files, one per forecast hour (17 for NWM short range), and there
+    # is no tag convention to match them.  Discover the runs from disk instead
+    # and treat each as a timestep, so every forecast hour gets its own map.
+    discovered = []
+    if not fim_tags:
+        discovered = discover_run_keys(api, ok)
+        if discovered:
+            log_fn(f"Forecast produced {len(discovered)} timestep(s): "
+                   f"{discovered[0]} … {discovered[-1]}")
 
     tags = list(fim_tags or [])
     # Per-timestep tags are the event ones (NWM_<stamp>); the aggregated
@@ -1356,6 +1429,44 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
     overview_tags = None if step_tags else (agg_tags or tags or None)
 
     made: List[Dict] = []
+
+    # ── forecast: one map per discovered forecast hour ──────────────────────
+    if discovered:
+        ts_dir = api.project_dir / FLOOD_MAPS_DIRNAME
+        ts_dir.mkdir(parents=True, exist_ok=True)
+        log_fn(f"Building {len(discovered)} per-timestep flood map(s) …")
+        for k, key in enumerate(discovered, 1):
+            r = _build_from(api, ok, _rasters_for_run(api, ok, key), depth,
+                            binary, clip, aoi_path, multi,
+                            lambda fam, kind, kk=key:
+                                f"{FLOOD_MAPS_DIRNAME}/{'FIM' if fam == 'extent' else fam}_{kk}.tif"
+                                if kind == "clipped" else
+                                f"{FLOOD_MAPS_DIRNAME}/_wip_{fam}_{kk}.tif",
+                            log_fn)
+            for fam in ("extent", "depth"):
+                wip = r.get(f"{fam}_mosaic")
+                if wip and Path(wip).name.startswith("_wip_"):
+                    if r.get(f"{fam}_clipped"):
+                        try: Path(wip).unlink()
+                        except OSError: pass
+                    else:
+                        fin = Path(wip).with_name(Path(wip).name[len("_wip_"):])
+                        try:
+                            Path(wip).replace(fin); r[f"{fam}_mosaic"] = str(fin)
+                        except OSError: pass
+            path = r.get("extent_clipped") or r.get("extent_mosaic")
+            if path:
+                made.append({"time": key, "stamp": key, "path": path,
+                             "depth": r.get("depth_clipped") or r.get("depth_mosaic")})
+            log_fn(f"  timestep [{k}/{len(discovered)}] {key}"
+                   + (f" -> {Path(path).name}" if path else " -> no raster"))
+        outputs["timestep_maps"] = made
+        outputs["timesteps_dir"] = str(ts_dir)
+        idx = api.write_flood_map_index(made, ts_dir)
+        if idx:
+            outputs["timestep_index"] = idx
+        log_fn(f"Saved {len(made)} flood map(s) in {ts_dir}")
+
     if step_tags:
         # One flood raster per timestep, in a plainly-named folder next to the
         # overview: FloodMaps/FIM_<YYYY-MM-DD_HHMM>.tif
@@ -1406,7 +1517,7 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
         log_fn(f"Saved {len(made)} per-timestep flood map(s) in {ts_dir}")
 
     # Overview (the aggregated map for a duration, or the single requested run)
-    if overview_tags:
+    if overview_tags or (not step_tags and not discovered):
         outputs.update(_build(
             overview_tags,
             lambda fam, kind: (f"clipped_{fam}_FIM.tif" if kind == "clipped"
