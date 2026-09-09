@@ -527,6 +527,38 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
     return ctx
 
 
+def _arc_manning_or_none(path, log_fn=print):
+    """Return ``path`` only if it is a Manning table ARC can actually use.
+
+    NenCarta downloads ESA WorldCover itself and writes a matching table
+    (Create_BaseLine_Manning_n_File_ESA):
+
+        LC_ID<TAB>Description<TAB>Manning_n
+        10<TAB>Tree Cover<TAB>0.120
+
+    FIMsim's Land Cover step writes a different thing — comma separated
+    ``LULC_Code,Manning_n`` keyed on ESRI Sentinel-2 classes 1-11 — which is
+    what LISFLOOD-FP and TRITON consume.  Handing that to NenCarta is worse
+    than handing it nothing: ARC looks up roughness for ESA classes 10/30/40…,
+    finds no match at all, and silently produces NO rating curves, so the run
+    dies later with "No VDT data was generated".  Only pass a file that really
+    is in ARC's format; otherwise let NenCarta build its own.
+    """
+    if not path or not Path(path).exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            header = fh.readline()
+    except OSError:
+        return None
+    if "\t" in header and header.split("\t")[0].strip().upper() == "LC_ID":
+        return str(path)
+    log_fn("  Manning table is FIMsim's LULC format (comma separated, ESRI "
+           "classes), not ARC's tab-separated LC_ID/ESA format — letting "
+           "NenCarta build its own from ESA WorldCover instead.")
+    return None
+
+
 def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
                     log_fn=print) -> dict:
     """One NenCarta watersheds[] entry built from an AOI's saved context."""
@@ -585,7 +617,8 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         mapper=cfg.get("mapper", "Curve2Flood-Kernel Weighted"),
         floodmap_mode=("user" if flow_files else "forecast"),
         user_flow_files=(flow_files or None),
-        mannings_text_file=feat_ctx.get("arc_mannings_n_path"),
+        mannings_text_file=_arc_manning_or_none(
+            feat_ctx.get("arc_mannings_n_path"), log_fn),
         bathy_use_banks=cfg.get("bathy_use_banks", False),
         find_banks_based_on_landcover=cfg.get("find_banks_based_on_landcover", True),
         clean_dem=cfg.get("clean_dem", False),
