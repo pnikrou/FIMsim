@@ -33,7 +33,13 @@ import datetime as _dt
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-RETRO_DAILY_URI = "s3://geoglows-v2/retrospective/daily.zarr"
+RETRO_DAILY_URI  = "s3://geoglows-v2/retrospective/daily.zarr"
+# GEOGLOWS also publishes an HOURLY retrospective covering the same period
+# (1940-01-01 07:00 -> present, 759,785 steps).  NenCarta's own fallback only
+# reads the daily store, so a historic request there can only ever be a daily
+# mean — the hour is ignored.  Driving user_flow_files from this store instead
+# gives a genuine sub-daily map without needing an NWM API key.
+RETRO_HOURLY_URI = "s3://geoglows-v2/retrospective/hourly.zarr"
 
 
 def expand_timesteps(start, end, step_hours: int = 24) -> List[_dt.datetime]:
@@ -75,12 +81,18 @@ def reach_ids_from_flowline(flowline_path: str, id_field: str = "LINKNO") -> Lis
     return [int(v) for v in gdf[col].dropna().unique()]
 
 
-def fetch_geoglows_daily(reach_ids: Sequence[int], timestamps: Sequence[_dt.datetime],
-                         log_fn=print) -> Dict[_dt.datetime, Dict[int, float]]:
-    """Daily GEOGLOWS discharge for these reaches at these timestamps.
+def fetch_geoglows(reach_ids: Sequence[int], timestamps: Sequence[_dt.datetime],
+                   hourly: bool = True, log_fn=print
+                   ) -> Dict[_dt.datetime, Dict[int, float]]:
+    """GEOGLOWS discharge for these reaches at these timestamps.
 
-    One request covering the whole window, then sliced per timestep — the store
-    is a zarr, so asking per timestep would re-open it every time.
+    ``hourly=True`` reads the hourly retrospective and matches each timestamp
+    exactly, so 16:00 really is 16:00.  ``hourly=False`` reads the daily store,
+    where every hour of a day carries that day's mean — which is what NenCarta
+    itself falls back to.
+
+    One request covers the whole window and is then sliced per timestep; the
+    store is a zarr, so asking per timestep would re-open it every time.
     """
     import xarray as xr
     import numpy as np
@@ -90,7 +102,8 @@ def fetch_geoglows_daily(reach_ids: Sequence[int], timestamps: Sequence[_dt.date
     lo, hi = min(timestamps), max(timestamps)
     log_fn(f"Reading GEOGLOWS daily discharge for {len(reach_ids)} reach(es), "
            f"{lo:%Y-%m-%d} → {hi:%Y-%m-%d} …")
-    ds = xr.open_zarr(RETRO_DAILY_URI, storage_options={"anon": True})
+    ds = xr.open_zarr(RETRO_HOURLY_URI if hourly else RETRO_DAILY_URI,
+                      storage_options={"anon": True})
     have = set(int(v) for v in ds.river_id.values.tolist()) \
         if ds.river_id.size < 2_000_000 else None
     ids = [r for r in reach_ids if have is None or r in have]
@@ -101,22 +114,29 @@ def fetch_geoglows_daily(reach_ids: Sequence[int], timestamps: Sequence[_dt.date
         raise ValueError("None of the flowline's reaches exist in GEOGLOWS.")
 
     sub = ds["Q"].sel(river_id=ids,
-                      time=slice(lo.strftime("%Y-%m-%d"),
+                      time=slice(lo.strftime("%Y-%m-%d %H:00:00"),
                                  (hi + _dt.timedelta(days=1)).strftime("%Y-%m-%d")))
     df = sub.to_dataframe().reset_index()
-    df["_day"] = df["time"].dt.floor("D")
+    df["_key"] = df["time"].dt.floor("h" if hourly else "D")
 
     out: Dict[_dt.datetime, Dict[int, float]] = {}
     for t in timestamps:
-        day = _dt.datetime(t.year, t.month, t.day)
-        rows = df[df["_day"] == day]
+        key = (t.replace(minute=0, second=0, microsecond=0) if hourly
+               else _dt.datetime(t.year, t.month, t.day))
+        rows = df[df["_key"] == key]
         if rows.empty:
-            log_fn(f"  ⚠ no GEOGLOWS data for {day:%Y-%m-%d} — skipping.")
+            log_fn(f"  ⚠ no GEOGLOWS data for {key:%Y-%m-%d %H:%M} — skipping.")
             continue
         out[t] = {int(r): float(q) for r, q in
                   zip(rows["river_id"], rows["Q"]) if not np.isnan(q)}
-    log_fn(f"  got discharge for {len(out)} of {len(timestamps)} timestep(s).")
+    log_fn(f"  got {'hourly' if hourly else 'daily'} discharge for "
+           f"{len(out)} of {len(timestamps)} timestep(s).")
     return out
+
+
+# Backwards-compatible name.
+def fetch_geoglows_daily(reach_ids, timestamps, log_fn=print):
+    return fetch_geoglows(reach_ids, timestamps, hourly=False, log_fn=log_fn)
 
 
 def write_flow_series(series: Dict[_dt.datetime, Dict[int, float]], out_dir,
@@ -148,12 +168,19 @@ def write_flow_series(series: Dict[_dt.datetime, Dict[int, float]], out_dir,
 
 
 def build_flow_series(flowline_path: str, start, end, step_hours: int,
-                      out_dir, id_field: str = "LINKNO", log_fn=print) -> List[str]:
-    """Flowline + window -> one flow CSV per timestep.  Returns their paths."""
+                      out_dir, id_field: str = "LINKNO", hourly: bool = True,
+                      log_fn=print) -> List[str]:
+    """Flowline + window -> one flow CSV per timestep.  Returns their paths.
+
+    ``hourly`` picks the GEOGLOWS store: the hourly retrospective (so a
+    requested hour is that hour) or the daily one (a daily mean).  A single
+    timestep is simply a window whose start and end are the same instant.
+    """
     steps = expand_timesteps(start, end, step_hours)
     if not steps:
-        raise ValueError("The duration is empty — check the start and end dates.")
+        raise ValueError("The period is empty — check the start and end dates.")
     ids = reach_ids_from_flowline(flowline_path, id_field=id_field)
-    log_fn(f"Duration: {len(steps)} timestep(s) over {len(ids)} reach(es).")
-    series = fetch_geoglows_daily(ids, steps, log_fn=log_fn)
+    log_fn(f"{len(steps)} timestep(s) over {len(ids)} reach(es), "
+           f"{'hourly' if hourly else 'daily'} GEOGLOWS.")
+    series = fetch_geoglows(ids, steps, hourly=hourly, log_fn=log_fn)
     return write_flow_series(series, out_dir, log_fn=log_fn)
