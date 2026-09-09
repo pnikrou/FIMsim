@@ -94,6 +94,26 @@ def prepare_arc_flowline(ctx_path, ctx: dict, source: str = "nhd",
     n_ids = int(clipped[comid_col].dropna().nunique())
     log_fn(f"  Stream id column: '{comid_col}' ({n_ids} unique reach ids)")
 
+    # NenCarta walks NWM topology through COMID -> TOCOMID
+    # (get_streamids_from_source), but TOCOMID is not an NHDPlus attribute:
+    # the downstream link is carried as DnHydroseq, which points at the
+    # Hydroseq of the next reach.  Derive it, or the run has the ids but no
+    # connectivity.  0 marks a reach whose downstream neighbour is outside the
+    # AOI, which is the NHD convention for a terminal reach.
+    if source != "geoglows" and "TOCOMID" not in clipped.columns:
+        cols = {c.lower(): c for c in clipped.columns}
+        hs, dhs = cols.get("hydroseq"), cols.get("dnhydroseq")
+        if hs and dhs:
+            look = dict(zip(clipped[hs], clipped[comid_col]))
+            clipped["TOCOMID"] = (clipped[dhs].map(look)
+                                  .fillna(0).astype("int64"))
+            linked = int((clipped["TOCOMID"] != 0).sum())
+            log_fn(f"  Derived TOCOMID from DnHydroseq → {linked}/{len(clipped)} "
+                   f"reach(es) linked downstream (0 = leaves the AOI)")
+        else:
+            log_fn("  ⚠ No Hydroseq/DnHydroseq columns — TOCOMID could not be "
+                   "derived, so NWM topology will be missing.")
+
     out = Path(arc_dir) / "flowline.shp"
     # Remove any stale shapefile sidecars before writing.
     for ext in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
