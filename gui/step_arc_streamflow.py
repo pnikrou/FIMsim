@@ -18,10 +18,11 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
-    QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QLineEdit,
+    QComboBox, QDateEdit, QDateTimeEdit, QDoubleSpinBox, QSpinBox, QCheckBox,
+    QLineEdit, QRadioButton, QButtonGroup,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QDate
+from PyQt6.QtCore import pyqtSignal, Qt, QDate, QDateTime, QTime, QSettings
 
 from core.arc_orchestrate import run_arc_flowfile_for_all_aois
 from gui.worker import Worker
@@ -36,15 +37,52 @@ _F_CYCLES = ["Auto", "00", "06", "12", "18"]
 
 # ── Config panel (shared by single-AOI page and each card) ────────────────────
 
+def _key_settings() -> QSettings:
+    return QSettings("SDML", "FIMsim")
+
+
+def _load_api_key() -> str:
+    """The saved NWM API key, so it is entered once rather than every run.
+
+    Kept in the platform's own settings store (QSettings) — a credential has no
+    business in the project folder or the repository.
+    """
+    try:
+        return str(_key_settings().value("nwm_api_key", "") or "")
+    except Exception:
+        return ""
+
+
+def _save_api_key(key: str) -> bool:
+    if not key:
+        return False
+    try:
+        _key_settings().setValue("nwm_api_key", key)
+        return True
+    except Exception:
+        return False
+
+
 class ArcFlowConfigPanel(QWidget):
     """NenCarta streamflow settings for ONE AOI.
 
-    NenCarta fetches its own streamflow — FIMsim does not build a flow file.
-    These are its watershed keys (streamflow_source, forensic_forecast_date /
-    _hour, age_of_forecast_days, nwm_api_key) and are passed through verbatim.
+    Laid out the way OWP HAND-FIM's FIM step is, because it is the same set of
+    decisions: pick the source, then the record, then the period.  Each choice
+    narrows what the next one offers, so no impossible combination is on screen.
+
+    NenCarta fetches nothing here — FIMsim supplies finished flow files — so
+    these are its watershed keys plus FIMsim's own record/period choices.
     """
 
     config_changed = pyqtSignal()
+
+    # What each source covers.  Verified against the stores themselves.
+    _WINDOWS = {
+        "GEOGLOWS": {"retro": ("1940-01-01", "2026-09-03"),
+                     "fore":  ("2024-07-01", "today")},
+        "NWM":      {"retro": ("1979-02-01", "2023-02-01"),
+                     "fore":  ("2018-09-17", "today")},
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -52,140 +90,159 @@ class ArcFlowConfigPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(8)
 
-        src_row = QHBoxLayout()
-        src_row.addWidget(QLabel("Streamflow source:"))
+        # ── 1. source ────────────────────────────────────────────────────────
+        s_row = QHBoxLayout()
+        s_row.addWidget(QLabel("Streamflow source:"))
         self._src_combo = QComboBox()
-        self._src_combo.addItem("GEOGLOWS  (no API key needed)", "GEOGLOWS")
-        self._src_combo.addItem("NWM short range", "NWM_short_range")
-        self._src_combo.addItem("NWM medium range", "NWM_medium_range")
-        self._src_combo.addItem("NWM long range", "NWM_long_range")
-        self._src_combo.setFixedWidth(260)
-        self._src_combo.currentIndexChanged.connect(self._on_src_changed)
-        src_row.addWidget(self._src_combo)
-        src_row.addStretch()
-        layout.addLayout(src_row)
+        self._src_combo.addItem("GEOGLOWS", "GEOGLOWS")
+        self._src_combo.addItem("NWM", "NWM")
+        self._src_combo.setFixedWidth(160)
+        self._src_combo.currentIndexChanged.connect(self._on_changed)
+        s_row.addWidget(self._src_combo)
+        s_row.addStretch()
+        layout.addLayout(s_row)
 
-        self._cover = QLabel("")
-        self._cover.setWordWrap(True)
-        self._cover.setTextFormat(Qt.TextFormat.RichText)
-        self._cover.setStyleSheet(
-            "color:#2c5282; font-size:11px; background:#ebf8ff;"
-            "border:1px solid #bee3f8; border-radius:4px; padding:6px;")
-        layout.addWidget(self._cover)
-
+        # ── 2. record, with each window spelled out ──────────────────────────
         r_row = QHBoxLayout()
         r_row.addWidget(QLabel("Data record:"))
-        self._record = QComboBox()
-        self._record.addItem("Retrospective  (what the model says happened)",
-                             "retrospective")
-        self._record.addItem("Forecast  (what was predicted beforehand)",
-                             "forecast")
-        self._record.setFixedWidth(330)
-        self._record.currentIndexChanged.connect(self._on_src_changed)
-        r_row.addWidget(self._record)
+        self._rec_grp = QButtonGroup(self)
+        self._rb_retro = QRadioButton("Retrospective")
+        self._rb_fore  = QRadioButton("Forecast")
+        self._rb_retro.setChecked(True)
+        for rb in (self._rb_retro, self._rb_fore):
+            self._rec_grp.addButton(rb)
+            rb.toggled.connect(self._on_changed)
+            r_row.addWidget(rb)
         r_row.addStretch()
         layout.addLayout(r_row)
 
-        self._resolves = QLabel("")
-        self._resolves.setWordWrap(True)
-        self._resolves.setStyleSheet("color:#975a16; font-size:11px;")
-        layout.addWidget(self._resolves)
+        # ── 3a. retrospective: period ────────────────────────────────────────
+        self._retro_box = QWidget()
+        rv = QVBoxLayout(self._retro_box)
+        rv.setContentsMargins(12, 0, 0, 0)
 
-        # Snapshot vs duration.  ARC-Curve2Flood is steady state, so a duration
-        # is a SET of independent snapshots — NenCarta maps one raster per
-        # timestep via floodmap_mode "user" + user_flow_files.
-        p_row = QHBoxLayout()
-        p_row.addWidget(QLabel("Simulation period:"))
+        pm = QHBoxLayout()
+        pm.addWidget(QLabel("Simulation period:"))
         self._period = QComboBox()
         self._period.addItem("Specific time  (one flood map)", "snapshot")
         self._period.addItem("Duration  (one flood map per timestep)", "duration")
         self._period.setFixedWidth(300)
-        self._period.currentIndexChanged.connect(self._on_src_changed)
-        p_row.addWidget(self._period)
-        p_row.addStretch()
-        layout.addLayout(p_row)
+        self._period.currentIndexChanged.connect(self._on_changed)
+        pm.addWidget(self._period)
+        pm.addStretch()
+        rv.addLayout(pm)
 
-        # Event date.  Left off, NenCarta uses the latest available forecast.
-        d_row = QHBoxLayout()
-        self._use_date = QCheckBox("Map a past event on:")
-        self._use_date.setChecked(True)
-        self._use_date.toggled.connect(self._on_src_changed)
-        d_row.addWidget(self._use_date)
-        self._fdate = QDateEdit()
-        self._fdate.setDisplayFormat("yyyy-MM-dd")
-        self._fdate.setCalendarPopup(True)
-        self._fdate.setDate(QDate.currentDate().addDays(-30))
-        self._fdate.dateChanged.connect(
-            lambda *_: (self._refresh_coverage(), self.config_changed.emit()))
-        d_row.addWidget(self._fdate)
-        d_row.addSpacing(10)
-        # "Cycle hour" was misleading: users want the hour the map is FOR, and
-        # a forecast is never valid at its own cycle hour.  FIMsim now takes
-        # this as the valid time and picks a cycle that reaches it.
-        self._hour_lbl = QLabel("hour (UTC) to map:")
-        d_row.addWidget(self._hour_lbl)
-        self._fhour = QComboBox()
-        self._fhour.setFixedWidth(80)
-        self._fhour.currentIndexChanged.connect(
-            lambda *_: self.config_changed.emit())
-        d_row.addWidget(self._fhour)
-        d_row.addStretch()
-        layout.addLayout(d_row)
+        # specific time
+        self._spec_box = QWidget()
+        sp = QHBoxLayout(self._spec_box)
+        sp.setContentsMargins(0, 0, 0, 0)
+        sp.addWidget(QLabel("Date & hour (UTC):"))
+        self._spec_dt = QDateTimeEdit()
+        self._spec_dt.setDisplayFormat("yyyy-MM-dd HH:00")
+        self._spec_dt.setCalendarPopup(True)
+        self._spec_dt.setDateTime(QDateTime.currentDateTime().addDays(-40))
+        self._spec_dt.dateTimeChanged.connect(self._on_changed)
+        sp.addWidget(self._spec_dt)
+        sp.addStretch()
+        rv.addWidget(self._spec_box)
 
+        # duration
         self._dur_box = QWidget()
         dr = QHBoxLayout(self._dur_box)
         dr.setContentsMargins(0, 0, 0, 0)
         dr.addWidget(QLabel("From:"))
-        self._start = QDateEdit(); self._start.setDisplayFormat("yyyy-MM-dd")
+        self._start = QDateTimeEdit()
+        self._start.setDisplayFormat("yyyy-MM-dd HH:00")
         self._start.setCalendarPopup(True)
-        self._start.setDate(QDate.currentDate().addDays(-37))
-        self._start.dateChanged.connect(self._refresh_dur)
+        self._start.setDateTime(QDateTime.currentDateTime().addDays(-41))
+        self._start.dateTimeChanged.connect(self._on_changed)
         dr.addWidget(self._start)
         dr.addWidget(QLabel("to:"))
-        self._end = QDateEdit(); self._end.setDisplayFormat("yyyy-MM-dd")
+        self._end = QDateTimeEdit()
+        self._end.setDisplayFormat("yyyy-MM-dd HH:00")
         self._end.setCalendarPopup(True)
-        self._end.setDate(QDate.currentDate().addDays(-30))
-        self._end.dateChanged.connect(self._refresh_dur)
+        self._end.setDateTime(QDateTime.currentDateTime().addDays(-40))
+        self._end.dateTimeChanged.connect(self._on_changed)
         dr.addWidget(self._end)
         dr.addWidget(QLabel("every"))
         self._step = QComboBox()
-        for lbl, hrs in (("24 h (daily)", 24), ("12 h", 12), ("6 h", 6),
-                         ("3 h", 3), ("1 h", 1)):
+        for lbl, hrs in (("1 h", 1), ("3 h", 3), ("6 h", 6),
+                         ("12 h", 12), ("24 h (daily)", 24)):
             self._step.addItem(lbl, hrs)
-        self._step.currentIndexChanged.connect(self._refresh_dur)
+        self._step.currentIndexChanged.connect(self._on_changed)
         dr.addWidget(self._step)
-        dr.addStretch(1)
-        layout.addWidget(self._dur_box)
+        dr.addStretch()
+        rv.addWidget(self._dur_box)
 
         self._dur_note = QLabel("")
         self._dur_note.setWordWrap(True)
         self._dur_note.setStyleSheet("color:#975a16; font-size:11px;")
-        layout.addWidget(self._dur_note)
+        rv.addWidget(self._dur_note)
+        layout.addWidget(self._retro_box)
 
-        a_row = QHBoxLayout()
-        a_row.addWidget(QLabel("Look back at most:"))
-        self._age = QSpinBox()
-        self._age.setRange(1, 60)
-        self._age.setValue(7)
-        self._age.setSuffix(" days")
-        self._age.setToolTip(
-            "age_of_forecast_days — how far back NenCarta will accept a "
-            "forecast when the requested one is unavailable.")
-        self._age.valueChanged.connect(lambda *_: self.config_changed.emit())
-        a_row.addWidget(self._age)
-        a_row.addStretch()
-        layout.addLayout(a_row)
+        # ── 3b. forecast: range, date, hour, aggregation ─────────────────────
+        self._fore_box = QWidget()
+        fv = QVBoxLayout(self._fore_box)
+        fv.setContentsMargins(12, 0, 0, 0)
 
+        f1 = QHBoxLayout()
+        f1.addWidget(QLabel("Forecast range:"))
+        self._fc_range = QComboBox()
+        self._fc_range.addItems(["shortrange", "mediumrange", "longrange"])
+        self._fc_range.currentIndexChanged.connect(self._on_changed)
+        f1.addWidget(self._fc_range)
+        f1.addStretch()
+        fv.addLayout(f1)
+
+        self._fc_latest = QCheckBox("Use latest available run")
+        self._fc_latest.toggled.connect(self._on_changed)
+        fv.addWidget(self._fc_latest)
+
+        f2 = QHBoxLayout()
+        f2.addWidget(QLabel("Forecast date:"))
+        self._fc_date = QDateEdit()
+        self._fc_date.setDisplayFormat("yyyy-MM-dd")
+        self._fc_date.setCalendarPopup(True)
+        self._fc_date.setDate(QDate.currentDate().addDays(-40))
+        self._fc_date.dateChanged.connect(self._on_changed)
+        f2.addWidget(self._fc_date)
+        f2.addSpacing(10)
+        self._fc_hour_lbl = QLabel("hour (UTC) to map:")
+        f2.addWidget(self._fc_hour_lbl)
+        self._fc_hour = QComboBox()
+        self._fc_hour.addItems([f"{h:02d}" for h in range(24)])
+        self._fc_hour.setCurrentText("12")
+        self._fc_hour.currentIndexChanged.connect(self._on_changed)
+        f2.addWidget(self._fc_hour)
+        f2.addStretch()
+        fv.addLayout(f2)
+
+        f3 = QHBoxLayout()
+        self._fc_agg_lbl = QLabel("Aggregation (medium / long range only):")
+        f3.addWidget(self._fc_agg_lbl)
+        self._fc_agg = QComboBox()
+        self._fc_agg.addItems(["maximum", "median", "minimum"])
+        self._fc_agg.currentIndexChanged.connect(self._on_changed)
+        f3.addWidget(self._fc_agg)
+        f3.addStretch()
+        fv.addLayout(f3)
+        layout.addWidget(self._fore_box)
+
+        # ── 4. API key, remembered between sessions ──────────────────────────
         self._key_row = QWidget()
         kr = QHBoxLayout(self._key_row)
         kr.setContentsMargins(0, 0, 0, 0)
         kr.addWidget(QLabel("NWM API key:"))
         self._api_key = QLineEdit()
         self._api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key.setPlaceholderText(
-            "optional — only if you want NenCarta to fetch NWM itself")
+        self._api_key.setPlaceholderText("saved after the first time")
+        self._api_key.setText(_load_api_key())
+        self._api_key.editingFinished.connect(self._save_key)
         self._api_key.textChanged.connect(lambda *_: self.config_changed.emit())
         kr.addWidget(self._api_key, 1)
+        self._key_note = QLabel("")
+        self._key_note.setStyleSheet("color:#2f855a; font-size:11px;")
+        kr.addWidget(self._key_note)
         layout.addWidget(self._key_row)
 
         self._note = QLabel("")
@@ -193,166 +250,143 @@ class ArcFlowConfigPanel(QWidget):
         self._note.setStyleSheet("color:#718096; font-size:11px;")
         layout.addWidget(self._note)
 
-        self._on_src_changed()
+        self._on_changed()
 
     # ── behaviour ────────────────────────────────────────────────────────────
 
-    def _refresh_dur(self, *_):
-        """Timestep count + the daily-data caveat for a duration."""
-        if not hasattr(self, "_dur_note"):
-            return
-        days = self._start.date().daysTo(self._end.date())
-        step = self._step.currentData() or 24
-        if days < 0:
-            self._dur_note.setText("⚠ The end date must be after the start.")
-        else:
-            cnt = int(days * 24 / step) + 1
-            msg = f"→ {cnt} flood map(s), one per timestep."
-            if self._src_combo.currentData() == "GEOGLOWS" and step < 24:
-                msg += ("  Sub-daily steps read the GEOGLOWS HOURLY "
-                        "retrospective (1940 → 2026-09-03).")
-            self._dur_note.setText(msg)
-        self._refresh_coverage()
-        self.config_changed.emit()
+    def _save_key(self):
+        if _save_api_key(self._api_key.text().strip()):
+            self._key_note.setText("saved")
 
-    def _refresh_coverage(self):
-        """Show what the selected source covers, and where this date lands."""
-        if not hasattr(self, "_cover"):
-            return
-        try:
-            from core.arc_flowseries import coverage_text, which_source_for
-        except Exception:
-            return
-        src = self._src_combo.currentData()
-        self._cover.setText(coverage_text(src))
-        if self._period.currentData() == "duration":
-            when = self._start.date().toString("yyyy-MM-dd")
-        elif self._use_date.isChecked():
-            when = self._fdate.date().toString("yyyy-MM-dd")
-        else:
-            self._resolves.setText("Using the latest available forecast.")
-            return
-        self._resolves.setText(
-            "→ " + which_source_for(src, when, self._record.currentData()))
+    def _src_key(self) -> str:
+        return "NWM" if self._src_combo.currentData() == "NWM" else "GEOGLOWS"
 
-    def _on_src_changed(self, *_):
-        src = self._src_combo.currentData()
-        is_nwm = str(src).upper().startswith("NWM")
+    def _on_changed(self, *_):
+        src = self._src_key()
+        w = self._WINDOWS[src]
+        # Put each window in the label itself, so the choice explains itself.
+        self._rb_retro.setText(
+            f"Retrospective  ({w['retro'][0]} → {w['retro'][1]})")
+        self._rb_fore.setText(
+            f"Forecast  ({w['fore'][0]} → {w['fore'][1]})")
+
+        is_fore = self._rb_fore.isChecked()
+        self._retro_box.setVisible(not is_fore)
+        self._fore_box.setVisible(is_fore)
+        self._key_row.setVisible(src == "NWM")
+
+        # retrospective sub-choice
         is_dur = (self._period.currentData() == "duration")
-        for w in ("_dur_box", "_dur_note"):
-            if hasattr(self, w):
-                getattr(self, w).setVisible(is_dur)
-        self._use_date.setVisible(not is_dur)
-        self._fdate.setVisible(not is_dur)
-        self._key_row.setVisible(is_nwm)
-        self._fdate.setEnabled(self._use_date.isChecked())
+        self._dur_box.setVisible(is_dur)
+        self._dur_note.setVisible(is_dur)
+        self._spec_box.setVisible(not is_dur)
+        if is_dur:
+            secs = self._start.dateTime().secsTo(self._end.dateTime())
+            step = self._step.currentData() or 1
+            if secs < 0:
+                self._dur_note.setText("⚠ End must be after start.")
+            else:
+                n = int(secs // 3600 // step) + 1
+                self._dur_note.setText(f"→ {n} flood map(s), one per timestep.")
 
-        # Each NWM range allows a different cycle hour; GEOGLOWS is daily and
-        # NenCarta ignores the hour entirely (validate_forecast_hours).
-        hours = {"NWM_short_range":  [f"{i:02d}" for i in range(24)],
-                 "NWM_medium_range": ["00", "06", "12", "18"],
-                 "NWM_long_range":   ["00"]}.get(src, [])
-        prev = self._fhour.currentText()
-        self._fhour.blockSignals(True)
-        self._fhour.clear()
-        self._fhour.addItems(hours)
-        if prev in hours:
-            self._fhour.setCurrentText(prev)
-        self._fhour.blockSignals(False)
-        # Remember whether an hour applies at all.  get_config must NOT test
-        # isVisible(): a widget whose window has not been shown yet reports
-        # False, which silently dropped the cycle hour from the config.
-        self._hour_applies = (bool(hours) and self._use_date.isChecked()
-                              and not is_dur)
-        self._fhour.setVisible(self._hour_applies)
-        self._hour_lbl.setVisible(self._hour_applies)
+        # forecast sub-choices
+        rng = self._fc_range.currentText()
+        self._fc_agg_lbl.setEnabled(rng != "shortrange")
+        self._fc_agg.setEnabled(rng != "shortrange")
+        for wdg in (self._fc_date, self._fc_hour, self._fc_hour_lbl):
+            wdg.setEnabled(not self._fc_latest.isChecked())
 
-        if src == "GEOGLOWS":
+        if src == "NWM":
             self._note.setText(
-                "★ GEOGLOWS forecasts are <b>daily</b>, so no cycle hour is "
-                "used. The reach ids come from the GEOGLOWS flowline "
-                "downloaded in the Flowline step. Leave the date unticked to "
-                "use the latest available forecast.")
+                "★ NWM needs the <b>NHDPlus</b> flowline (COMID) — the GEOGLOWS "
+                "network will not match. FIMsim fetches NWM from the public "
+                "NOAA / Google sources; the key is only used for return periods.")
         else:
             self._note.setText(
-                "★ NWM needs a flowline keyed on <b>COMID</b>, so choose the "
-                "<b>NHDPlus</b> flowline in the previous step — the GEOGLOWS "
-                "network will not match. No API key is required: FIMsim reads "
-                "the same public NWM sources FIMserv uses.")
-        self._refresh_coverage()
+                "★ GEOGLOWS needs the <b>GEOGLOWS</b> flowline (LINKNO). No key "
+                "required. Its retrospective is read hourly.")
         self.config_changed.emit()
 
     # ── config ───────────────────────────────────────────────────────────────
 
     def is_ready(self) -> bool:
-        # No API-key gate: FIMsim fetches NWM itself from the public NOAA /
-        # Google sources and passes NenCarta finished flow files, so NenCarta
-        # never calls the CIROH API that would demand a key.
         return True
 
+    def default_from_flowline(self, flowline_source: str):
+        """Pair the source with the flowline this AOI actually has."""
+        want = "GEOGLOWS" if str(flowline_source) == "geoglows" else "NWM"
+        if self._src_combo.currentData() != want:
+            i = self._src_combo.findData(want)
+            if i >= 0:
+                self._src_combo.setCurrentIndex(i)
+
     def get_config(self) -> dict:
-        """NenCarta watershed keys, passed straight through by step 7."""
-        cfg = {"streamflow_source": self._src_combo.currentData(),
-               "age_of_forecast_days": int(self._age.value()),
-               "period_mode": self._period.currentData(),
-               "record": self._record.currentData()}
-        if cfg["period_mode"] == "duration":
-            cfg["start_date"] = self._start.date().toString("yyyy-MM-dd")
-            cfg["end_date"]   = self._end.date().toString("yyyy-MM-dd")
-            cfg["step_hours"] = int(self._step.currentData() or 24)
-        elif self._use_date.isChecked():
-            cfg["forensic_forecast_date"] = self._fdate.date().toString("yyyyMMdd")
-            if getattr(self, "_hour_applies", False) and self._fhour.currentText():
-                cfg["forensic_forecast_hour"] = self._fhour.currentText()
+        src = self._src_key()
+        is_fore = self._rb_fore.isChecked()
+        cfg = {"record": "forecast" if is_fore else "retrospective"}
+
+        if is_fore:
+            rng = self._fc_range.currentText()
+            cfg["streamflow_source"] = (
+                f"NWM_{rng.replace('range', '_range')}" if src == "NWM"
+                else "GEOGLOWS")
+            cfg["period_mode"] = "snapshot"
+            if not self._fc_latest.isChecked():
+                cfg["forensic_forecast_date"] = self._fc_date.date().toString("yyyyMMdd")
+                cfg["forensic_forecast_hour"] = int(self._fc_hour.currentText())
+            if rng != "shortrange":
+                cfg["sort_by"] = self._fc_agg.currentText()
+        else:
+            cfg["streamflow_source"] = (
+                "NWM_short_range" if src == "NWM" else "GEOGLOWS")
+            cfg["period_mode"] = self._period.currentData()
+            if cfg["period_mode"] == "duration":
+                cfg["start_date"] = self._start.dateTime().toString("yyyy-MM-dd HH:00")
+                cfg["end_date"]   = self._end.dateTime().toString("yyyy-MM-dd HH:00")
+                cfg["step_hours"] = int(self._step.currentData() or 1)
+            else:
+                dt = self._spec_dt.dateTime()
+                cfg["forensic_forecast_date"] = dt.toString("yyyyMMdd")
+                cfg["forensic_forecast_hour"] = dt.time().hour()
+
         key = self._api_key.text().strip()
         if key:
             cfg["nwm_api_key"] = key
         return cfg
 
-    def default_from_flowline(self, flowline_source: str):
-        """Pair the streamflow source with the flowline the AOI actually has.
-
-        NenCarta reads LINKNO/DSLINKNO for GEOGLOWS and COMID/TOCOMID for NWM,
-        so the two must agree or the run finds no flow at all.
-        """
-        want = "GEOGLOWS" if str(flowline_source) == "geoglows" else "NWM_short_range"
-        if str(self._src_combo.currentData()).upper().startswith("NWM") != \
-           want.upper().startswith("NWM"):
-            i = self._src_combo.findData(want)
-            if i >= 0:
-                self._src_combo.setCurrentIndex(i)
-
     def set_config(self, cfg: dict):
         cfg = cfg or {}
-        idx = self._src_combo.findData(cfg.get("streamflow_source", "GEOGLOWS"))
-        self._src_combo.setCurrentIndex(max(idx, 0))
+        src = ("NWM" if str(cfg.get("streamflow_source", "")).upper()
+               .startswith("NWM") else "GEOGLOWS")
+        i = self._src_combo.findData(src)
+        self._src_combo.setCurrentIndex(max(i, 0))
+        (self._rb_fore if cfg.get("record") == "forecast"
+         else self._rb_retro).setChecked(True)
         pi = self._period.findData(cfg.get("period_mode", "snapshot"))
         self._period.setCurrentIndex(max(pi, 0))
-        ri = self._record.findData(cfg.get("record", "retrospective"))
-        self._record.setCurrentIndex(max(ri, 0))
-        for key, w in (("start_date", self._start), ("end_date", self._end)):
+        for key, wdg in (("start_date", self._start), ("end_date", self._end)):
             if cfg.get(key):
-                qd = QDate.fromString(str(cfg[key]), "yyyy-MM-dd")
-                if qd.isValid():
-                    w.setDate(qd)
+                dt = QDateTime.fromString(str(cfg[key]), "yyyy-MM-dd HH:00")
+                if dt.isValid():
+                    wdg.setDateTime(dt)
         if cfg.get("step_hours"):
             si = self._step.findData(int(cfg["step_hours"]))
             if si >= 0:
                 self._step.setCurrentIndex(si)
         d = cfg.get("forensic_forecast_date")
-        self._use_date.setChecked(bool(d))
         if d:
             qd = QDate.fromString(str(d), "yyyyMMdd")
             if qd.isValid():
-                self._fdate.setDate(qd)
-        if cfg.get("age_of_forecast_days"):
-            self._age.setValue(int(cfg["age_of_forecast_days"]))
+                self._fc_date.setDate(qd)
+                h = int(cfg.get("forensic_forecast_hour") or 12)
+                self._spec_dt.setDateTime(QDateTime(qd, QTime(h, 0)))
+                self._fc_hour.setCurrentText(f"{h:02d}")
+        rng = str(cfg.get("streamflow_source", "")).replace("NWM_", "").replace("_range", "range")
+        if rng in ("shortrange", "mediumrange", "longrange"):
+            self._fc_range.setCurrentText(rng)
         if cfg.get("nwm_api_key"):
             self._api_key.setText(str(cfg["nwm_api_key"]))
-        self._on_src_changed()
-        h = cfg.get("forensic_forecast_hour")
-        if h is not None:
-            self._fhour.setCurrentText(f"{int(h):02d}")
+        self._on_changed()
 
 
 class AOIArcFlowCard(QFrame):
