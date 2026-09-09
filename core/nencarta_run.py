@@ -148,6 +148,7 @@ def build_watershed(
     make_velocity_maps: bool = True,
     make_wse_maps: bool = True,
     make_curvefile: bool = True,
+    make_fist_inputs: bool = False,
     overwrite_floodmaps: bool = True,
     quiet: bool = False,
     extra: Optional[Dict] = None,
@@ -218,6 +219,16 @@ def build_watershed(
         "bathy_args": {**DEFAULT_BATHY_ARGS, **(bathy_args or {})},
         "floodmap_args": {**DEFAULT_FLOODMAP_ARGS, **(floodmap_args or {})},
         "make_curvefile": bool(make_curvefile),
+        # FIST inputs are a separate downstream product, built AFTER the flood
+        # map.  ARC's Create_GeoJSON.find_SEED_locations walks the stream
+        # network as a graph and dies with
+        #   networkx.exception.NodeNotFound: Source (lon, lat) is not in G
+        # when a seed point is not a node of it — which happens on an NHD
+        # network clipped to an AOI, where reaches are cut mid-line.  The flood
+        # map and depth raster are already written by then, so the crash throws
+        # away a finished result.  NenCarta defaults this to True; FIMsim does
+        # not ask for it.
+        "make_fist_inputs": bool(make_fist_inputs),
         "overwrite_floodmaps": bool(overwrite_floodmaps),
         "quiet": bool(quiet),
     }
