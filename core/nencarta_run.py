@@ -133,6 +133,8 @@ def build_watershed(
     mapper: str = "Curve2Flood-Kernel Weighted",
     floodmap_mode: str = "forecast",
     user_flow_files: Optional[List[str]] = None,
+    specified_bathyflow_field: Optional[str] = None,
+    specified_highflow_field: Optional[str] = None,
     mannings_text_file: Optional[str] = None,
     process_stream_network: bool = True,
     bathy_args: Optional[Dict] = None,
@@ -164,10 +166,15 @@ def build_watershed(
         raise NenCartaError(
             f"streamflow_source must be one of {', '.join(STREAMFLOW_SOURCES)} "
             f"— got {streamflow_source!r}.")
-    if src.upper().startswith("NWM") and not nwm_api_key:
+    # NenCarta itself demands nwm_api_key for an NWM source, but that only
+    # applies when IT does the fetching.  FIMsim supplies user_flow_files it
+    # fetched from the public NOAA/Google sources, so the key is unnecessary —
+    # and in that case the source is reported to NenCarta as GEOGLOWS-shaped
+    # user input rather than an NWM fetch it must perform.
+    if src.upper().startswith("NWM") and not nwm_api_key and not user_flow_files:
         raise NenCartaError(
-            "NenCarta requires nwm_api_key when streamflow_source is NWM "
-            "(apply for one through CIROH).")
+            "NWM without an API key needs FIMsim to supply the flow files "
+            "(use the Duration option, which fetches NWM itself).")
     if mapper not in ALL_MAPPERS:
         raise NenCartaError(
             f"mapper must be one of {ALL_MAPPERS} — got {mapper!r}.")
@@ -218,6 +225,17 @@ def build_watershed(
         w["geoglows_vpu"] = int(geoglows_vpu)
     if src.upper().startswith("NWM"):
         w["nwm_api_key"] = nwm_api_key
+
+    # The two flow fields ARC reads have GEOGLOWS-only defaults.  NenCarta's
+    # NWM branch returns ONLY return periods — rp2…rp100 plus a derived
+    # rp100_premium (streamflow_processing.py: cols starting "rp") — so
+    # "p_exceed_50" does not exist there and ARC would look for a missing
+    # column.  rp2 is the standard bankfull proxy for the channel-forming flow.
+    is_nwm = src.upper().startswith("NWM")
+    w["specified_bathyflow_field"] = (
+        specified_bathyflow_field or ("rp2" if is_nwm else "p_exceed_50"))
+    w["specified_highflow_field"] = (
+        specified_highflow_field or "rp100_premium")
     if forensic_forecast_date:
         # NenCarta parses this as YYYYMMDD (or "%Y-%m-%d %H:%M:%S %Z") and
         # raises on anything else — and it does so at RUN time, long after the

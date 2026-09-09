@@ -416,10 +416,10 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
             raise RuntimeError(
                 f"{where}: streamflow_source must be one of "
                 f"{', '.join(STREAMFLOW_SOURCES)} — got {src!r}.")
-        if str(src).upper().startswith("NWM") and not cfg.get("nwm_api_key"):
-            raise RuntimeError(
-                f"{where}: NWM needs an API key (apply through CIROH), or "
-                f"switch the source to GEOGLOWS.")
+        # No API-key check: FIMsim fetches NWM itself from the public NOAA
+        # zarr and Google mirror (core/nwm_flows.py) and hands NenCarta
+        # finished flow files, so NenCarta never calls the CIROH API.  A key is
+        # only needed if NenCarta is left to fetch NWM on its own.
         if cfg.get("forensic_forecast_date"):
             cfg["forensic_forecast_date"] = _as_yyyymmdd(
                 cfg["forensic_forecast_date"])
@@ -616,6 +616,8 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         age_of_forecast_days=cfg.get("age_of_forecast_days", 7),
         geoglows_vpu=cfg.get("geoglows_vpu", feat_ctx.get("geoglows_vpu")),
         nwm_api_key=cfg.get("nwm_api_key"),
+        specified_bathyflow_field=cfg.get("specified_bathyflow_field"),
+        specified_highflow_field=cfg.get("specified_highflow_field"),
         forensic_forecast_date=cfg.get("forensic_forecast_date"),
         forensic_forecast_hour=cfg.get("forensic_forecast_hour"),
         mapper=cfg.get("mapper", "Curve2Flood-Kernel Weighted"),
