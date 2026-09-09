@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
     QComboBox, QDateEdit, QDateTimeEdit, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QLineEdit, QRadioButton, QButtonGroup,
+    QLineEdit, QRadioButton, QButtonGroup, QInputDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QDate, QDateTime, QTime, QSettings
@@ -228,21 +228,19 @@ class ArcFlowConfigPanel(QWidget):
         fv.addLayout(f3)
         layout.addWidget(self._fore_box)
 
-        # ── 4. API key, remembered between sessions ──────────────────────────
+        # ── 4. API key: a GLOBAL credential, not a per-AOI setting ───────────
+        # It is the same key for every AOI, so it is stored once (QSettings)
+        # and only surfaced here when NWM is selected and none is saved yet.
         self._key_row = QWidget()
         kr = QHBoxLayout(self._key_row)
         kr.setContentsMargins(0, 0, 0, 0)
-        kr.addWidget(QLabel("NWM API key:"))
-        self._api_key = QLineEdit()
-        self._api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key.setPlaceholderText("saved after the first time")
-        self._api_key.setText(_load_api_key())
-        self._api_key.editingFinished.connect(self._save_key)
-        self._api_key.textChanged.connect(lambda *_: self.config_changed.emit())
-        kr.addWidget(self._api_key, 1)
-        self._key_note = QLabel("")
-        self._key_note.setStyleSheet("color:#2f855a; font-size:11px;")
-        kr.addWidget(self._key_note)
+        self._key_lbl = QLabel("")
+        self._key_lbl.setWordWrap(True)
+        self._key_lbl.setStyleSheet("font-size:11px;")
+        kr.addWidget(self._key_lbl, 1)
+        self._key_btn = QPushButton("Set NWM API key…")
+        self._key_btn.clicked.connect(self._ask_for_key)
+        kr.addWidget(self._key_btn)
         layout.addWidget(self._key_row)
 
         self._note = QLabel("")
@@ -254,9 +252,17 @@ class ArcFlowConfigPanel(QWidget):
 
     # ── behaviour ────────────────────────────────────────────────────────────
 
-    def _save_key(self):
-        if _save_api_key(self._api_key.text().strip()):
-            self._key_note.setText("saved")
+    def _ask_for_key(self):
+        """Ask once, store globally.  Every AOI then uses the same key."""
+        cur = _load_api_key()
+        text, ok = QInputDialog.getText(
+            self, "NWM API key",
+            "CIROH key for nwm-api.ciroh.org (used only for NWM return "
+            "periods).\nRequest one at hub.ciroh.org → NWM BigQuery API.",
+            QLineEdit.EchoMode.Password, cur)
+        if ok:
+            _save_api_key(text.strip())
+            self._on_changed()
 
     def _src_key(self) -> str:
         return "NWM" if self._src_combo.currentData() == "NWM" else "GEOGLOWS"
@@ -273,7 +279,21 @@ class ArcFlowConfigPanel(QWidget):
         is_fore = self._rb_fore.isChecked()
         self._retro_box.setVisible(not is_fore)
         self._fore_box.setVisible(is_fore)
+        # Only relevant for NWM, and only worth showing when something is
+        # missing or the user may want to replace it.
         self._key_row.setVisible(src == "NWM")
+        if src == "NWM":
+            if _load_api_key():
+                self._key_lbl.setText(
+                    "<span style='color:#2f855a;'>✓ NWM API key saved</span> "
+                    "<span style='color:#718096;'>— used for return periods</span>")
+                self._key_btn.setText("Change…")
+            else:
+                self._key_lbl.setText(
+                    "<span style='color:#c53030;'>No NWM API key saved</span> "
+                    "<span style='color:#718096;'>— needed for return periods "
+                    "(rp2 / rp100). Request one at hub.ciroh.org.</span>")
+                self._key_btn.setText("Set NWM API key…")
 
         # retrospective sub-choice
         is_dur = (self._period.currentData() == "duration")
@@ -349,7 +369,7 @@ class ArcFlowConfigPanel(QWidget):
                 cfg["forensic_forecast_date"] = dt.toString("yyyyMMdd")
                 cfg["forensic_forecast_hour"] = dt.time().hour()
 
-        key = self._api_key.text().strip()
+        key = _load_api_key()
         if key:
             cfg["nwm_api_key"] = key
         return cfg
@@ -384,8 +404,9 @@ class ArcFlowConfigPanel(QWidget):
         rng = str(cfg.get("streamflow_source", "")).replace("NWM_", "").replace("_range", "range")
         if rng in ("shortrange", "mediumrange", "longrange"):
             self._fc_range.setCurrentText(rng)
-        if cfg.get("nwm_api_key"):
-            self._api_key.setText(str(cfg["nwm_api_key"]))
+        # A key arriving in a saved project is stored globally, not shown.
+        if cfg.get("nwm_api_key") and not _load_api_key():
+            _save_api_key(str(cfg["nwm_api_key"]))
         self._on_changed()
 
 
