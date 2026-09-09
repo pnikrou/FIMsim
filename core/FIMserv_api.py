@@ -140,6 +140,35 @@ def validate_discharge_window(source: str, start_date=None, end_date=None,
         )
 
 
+# fimserve builds shell commands by string interpolation and runs them with
+# os.system — e.g. datadownload.py:63
+#     cmd = f"aws s3 sync {s3_path} {output_dir} --no-sign-request"
+# The path is NOT quoted, so any shell metacharacter in the project path splits
+# the command and the download silently does nothing: the folders Python makes
+# still appear, but no HAND data and no feature_IDs.csv ever arrive, and the
+# run then produces no flood map after a long wait.  A space is enough.
+_UNSAFE_PATH_CHARS = set(" \t&;|()<>$`\"'\\*?[]{}!#\n")
+
+
+def check_project_path(project_dir, log_fn=print) -> None:
+    """Raise if the project path would break fimserve's unquoted shell calls."""
+    text = str(project_dir)
+    bad = sorted({c for c in text if c in _UNSAFE_PATH_CHARS})
+    if not bad:
+        return
+    shown = " ".join(repr(c) for c in bad)
+    raise RuntimeError(
+        "The project folder path contains character(s) that break the OWP "
+        f"HAND-FIM downloader: {shown}\n\n"
+        f"    {text}\n\n"
+        "fimserve runs 'aws s3 sync' through the shell without quoting the "
+        "path, so the command is cut short and the HAND data is never "
+        "downloaded — the run then finishes with no flood map.\n\n"
+        "Rename the project folder using only letters, digits, '-', '_' and "
+        "'.' (for example 'T2_04_06' instead of 'T2_04&06'), then run again."
+    )
+
+
 def _import_fimserve():
     # Making sure it is imported
     try:
@@ -157,6 +186,8 @@ class FIMservAPI:
 
     def __init__(self, project_dir: Union[str, Path], log_fn=print):
         self.project_dir = Path(project_dir).resolve()
+        # Fail here rather than after a long, silent, empty download.
+        check_project_path(self.project_dir, log_fn=log_fn)
         self.log = log_fn
         self.project_dir.mkdir(parents=True, exist_ok=True)
         os.chdir(str(self.project_dir))

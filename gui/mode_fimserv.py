@@ -1784,6 +1784,15 @@ class ModeFIMservWidget(QWidget):
             QMessageBox.warning(self, "No project",
                                 "Complete project setup in step 1 first.")
             return
+        # fimserve shells out without quoting the project path, so a space or
+        # an '&' in it makes the HAND download vanish silently.  Say so now.
+        try:
+            from core.FIMserv_api import check_project_path
+            check_project_path(self._state["project_dir"], log_fn=self._log)
+        except Exception as exc:
+            self._log(f"✗ {exc}")
+            QMessageBox.critical(self, "Project folder name", str(exc))
+            return
         if not self._sf_cards:
             QMessageBox.warning(self, "No cards",
                 "Complete step 2 (AOI) first — no AOI / HUC8 cards are configured.")
