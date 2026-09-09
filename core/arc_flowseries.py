@@ -50,18 +50,23 @@ COVERAGE = {
         "forecast":      ("2024-07-01", "today"),
         "retro_daily":   ("1940-01-01", "2026-09-02"),
         "retro_hourly":  ("1940-01-01", "2026-09-03"),
-        "note": ("Dates before 2024-07-01 have no forecast — the retrospective "
-                 "record is used automatically.  Hourly detail needs the hourly "
-                 "store (Duration mode); the automatic fallback is DAILY."),
+        "overlap": ("2024-07-01", "2026-09-03"),
+        "note": ("Before 2024-07-01 only the retrospective exists.  Between "
+                 "2024-07-01 and 2026-09-03 BOTH do, and they are different "
+                 "quantities — the retrospective is a reanalysis of what "
+                 "happened, a forecast is what was predicted beforehand — so "
+                 "pick the one you mean."),
     },
     "NWM": {
         "forecast":      ("2018-09-17", "today"),
         "retro_hourly":  ("1979-02-01", "2023-02-01"),
-        "note": ("No API key needed — FIMsim reads the same public sources "
-                 "FIMserv does (NOAA retrospective zarr, Google NWM mirror) "
-                 "and hands NenCarta finished flow files.  Retrospective ENDS "
-                 "2023-02-01, so later dates use a forecast.  Needs the "
-                 "NHDPlus flowline (COMID)."),
+        "overlap": ("2018-09-17", "2023-02-01"),
+        "note": ("Between 2018-09-17 and 2023-02-01 BOTH records exist, and "
+                 "they are different quantities — the retrospective is a "
+                 "reanalysis of what happened, a forecast is what was "
+                 "predicted beforehand — so pick the one you mean.  Needs the "
+                 "NHDPlus flowline (COMID); the return periods need the CIROH "
+                 "API key, the discharge itself does not."),
     },
 }
 
@@ -80,12 +85,24 @@ def coverage_text(source: str, html: bool = True) -> str:
     if "retro_daily" in c:
         lo, hi = c["retro_daily"]
         lines.append(f"  • Retrospective (daily): {lo} → {hi}")
+    if c.get("overlap"):
+        lo, hi = c["overlap"]
+        lines.append(f"  • BOTH available: {lo} → {hi}")
     lines.append("  " + c["note"])
     return ("<br>".join(lines) if html else "\n".join(lines))
 
 
-def which_source_for(source: str, when) -> str:
+def which_source_for(source: str, when, record: str = "auto") -> str:
     """Say which record a given date will actually come from."""
+    key0 = "NWM" if str(source).upper().startswith("NWM") else "GEOGLOWS"
+    ov = COVERAGE[key0].get("overlap")
+    d0 = _as_dt(when)
+    if d0 is not None and ov:
+        ds0 = d0.strftime("%Y-%m-%d")
+        r = str(record or "auto").lower()
+        if ov[0] <= ds0 <= ov[1] and r in ("retrospective", "forecast"):
+            return (f"{ds0}: both records exist — using the "
+                    f"{r.upper()} as selected.")
     d = _as_dt(when)
     if d is None:
         return ""
@@ -231,7 +248,7 @@ def write_flow_series(series: Dict[_dt.datetime, Dict[int, float]], out_dir,
 def build_flow_series(flowline_path: str, start, end, step_hours: int,
                       out_dir, id_field: str = "LINKNO", hourly: bool = True,
                       source: str = "GEOGLOWS", frange: str = "short_range",
-                      cycle_date=None, cycle_hour=None,
+                      cycle_date=None, cycle_hour=None, record: str = "auto",
                       log_fn=print) -> List[str]:
     """Flowline + window -> one flow CSV per timestep.  Returns their paths.
 
@@ -250,10 +267,18 @@ def build_flow_series(flowline_path: str, start, end, step_hours: int,
     log_fn(f"{len(steps)} timestep(s) over {len(ids)} reach(es), "
            + (f"NWM ({frange})." if is_nwm
               else f"{'hourly' if hourly else 'daily'} GEOGLOWS."))
+    if not is_nwm and str(record).lower() == "forecast":
+        # GEOGLOWS forecasts start 2024-07-01; before that only the
+        # retrospective exists, and NenCarta falls back to it silently.
+        bad = [t for t in steps if t.strftime("%Y-%m-%d") < "2024-07-01"]
+        if bad:
+            raise ValueError(
+                f"{bad[0]:%Y-%m-%d} predates the GEOGLOWS forecast archive "
+                "(starts 2024-07-01). Choose Retrospective for this date.")
     if is_nwm:
         from core.nwm_flows import fetch_nwm
         series = fetch_nwm(ids, steps, frange=frange, cycle_date=cycle_date,
-                           cycle_hour=cycle_hour, log_fn=log_fn)
+                           cycle_hour=cycle_hour, record=record, log_fn=log_fn)
         header = "COMID"
     else:
         series = fetch_geoglows(ids, steps, hourly=hourly, log_fn=log_fn)

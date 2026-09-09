@@ -533,13 +533,15 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 frange=str(cfg.get("streamflow_source", "")).replace(
                     "NWM_", "") or "short_range",
                 cycle_hour=None,   # let the fetcher pick a cycle that reaches it
+                record=cfg.get("record", "auto"),
                 log_fn=lambda m: log_fn("  " + str(m)))
             if not files:
                 raise RuntimeError(f"'{name}': no discharge found for that period.")
             feat_ctx["nencarta_flow_files"] = files
             cfg["n_timesteps"] = len(files)
+            cfg.pop("record", None)
         else:
-            for k in ("start_date", "end_date", "step_hours"):
+            for k in ("start_date", "end_date", "step_hours", "record"):
                 cfg.pop(k, None)
             feat_ctx.pop("nencarta_flow_files", None)
 

@@ -73,6 +73,19 @@ class ArcFlowConfigPanel(QWidget):
             "border:1px solid #bee3f8; border-radius:4px; padding:6px;")
         layout.addWidget(self._cover)
 
+        r_row = QHBoxLayout()
+        r_row.addWidget(QLabel("Data record:"))
+        self._record = QComboBox()
+        self._record.addItem("Retrospective  (what the model says happened)",
+                             "retrospective")
+        self._record.addItem("Forecast  (what was predicted beforehand)",
+                             "forecast")
+        self._record.setFixedWidth(330)
+        self._record.currentIndexChanged.connect(self._on_src_changed)
+        r_row.addWidget(self._record)
+        r_row.addStretch()
+        layout.addLayout(r_row)
+
         self._resolves = QLabel("")
         self._resolves.setWordWrap(True)
         self._resolves.setStyleSheet("color:#975a16; font-size:11px;")
@@ -219,7 +232,8 @@ class ArcFlowConfigPanel(QWidget):
         else:
             self._resolves.setText("Using the latest available forecast.")
             return
-        self._resolves.setText("→ " + which_source_for(src, when))
+        self._resolves.setText(
+            "→ " + which_source_for(src, when, self._record.currentData()))
 
     def _on_src_changed(self, *_):
         src = self._src_combo.currentData()
@@ -280,7 +294,8 @@ class ArcFlowConfigPanel(QWidget):
         """NenCarta watershed keys, passed straight through by step 7."""
         cfg = {"streamflow_source": self._src_combo.currentData(),
                "age_of_forecast_days": int(self._age.value()),
-               "period_mode": self._period.currentData()}
+               "period_mode": self._period.currentData(),
+               "record": self._record.currentData()}
         if cfg["period_mode"] == "duration":
             cfg["start_date"] = self._start.date().toString("yyyy-MM-dd")
             cfg["end_date"]   = self._end.date().toString("yyyy-MM-dd")
@@ -313,6 +328,8 @@ class ArcFlowConfigPanel(QWidget):
         self._src_combo.setCurrentIndex(max(idx, 0))
         pi = self._period.findData(cfg.get("period_mode", "snapshot"))
         self._period.setCurrentIndex(max(pi, 0))
+        ri = self._record.findData(cfg.get("record", "retrospective"))
+        self._record.setCurrentIndex(max(ri, 0))
         for key, w in (("start_date", self._start), ("end_date", self._end)):
             if cfg.get(key):
                 qd = QDate.fromString(str(cfg[key]), "yyyy-MM-dd")

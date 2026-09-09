@@ -179,11 +179,43 @@ def fetch_forecast(comids: Sequence[int], valid_times: Sequence[_dt.datetime],
 
 def fetch_nwm(comids: Sequence[int], timestamps: Sequence[_dt.datetime],
               frange: str = "short_range", cycle_date=None, cycle_hour=None,
+              record: str = "auto",
               log_fn=print) -> Dict[_dt.datetime, Dict[int, float]]:
-    """Retrospective or forecast, chosen by whether the dates are covered."""
+    """NWM discharge from the record the caller asks for.
+
+    ``record`` is "retrospective", "forecast", or "auto".  The two overlap
+    between 2018-09-17 and 2023-02-01, and they are NOT the same quantity — the
+    retrospective is a reanalysis of what the model says happened, a forecast is
+    what it predicted beforehand — so in that window the choice belongs to the
+    caller rather than to a silent default.
+    """
     if not timestamps:
         return {}
+    want = str(record or "auto").lower()
+
+    if want == "retrospective":
+        bad = [t for t in timestamps if not covers_retrospective(t)]
+        if bad:
+            raise ValueError(
+                f"{bad[0]:%Y-%m-%d %H:%M} is outside the NWM retrospective "
+                f"({RETRO_START:%Y-%m-%d} → {RETRO_END:%Y-%m-%d}). "
+                "Choose Forecast for this date.")
+        return fetch_retrospective(comids, timestamps, log_fn=log_fn)
+
+    if want == "forecast":
+        early = [t for t in timestamps if t < FORECAST_START]
+        if early:
+            raise ValueError(
+                f"{early[0]:%Y-%m-%d %H:%M} predates the NWM forecast archive "
+                f"(starts {FORECAST_START:%Y-%m-%d}). "
+                "Choose Retrospective for this date.")
+        return fetch_forecast(comids, timestamps, cycle_date=cycle_date,
+                              cycle_hour=cycle_hour, frange=frange, log_fn=log_fn)
+
+    # auto — prefer the retrospective where it exists, and say so.
     if all(covers_retrospective(t) for t in timestamps):
+        log_fn("Both records cover this date; using the RETROSPECTIVE "
+               "(reanalysis).  Select Forecast explicitly to use that instead.")
         return fetch_retrospective(comids, timestamps, log_fn=log_fn)
     if any(covers_retrospective(t) for t in timestamps):
         log_fn("⚠ The period straddles the end of the NWM retrospective "
