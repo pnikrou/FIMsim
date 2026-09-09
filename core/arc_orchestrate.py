@@ -491,7 +491,28 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
         # state, so a duration is a set of independent snapshots; NenCarta maps
         # them via floodmap_mode "user" + user_flow_files, writing one raster
         # per file (run_user_floodmaps) off the single set of ARC curves.
-        if cfg.pop("period_mode", "snapshot") == "duration":
+        # For NWM, always fetch the flows ourselves rather than letting
+        # NenCarta call the CIROH forecast API.  That API returns "Internal
+        # Server Error" for dates the PUBLIC mirror serves perfectly well
+        # (verified: 2024-06-24 and 2026-06-24 both HTTP 200 on
+        # storage.googleapis.com/national-water-model), and its retrospective
+        # fallback only reaches 2023-02-01 — so a perfectly available date
+        # fails.  A snapshot becomes a one-timestep series.
+        _mode = cfg.pop("period_mode", "snapshot")
+        if _mode == "snapshot" and str(
+                cfg.get("streamflow_source", "")).upper().startswith("NWM"):
+            d = cfg.get("forensic_forecast_date")
+            h = cfg.get("forensic_forecast_hour")
+            if d:
+                when = (f"{str(d)[:4]}-{str(d)[4:6]}-{str(d)[6:8]} "
+                        f"{int(h or 0):02d}:00")
+                cfg["start_date"] = cfg["end_date"] = when
+                cfg["step_hours"] = 1
+                _mode = "duration"
+                log_fn(f"  '{name}': fetching NWM for {when} from the public "
+                       f"mirror rather than the CIROH forecast API.")
+
+        if _mode == "duration":
             from core.arc_flowseries import build_flow_series
             flowline = feat_ctx.get("arc_flowline_path")
             if not flowline:
