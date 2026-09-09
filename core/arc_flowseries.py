@@ -42,6 +42,64 @@ RETRO_DAILY_URI  = "s3://geoglows-v2/retrospective/daily.zarr"
 RETRO_HOURLY_URI = "s3://geoglows-v2/retrospective/hourly.zarr"
 
 
+# What each source actually covers.  Verified against the stores themselves,
+# not from documentation: the GEOGLOWS forecast bucket was listed (800 zarr
+# dates), and both retrospective zarrs were opened and their time axes read.
+COVERAGE = {
+    "GEOGLOWS": {
+        "forecast":      ("2024-07-01", "today"),
+        "retro_daily":   ("1940-01-01", "2026-09-02"),
+        "retro_hourly":  ("1940-01-01", "2026-09-03"),
+        "note": ("Dates before 2024-07-01 have no forecast — the retrospective "
+                 "record is used automatically.  Hourly detail needs the hourly "
+                 "store (Duration mode); the automatic fallback is DAILY."),
+    },
+    "NWM": {
+        "forecast":      ("2018-09-17", "today"),
+        "retro_hourly":  ("1979-02-01", "2023-01-31"),
+        "note": ("NWM needs an API key (CIROH).  Retrospective ENDS 2023-01-31, "
+                 "so later dates must use a forecast."),
+    },
+}
+
+
+def coverage_text(source: str, html: bool = True) -> str:
+    """A short, honest statement of what the chosen source covers."""
+    key = "NWM" if str(source).upper().startswith("NWM") else "GEOGLOWS"
+    c = COVERAGE[key]
+    b = (lambda t: f"<b>{t}</b>") if html else (lambda t: t)
+    lines = [f"{b(key)} coverage:"]
+    if "forecast" in c:
+        lines.append(f"  • Forecast: {c['forecast'][0]} → {c['forecast'][1]}")
+    if "retro_hourly" in c:
+        lo, hi = c["retro_hourly"]
+        lines.append(f"  • Retrospective (hourly): {lo} → {hi}")
+    if "retro_daily" in c:
+        lo, hi = c["retro_daily"]
+        lines.append(f"  • Retrospective (daily): {lo} → {hi}")
+    lines.append("  " + c["note"])
+    return ("<br>".join(lines) if html else "\n".join(lines))
+
+
+def which_source_for(source: str, when) -> str:
+    """Say which record a given date will actually come from."""
+    d = _as_dt(when)
+    if d is None:
+        return ""
+    key = "NWM" if str(source).upper().startswith("NWM") else "GEOGLOWS"
+    ds = d.strftime("%Y-%m-%d")
+    if key == "GEOGLOWS":
+        if ds < "2024-07-01":
+            return (f"{ds} predates the GEOGLOWS forecast archive "
+                    f"(starts 2024-07-01) → the RETROSPECTIVE record is used.")
+        return f"{ds} is in the GEOGLOWS forecast archive."
+    if ds <= "2023-01-31":
+        return f"{ds} is in the NWM retrospective (1979-02-01 → 2023-01-31)."
+    if ds >= "2018-09-17":
+        return f"{ds} is past the NWM retrospective → a FORECAST is used."
+    return f"{ds} predates the NWM forecast archive (starts 2018-09-17)."
+
+
 def expand_timesteps(start, end, step_hours: int = 24) -> List[_dt.datetime]:
     """Timestamps from ``start`` to ``end`` inclusive at ``step_hours`` spacing."""
     a, b = _as_dt(start), _as_dt(end)

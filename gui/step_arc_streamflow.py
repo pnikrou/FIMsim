@@ -65,6 +65,19 @@ class ArcFlowConfigPanel(QWidget):
         src_row.addStretch()
         layout.addLayout(src_row)
 
+        self._cover = QLabel("")
+        self._cover.setWordWrap(True)
+        self._cover.setTextFormat(Qt.TextFormat.RichText)
+        self._cover.setStyleSheet(
+            "color:#2c5282; font-size:11px; background:#ebf8ff;"
+            "border:1px solid #bee3f8; border-radius:4px; padding:6px;")
+        layout.addWidget(self._cover)
+
+        self._resolves = QLabel("")
+        self._resolves.setWordWrap(True)
+        self._resolves.setStyleSheet("color:#975a16; font-size:11px;")
+        layout.addWidget(self._resolves)
+
         # Snapshot vs duration.  ARC-Curve2Flood is steady state, so a duration
         # is a SET of independent snapshots — NenCarta maps one raster per
         # timestep via floodmap_mode "user" + user_flow_files.
@@ -89,7 +102,8 @@ class ArcFlowConfigPanel(QWidget):
         self._fdate.setDisplayFormat("yyyy-MM-dd")
         self._fdate.setCalendarPopup(True)
         self._fdate.setDate(QDate.currentDate().addDays(-30))
-        self._fdate.dateChanged.connect(lambda *_: self.config_changed.emit())
+        self._fdate.dateChanged.connect(
+            lambda *_: (self._refresh_coverage(), self.config_changed.emit()))
         d_row.addWidget(self._fdate)
         d_row.addSpacing(10)
         self._hour_lbl = QLabel("cycle hour:")
@@ -178,10 +192,30 @@ class ArcFlowConfigPanel(QWidget):
             cnt = int(days * 24 / step) + 1
             msg = f"→ {cnt} flood map(s), one per timestep."
             if self._src_combo.currentData() == "GEOGLOWS" and step < 24:
-                msg += ("  ⚠ GEOGLOWS retrospective is DAILY — sub-daily steps "
-                        "repeat the same day's discharge. Use NWM for hourly.")
+                msg += ("  Sub-daily steps read the GEOGLOWS HOURLY "
+                        "retrospective (1940 → 2026-09-03).")
             self._dur_note.setText(msg)
+        self._refresh_coverage()
         self.config_changed.emit()
+
+    def _refresh_coverage(self):
+        """Show what the selected source covers, and where this date lands."""
+        if not hasattr(self, "_cover"):
+            return
+        try:
+            from core.arc_flowseries import coverage_text, which_source_for
+        except Exception:
+            return
+        src = self._src_combo.currentData()
+        self._cover.setText(coverage_text(src))
+        if self._period.currentData() == "duration":
+            when = self._start.date().toString("yyyy-MM-dd")
+        elif self._use_date.isChecked():
+            when = self._fdate.date().toString("yyyy-MM-dd")
+        else:
+            self._resolves.setText("Using the latest available forecast.")
+            return
+        self._resolves.setText("→ " + which_source_for(src, when))
 
     def _on_src_changed(self, *_):
         src = self._src_combo.currentData()
@@ -226,6 +260,7 @@ class ArcFlowConfigPanel(QWidget):
                 "★ NWM needs an API key and a flowline keyed on <b>COMID</b>, "
                 "so choose the NHDPlus flowline in the Flowline step — the "
                 "GEOGLOWS network will not match.")
+        self._refresh_coverage()
         self.config_changed.emit()
 
     # ── config ───────────────────────────────────────────────────────────────
