@@ -118,11 +118,31 @@ def fetch_forecast(comids: Sequence[int], valid_times: Sequence[_dt.datetime],
     spec = RANGES.get(frange, RANGES["short_range"])
 
     if cycle_date is None or cycle_hour is None:
-        # Choose the latest cycle at or before the first valid time that can
-        # still reach the last one.
+        # Pick the latest cycle that runs STRICTLY BEFORE the first valid time.
+        # A forecast is never valid at its own cycle hour — the first lead step
+        # is f001 — so a cycle equal to the valid hour yields f000 and nothing
+        # to read.
         first = want[0]
-        cyc = max([h for h in spec["cycles"] if h <= first.hour] or [spec["cycles"][0]])
-        cycle_date, cycle_hour = first.date(), cyc
+        earlier = [h for h in spec["cycles"] if h < first.hour]
+        if earlier:
+            cycle_date, cycle_hour = first.date(), max(earlier)
+        else:
+            # Valid time is early in the day: use the previous day's last cycle.
+            prev = first.date() - _dt.timedelta(days=1)
+            cycle_date, cycle_hour = prev, max(spec["cycles"])
+    else:
+        # An explicit cycle that cannot reach the valid time is a mistake worth
+        # correcting rather than failing on: fall back to auto-selection.
+        cyc_dt = _dt.datetime.combine(cycle_date, _dt.time(int(cycle_hour)))
+        if (want[0] - cyc_dt).total_seconds() // 3600 < 1:
+            log_fn(f"  cycle t{int(cycle_hour):02d}z is not before "
+                   f"{want[0]:%H:%M} — choosing an earlier cycle instead.")
+            earlier = [h for h in spec["cycles"] if h < want[0].hour]
+            if earlier:
+                cycle_date, cycle_hour = want[0].date(), max(earlier)
+            else:
+                cycle_date = want[0].date() - _dt.timedelta(days=1)
+                cycle_hour = max(spec["cycles"])
     cycle_dt = _dt.datetime.combine(cycle_date, _dt.time(int(cycle_hour)))
     log_fn(f"NWM {frange} cycle {cycle_dt:%Y-%m-%d} t{int(cycle_hour):02d}z")
 

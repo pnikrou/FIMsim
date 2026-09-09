@@ -504,13 +504,18 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
             d = cfg.get("forensic_forecast_date")
             h = cfg.get("forensic_forecast_hour")
             if d:
+                # The hour the user picked is the time they want MAPPED.  Do
+                # not pass it as the forecast cycle: a cycle is never valid at
+                # its own hour (lead steps start at f001), so the fetcher is
+                # left to choose a cycle that actually reaches this time.
                 when = (f"{str(d)[:4]}-{str(d)[4:6]}-{str(d)[6:8]} "
-                        f"{int(h or 0):02d}:00")
+                        f"{int(h or 12):02d}:00")
                 cfg["start_date"] = cfg["end_date"] = when
                 cfg["step_hours"] = 1
+                cfg.pop("forensic_forecast_hour", None)
                 _mode = "duration"
-                log_fn(f"  '{name}': fetching NWM for {when} from the public "
-                       f"mirror rather than the CIROH forecast API.")
+                log_fn(f"  '{name}': mapping NWM at {when} (public mirror; "
+                       f"the forecast cycle is chosen to reach that hour).")
 
         if _mode == "duration":
             from core.arc_flowseries import build_flow_series
@@ -527,7 +532,7 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 source=cfg.get("streamflow_source", "GEOGLOWS"),
                 frange=str(cfg.get("streamflow_source", "")).replace(
                     "NWM_", "") or "short_range",
-                cycle_hour=cfg.get("forensic_forecast_hour"),
+                cycle_hour=None,   # let the fetcher pick a cycle that reaches it
                 log_fn=lambda m: log_fn("  " + str(m)))
             if not files:
                 raise RuntimeError(f"'{name}': no discharge found for that period.")

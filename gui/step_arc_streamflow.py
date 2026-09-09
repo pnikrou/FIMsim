@@ -106,7 +106,10 @@ class ArcFlowConfigPanel(QWidget):
             lambda *_: (self._refresh_coverage(), self.config_changed.emit()))
         d_row.addWidget(self._fdate)
         d_row.addSpacing(10)
-        self._hour_lbl = QLabel("cycle hour:")
+        # "Cycle hour" was misleading: users want the hour the map is FOR, and
+        # a forecast is never valid at its own cycle hour.  FIMsim now takes
+        # this as the valid time and picks a cycle that reaches it.
+        self._hour_lbl = QLabel("hour (UTC) to map:")
         d_row.addWidget(self._hour_lbl)
         self._fhour = QComboBox()
         self._fhour.setFixedWidth(80)
