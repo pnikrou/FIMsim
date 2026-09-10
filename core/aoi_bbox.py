@@ -112,6 +112,12 @@ def make_bbox_aoi(
             "area_km2": area_km2}
 
 
+def _read_feature_geom(f):
+    """The geometry an AOIFeatureInfo points at."""
+    gdf = gpd.read_file(f.source_file)
+    return gdf.geometry.iloc[int(f.feature_index or 0)]
+
+
 def rectangularize_features(features, log_fn=print) -> list:
     """Give every feature a rectangular AOI, in place.
 
@@ -126,8 +132,19 @@ def rectangularize_features(features, log_fn=print) -> list:
             continue          # already processed
         folder = f.folder_path
         if not folder:
-            log_fn(f"  ⚠ {f.name}: no AOI folder yet — skipped rectangle step.")
-            continue
+            # Skipping quietly here is dangerous: a non-rectangular AOI would
+            # then be modelled as its own polygon while every other run of the
+            # same shapefile uses the bounding box, and the only trace is one
+            # warning line.  A rectangle needs no file written, so say so and
+            # move on; anything else has to be a hard error.
+            if is_axis_aligned_rectangle(_read_feature_geom(f)):
+                f.was_rectangular = True
+                continue
+            raise RuntimeError(
+                f"{f.name}: the AOI is not rectangular and has no folder to "
+                "write its bounding box into — create the AOI subfolders "
+                "before squaring (create_aoi_subfolders), or the run would "
+                "silently use a different domain.")
         try:
             res = make_bbox_aoi(
                 f.source_file, f.feature_index,
