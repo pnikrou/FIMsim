@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QRadioButton, QButtonGroup, QInputDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QDate, QDateTime, QTime, QSettings
+from PyQt6.QtCore import pyqtSignal, Qt, QDate, QDateTime, QTime
 
 from core.arc_orchestrate import run_arc_flowfile_for_all_aois
 from gui.worker import Worker
@@ -37,30 +37,10 @@ _F_CYCLES = ["Auto", "00", "06", "12", "18"]
 
 # ── Config panel (shared by single-AOI page and each card) ────────────────────
 
-def _key_settings() -> QSettings:
-    return QSettings("SDML", "FIMsim")
-
-
-def _load_api_key() -> str:
-    """The saved NWM API key, so it is entered once rather than every run.
-
-    Kept in the platform's own settings store (QSettings) — a credential has no
-    business in the project folder or the repository.
-    """
-    try:
-        return str(_key_settings().value("nwm_api_key", "") or "")
-    except Exception:
-        return ""
-
-
-def _save_api_key(key: str) -> bool:
-    if not key:
-        return False
-    try:
-        _key_settings().setValue("nwm_api_key", key)
-        return True
-    except Exception:
-        return False
+# The key is stored and read by the backend (core/api_keys.py), because the RUN
+# is what needs it.  The panel only offers a place to type it the first time.
+from core.api_keys import (load_nwm_api_key as _load_api_key,
+                           save_nwm_api_key as _save_api_key)
 
 
 class ArcFlowConfigPanel(QWidget):

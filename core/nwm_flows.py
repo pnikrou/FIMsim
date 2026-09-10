@@ -11,8 +11,14 @@ with no credentials at all:
                     (public GCS mirror, the same one fimserve reads)
 
 So FIMsim fetches the discharge itself and hands NenCarta finished flow files
-through its own ``user_flow_files`` input.  NenCarta never fetches anything, and
-its API-key requirement never applies.
+through its own ``user_flow_files`` input, which keeps the *event* discharge off
+the CIROH API — whose forecast endpoint returns "Internal Server Error" for
+dates the public mirror serves perfectly well.
+
+That does NOT remove the key.  NenCarta validates ``nwm_api_key`` for any NWM
+source before it reads ``floodmap_mode`` at all, and its bathymetry step asks
+nwm-api.ciroh.org for the rp2/rp100 return periods it sizes channels with.  An
+NWM run still needs a working key; see ``core/api_keys.py``.
 
 ``feature_id`` in NWM IS the NHD COMID, so the flowline for these runs must be
 the NHDPlus one (NenCarta reads COMID/TOCOMID for NWM, LINKNO/DSLINKNO for

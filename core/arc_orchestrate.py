@@ -417,10 +417,31 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
             raise RuntimeError(
                 f"{where}: streamflow_source must be one of "
                 f"{', '.join(STREAMFLOW_SOURCES)} — got {src!r}.")
-        # No API-key check: FIMsim fetches NWM itself from the public NOAA
-        # zarr and Google mirror (core/nwm_flows.py) and hands NenCarta
-        # finished flow files, so NenCarta never calls the CIROH API.  A key is
-        # only needed if NenCarta is left to fetch NWM on its own.
+        # An NWM run needs the CIROH key even though FIMsim supplies the flow
+        # files itself.  Supplying them removes NenCarta's *forecast* call, not
+        # its return-period call: process_watershed validates the key before it
+        # looks at floodmap_mode (nencarta/main.py :: validate_nwm_api_key), and
+        # the bathymetry step then asks nwm-api.ciroh.org for the rp2 /
+        # rp100_premium fields it sizes channels with.  A missing key ends the
+        # run at the gate with nothing written, so it is checked here, where the
+        # message can say what to do about it.
+        if src.upper().startswith("NWM"):
+            from core.api_keys import load_nwm_api_key, check_nwm_api_key
+            key = str(cfg.get("nwm_api_key") or "").strip() or load_nwm_api_key()
+            if not key:
+                raise RuntimeError(
+                    f"{where}: NWM needs a CIROH API key. NenCarta asks "
+                    "nwm-api.ciroh.org for the return periods its bathymetry "
+                    "step uses, and refuses to start without one. Enter it "
+                    "once in the Streamflow step (request one at hub.ciroh.org "
+                    "→ NWM BigQuery API), or choose GEOGLOWS, whose return "
+                    "periods are public.")
+            why = check_nwm_api_key(key)
+            if why:
+                raise RuntimeError(
+                    f"{where}: the saved NWM API key did not work — {why}. "
+                    "Re-enter it in the Streamflow step.")
+            cfg["nwm_api_key"] = key
         if cfg.get("forensic_forecast_date"):
             cfg["forensic_forecast_date"] = _as_yyyymmdd(
                 cfg["forensic_forecast_date"])
@@ -592,6 +613,11 @@ def _arc_manning_or_none(path, log_fn=print):
     return None
 
 
+def _saved_nwm_key():
+    from core.api_keys import load_nwm_api_key
+    return load_nwm_api_key() or None
+
+
 def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
                     log_fn=print) -> dict:
     """One NenCarta watersheds[] entry built from an AOI's saved context."""
@@ -652,7 +678,13 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         streamflow_source=cfg.get("streamflow_source", "GEOGLOWS"),
         age_of_forecast_days=cfg.get("age_of_forecast_days", 7),
         geoglows_vpu=cfg.get("geoglows_vpu", feat_ctx.get("geoglows_vpu")),
-        nwm_api_key=cfg.get("nwm_api_key"),
+        # Read the key at the moment the JSON is written, not whenever the
+        # Streamflow panel happened to look: a project saved before the key
+        # existed still runs.
+        nwm_api_key=(cfg.get("nwm_api_key")
+                     or (_saved_nwm_key()
+                         if str(cfg.get("streamflow_source", ""))
+                         .upper().startswith("NWM") else None)),
         specify_depths_for_bathy_mask=cfg.get("specify_depths_for_bathy_mask"),
         bathy_args=cfg.get("bathy_args"),
         floodmap_args=cfg.get("floodmap_args"),

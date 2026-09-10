@@ -167,15 +167,18 @@ def build_watershed(
         raise NenCartaError(
             f"streamflow_source must be one of {', '.join(STREAMFLOW_SOURCES)} "
             f"— got {streamflow_source!r}.")
-    # NenCarta itself demands nwm_api_key for an NWM source, but that only
-    # applies when IT does the fetching.  FIMsim supplies user_flow_files it
-    # fetched from the public NOAA/Google sources, so the key is unnecessary —
-    # and in that case the source is reported to NenCarta as GEOGLOWS-shaped
-    # user input rather than an NWM fetch it must perform.
-    if src.upper().startswith("NWM") and not nwm_api_key and not user_flow_files:
+    # NenCarta demands nwm_api_key for an NWM source whatever else is set:
+    # process_watershed validates it (main.py :: validate_nwm_api_key) before it
+    # reads floodmap_mode, so supplying user_flow_files does NOT excuse it.  Nor
+    # would it want to — the flow files replace NenCarta's forecast download,
+    # while the key also buys the rp2/rp100 return periods the bathymetry step
+    # asks nwm-api.ciroh.org for.  Refusing here beats writing a JSON that dies
+    # at the CLI's first check with nothing produced.
+    if src.upper().startswith("NWM") and not nwm_api_key:
         raise NenCartaError(
-            "NWM without an API key needs FIMsim to supply the flow files "
-            "(use the Duration option, which fetches NWM itself).")
+            "NWM needs a CIROH API key — NenCarta refuses to start without "
+            "one, and its bathymetry step asks nwm-api.ciroh.org for the "
+            "return periods. Enter it in the Streamflow step, or use GEOGLOWS.")
     if mapper not in ALL_MAPPERS:
         raise NenCartaError(
             f"mapper must be one of {ALL_MAPPERS} — got {mapper!r}.")
