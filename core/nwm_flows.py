@@ -53,15 +53,20 @@ def covers_retrospective(when: _dt.datetime) -> bool:
 def fetch_retrospective(comids: Sequence[int], timestamps: Sequence[_dt.datetime],
                         log_fn=print) -> Dict[_dt.datetime, Dict[int, float]]:
     """Hourly NWM retrospective discharge, straight from the public zarr."""
-    import xarray as xr
     import numpy as np
+    import pandas as pd
 
     if not comids or not timestamps:
         return {}
     lo, hi = min(timestamps), max(timestamps)
     log_fn(f"Reading NWM retrospective for {len(comids)} reach(es), "
            f"{lo:%Y-%m-%d %H:%M} → {hi:%Y-%m-%d %H:%M} …")
-    ds = xr.open_zarr(RETRO_ZARR, storage_options={"anon": True})
+    # Same anonymous-S3 hazard as the GEOGLOWS stores: an incomplete metadata
+    # read gives an out-of-order time axis, and only a label-based slice
+    # notices — as an error about the request, not the download.  Retry the
+    # open, then select by position.
+    from core.arc_flowseries import open_retro_zarr
+    ds, tindex = open_retro_zarr(RETRO_ZARR, log_fn=log_fn)
 
     want = [int(c) for c in comids]
     have = np.isin(want, ds.feature_id.values)
@@ -71,10 +76,15 @@ def fetch_retrospective(comids: Sequence[int], timestamps: Sequence[_dt.datetime
     if not ids:
         raise ValueError("None of the flowline's COMIDs exist in the NWM network.")
 
-    sub = ds["streamflow"].sel(
-        feature_id=ids,
-        time=slice(lo.strftime("%Y-%m-%d %H:00:00"),
-                   (hi + _dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:00:00")))
+    pos = np.flatnonzero((tindex >= pd.Timestamp(lo).floor("h"))
+                         & (tindex <= pd.Timestamp(hi).ceil("h")
+                            + pd.Timedelta(hours=1)))
+    if pos.size == 0:
+        raise ValueError(
+            f"The NWM retrospective has no data between {lo:%Y-%m-%d %H:%M} "
+            f"and {hi:%Y-%m-%d %H:%M} (store covers "
+            f"{tindex[0]:%Y-%m-%d} → {tindex[-1]:%Y-%m-%d}).")
+    sub = ds["streamflow"].isel(time=pos).sel(feature_id=ids)
     df = sub.to_dataframe().reset_index()
     df["_key"] = df["time"].dt.floor("h")
 

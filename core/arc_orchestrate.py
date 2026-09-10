@@ -459,12 +459,20 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
             cfg.pop("forensic_forecast_hour", None)
         return cfg
 
-    def _describe(cfg: dict) -> str:
+    def _describe(cfg: dict, window: tuple = None) -> str:
+        src = cfg.get("streamflow_source", "GEOGLOWS")
+        if window and window[0]:
+            # A duration: say the period that was actually fetched.  The
+            # start/end keys are consumed by build_flow_series, so reporting
+            # from cfg alone used to call a 2017 retrospective run "latest
+            # forecast".
+            lo, hi, n = window
+            return (f"{src}, {lo} → {hi}"
+                    + (f" ({n} timestep{'s' if n != 1 else ''})" if n else ""))
         d = cfg.get("forensic_forecast_date")
         when = (f"{d[:4]}-{d[4:6]}-{d[6:8]}" if d else "latest forecast")
         h = cfg.get("forensic_forecast_hour")
-        return (f"{cfg.get('streamflow_source', 'GEOGLOWS')}, {when}"
-                + (f" t{h}z" if h else ""))
+        return f"{src}, {when}" + (f" t{h}z" if h else "")
 
     aoi_features = ctx.get("aoi_features", [])
 
@@ -539,12 +547,14 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 log_fn(f"  '{name}': mapping NWM at {when} (public mirror; "
                        f"the forecast cycle is chosen to reach that hour).")
 
+        window = None
         if _mode == "duration":
             from core.arc_flowseries import build_flow_series
             flowline = feat_ctx.get("arc_flowline_path")
             if not flowline:
                 raise RuntimeError(
                     f"'{name}': a duration needs the flowline — run step 5 first.")
+            window = (cfg.get("start_date"), cfg.get("end_date"), None)
             files = build_flow_series(
                 flowline,
                 cfg.pop("start_date", None), cfg.pop("end_date", None),
@@ -561,6 +571,7 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 raise RuntimeError(f"'{name}': no discharge found for that period.")
             feat_ctx["nencarta_flow_files"] = files
             cfg["n_timesteps"] = len(files)
+            window = (window[0], window[1], len(files))
             cfg.pop("record", None)
         else:
             for k in ("start_date", "end_date", "step_hours", "record"):
@@ -570,7 +581,8 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
         feat_ctx["nencarta_streamflow"] = cfg
         _save_feat_ctx(feat_ctx_path, feat_ctx)
         summary.append({"name": name, "folder": folder, **cfg})
-        log_fn(f"✓ Streamflow [{i}/{n}] finished: '{name}' — {_describe(cfg)}")
+        log_fn(f"✓ Streamflow [{i}/{n}] finished: '{name}' — "
+               f"{_describe(cfg, window)}")
 
     ctx["arc_flow_per_aoi"] = summary
     try:

@@ -159,6 +159,43 @@ def reach_ids_from_flowline(flowline_path: str, id_field: str = "LINKNO") -> Lis
     return [int(v) for v in gdf[col].dropna().unique()]
 
 
+def open_retro_zarr(uri: str, attempts: int = 3, log_fn=print):
+    """Open a GEOGLOWS retrospective zarr, retrying a bad read.
+
+    These stores are read over anonymous S3, and an incomplete metadata read
+    yields a dataset whose ``time`` axis is silently out of order.  Nothing
+    complains until a selection touches it, and then pandas raises
+
+        KeyError: Value based partial slicing on non-monotonic DatetimeIndexes
+                  with non-existing keys is not allowed
+
+    which reads like a bug in the request rather than a broken download — the
+    same call succeeds on the next try.  So the axis is checked at open time,
+    when re-opening still fixes it.
+    """
+    import time as _time
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+
+    last = None
+    for attempt in range(1, attempts + 1):
+        try:
+            ds = xr.open_zarr(uri, storage_options={"anon": True})
+            t = pd.DatetimeIndex(np.asarray(ds.time.values))
+            if t.is_monotonic_increasing and t.is_unique:
+                return ds, t
+            last = (f"the time axis came back out of order "
+                    f"({len(t)} steps) — the store metadata read incompletely")
+        except Exception as exc:                    # network, S3, zarr
+            last = f"{type(exc).__name__}: {exc}"
+        if attempt < attempts:
+            log_fn(f"  ⚠ {uri.rsplit('/', 1)[-1]}: {last}; retrying "
+                   f"({attempt}/{attempts - 1}) …")
+            _time.sleep(2 * attempt)
+    raise RuntimeError(f"Could not read {uri} — {last}")
+
+
 def fetch_geoglows(reach_ids: Sequence[int], timestamps: Sequence[_dt.datetime],
                    hourly: bool = True, log_fn=print
                    ) -> Dict[_dt.datetime, Dict[int, float]]:
@@ -178,10 +215,11 @@ def fetch_geoglows(reach_ids: Sequence[int], timestamps: Sequence[_dt.datetime],
     if not reach_ids or not timestamps:
         return {}
     lo, hi = min(timestamps), max(timestamps)
-    log_fn(f"Reading GEOGLOWS daily discharge for {len(reach_ids)} reach(es), "
-           f"{lo:%Y-%m-%d} → {hi:%Y-%m-%d} …")
-    ds = xr.open_zarr(RETRO_HOURLY_URI if hourly else RETRO_DAILY_URI,
-                      storage_options={"anon": True})
+    log_fn(f"Reading {'hourly' if hourly else 'daily'} GEOGLOWS discharge for "
+           f"{len(reach_ids)} reach(es), {lo:%Y-%m-%d %H:%M} → "
+           f"{hi:%Y-%m-%d %H:%M} …")
+    ds, tindex = open_retro_zarr(
+        RETRO_HOURLY_URI if hourly else RETRO_DAILY_URI, log_fn=log_fn)
     have = set(int(v) for v in ds.river_id.values.tolist()) \
         if ds.river_id.size < 2_000_000 else None
     ids = [r for r in reach_ids if have is None or r in have]
@@ -191,9 +229,20 @@ def fetch_geoglows(reach_ids: Sequence[int], timestamps: Sequence[_dt.datetime],
     if not ids:
         raise ValueError("None of the flowline's reaches exist in GEOGLOWS.")
 
-    sub = ds["Q"].sel(river_id=ids,
-                      time=slice(lo.strftime("%Y-%m-%d %H:00:00"),
-                                 (hi + _dt.timedelta(days=1)).strftime("%Y-%m-%d")))
+    # Select the window by POSITION, not by label.  A label slice asks pandas
+    # to bisect the time axis, which requires it to be sorted; picking the
+    # positions from a boolean mask is correct whatever order the axis is in,
+    # and cannot raise on a bound that happens to fall between two steps.
+    import pandas as pd
+    want_lo = pd.Timestamp(lo).floor("h" if hourly else "D")
+    want_hi = pd.Timestamp(hi).ceil("h" if hourly else "D") + pd.Timedelta(days=1)
+    pos = np.flatnonzero((tindex >= want_lo) & (tindex <= want_hi))
+    if pos.size == 0:
+        raise ValueError(
+            f"GEOGLOWS has no {'hourly' if hourly else 'daily'} data between "
+            f"{lo:%Y-%m-%d %H:%M} and {hi:%Y-%m-%d %H:%M} "
+            f"(store covers {tindex[0]:%Y-%m-%d} → {tindex[-1]:%Y-%m-%d}).")
+    sub = ds["Q"].isel(time=pos).sel(river_id=ids)
     df = sub.to_dataframe().reset_index()
     df["_key"] = df["time"].dt.floor("h" if hourly else "D")
 
