@@ -178,22 +178,21 @@ class ArcFlowConfigPanel(QWidget):
         self._fc_latest.toggled.connect(self._on_changed)
         fv.addWidget(self._fc_latest)
 
+        # ONE field for the moment to map, exactly like the retrospective
+        # "specific time" above.  It used to be a date box plus a separate hour
+        # combo that defaulted to 12: setting the date and leaving the combo
+        # alone silently mapped noon, and the run log was the first place that
+        # showed it.  Minutes are floored to the hour — NWM is hourly.
         f2 = QHBoxLayout()
-        f2.addWidget(QLabel("Forecast date:"))
-        self._fc_date = QDateEdit()
-        self._fc_date.setDisplayFormat("yyyy-MM-dd")
-        self._fc_date.setCalendarPopup(True)
-        self._fc_date.setDate(QDate.currentDate().addDays(-40))
-        self._fc_date.dateChanged.connect(self._on_changed)
-        f2.addWidget(self._fc_date)
-        f2.addSpacing(10)
-        self._fc_hour_lbl = QLabel("hour (UTC) to map:")
+        self._fc_hour_lbl = QLabel("Map at (UTC):")
         f2.addWidget(self._fc_hour_lbl)
-        self._fc_hour = QComboBox()
-        self._fc_hour.addItems([f"{h:02d}" for h in range(24)])
-        self._fc_hour.setCurrentText("12")
-        self._fc_hour.currentIndexChanged.connect(self._on_changed)
-        f2.addWidget(self._fc_hour)
+        self._fc_dt = QDateTimeEdit()
+        self._fc_dt.setDisplayFormat("yyyy-MM-dd  HH:00")
+        self._fc_dt.setCalendarPopup(True)
+        self._fc_dt.setDateTime(QDateTime(QDate.currentDate().addDays(-40),
+                                          QTime(12, 0)))
+        self._fc_dt.dateTimeChanged.connect(self._on_changed)
+        f2.addWidget(self._fc_dt)
         f2.addStretch()
         fv.addLayout(f2)
 
@@ -289,7 +288,7 @@ class ArcFlowConfigPanel(QWidget):
         rng = self._fc_range.currentText()
         self._fc_agg_lbl.setEnabled(rng != "shortrange")
         self._fc_agg.setEnabled(rng != "shortrange")
-        for wdg in (self._fc_date, self._fc_hour, self._fc_hour_lbl):
+        for wdg in (self._fc_dt, self._fc_hour_lbl):
             wdg.setEnabled(not self._fc_latest.isChecked())
 
         if src == "NWM":
@@ -328,8 +327,9 @@ class ArcFlowConfigPanel(QWidget):
                 else "GEOGLOWS")
             cfg["period_mode"] = "snapshot"
             if not self._fc_latest.isChecked():
-                cfg["forensic_forecast_date"] = self._fc_date.date().toString("yyyyMMdd")
-                cfg["forensic_forecast_hour"] = int(self._fc_hour.currentText())
+                dt = self._fc_dt.dateTime()
+                cfg["forensic_forecast_date"] = dt.toString("yyyyMMdd")
+                cfg["forensic_forecast_hour"] = dt.time().hour()
             if rng != "shortrange":
                 cfg["sort_by"] = self._fc_agg.currentText()
         else:
@@ -373,10 +373,9 @@ class ArcFlowConfigPanel(QWidget):
         if d:
             qd = QDate.fromString(str(d), "yyyyMMdd")
             if qd.isValid():
-                self._fc_date.setDate(qd)
                 h = int(cfg.get("forensic_forecast_hour") or 12)
                 self._spec_dt.setDateTime(QDateTime(qd, QTime(h, 0)))
-                self._fc_hour.setCurrentText(f"{h:02d}")
+                self._fc_dt.setDateTime(QDateTime(qd, QTime(h, 0)))
         rng = str(cfg.get("streamflow_source", "")).replace("NWM_", "").replace("_range", "range")
         if rng in ("shortrange", "mediumrange", "longrange"):
             self._fc_range.setCurrentText(rng)

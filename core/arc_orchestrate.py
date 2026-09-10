@@ -508,11 +508,28 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
         src_is_geoglows = cfg.get("streamflow_source", "GEOGLOWS") == "GEOGLOWS"
         fl_src = feat_ctx.get("arc_flowline_source")
         if fl_src and src_is_geoglows != (fl_src == "geoglows"):
-            log_fn(f"  ⚠ '{name}': streamflow is "
-                   f"{cfg.get('streamflow_source')} but the flowline came from "
-                   f"'{fl_src}'. GEOGLOWS needs the GEOGLOWS network (LINKNO) "
-                   f"and NWM needs NHDPlus (COMID) — re-run the Flowline step "
-                   f"with the matching source or the run will find no flow.")
+            # The flowline step runs BEFORE this one, so it cannot know which
+            # source will be picked here, and its default is GEOGLOWS.  Warning
+            # and carrying on was useless: the very next call asks for a COMID
+            # column the GEOGLOWS network has never had, and the step died on a
+            # raw ValueError.  Rebuild the flowline for the source actually
+            # chosen — it is derived data, regenerated from the same AOI.
+            want = "geoglows" if src_is_geoglows else "nhd"
+            log_fn(f"  '{name}': streamflow is {cfg.get('streamflow_source')} "
+                   f"but the flowline came from '{fl_src}'. Rebuilding it from "
+                   f"{'GEOGLOWS (LINKNO)' if src_is_geoglows else 'NHDPlus (COMID)'} "
+                   f"so the ids match …")
+            from core.arc_flowline import prepare_arc_flowline
+            feat_ctx = prepare_arc_flowline(
+                ctx_path=feat_ctx_path, ctx=feat_ctx, source=want,
+                user_path=None, log_fn=lambda m: log_fn("  " + str(m)))
+            _save_feat_ctx(feat_ctx_path, feat_ctx)
+            # Keep the project-level record honest about what was rebuilt.
+            for row in (ctx.get("arc_flowline_per_aoi") or []):
+                if row.get("name") == name:
+                    row["flowline"] = feat_ctx.get("arc_flowline_path")
+                    row["count"] = feat_ctx.get("arc_flowline_count")
+                    row["source"] = feat_ctx.get("arc_flowline_source", want)
 
         if src_is_geoglows and feat_ctx.get("geoglows_vpu"):
             cfg.setdefault("geoglows_vpu", feat_ctx["geoglows_vpu"])
@@ -544,8 +561,12 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 cfg["step_hours"] = 1
                 cfg.pop("forensic_forecast_hour", None)
                 _mode = "duration"
-                log_fn(f"  '{name}': mapping NWM at {when} (public mirror; "
-                       f"the forecast cycle is chosen to reach that hour).")
+                rec = str(cfg.get("record", "auto")).lower()
+                log_fn(f"  '{name}': mapping NWM at {when} — "
+                       + ("retrospective (NOAA reanalysis zarr)."
+                          if rec == "retrospective" else
+                          "forecast from the public mirror; the cycle is "
+                          "chosen to reach that hour."))
 
         window = None
         if _mode == "duration":
