@@ -52,7 +52,7 @@ def run_arc_dem_all(
         return prepare_dem(
             ctx_path=ctx_path, ctx=ctx, dem_res_m=dem_res_m,
             has_dem=has_dem, user_dem_path=user_dem_path,
-            dem_source="3dep", log_fn=log_fn,
+            dem_source="3dep", overwrite_dem=True, log_fn=log_fn,
         )
 
     n = len(aoi_features)
@@ -117,6 +117,7 @@ def run_arc_dem_all(
             feat_ctx = prepare_dem(
                 ctx_path=feat_ctx_path, ctx=feat_ctx,
                 dem_res_m=this_res_deg,
+                overwrite_dem=True,
                 has_dem=this_has_dem, user_dem_path=this_user_paths,
                 dem_source="3dep",
                 log_fn=log_fn,
@@ -621,6 +622,14 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
     if not any(Path(dem_dir).glob(dem_filter)):
         raise RuntimeError(
             f"No DEM matching '{dem_filter}' in {dem_dir} — run the DEM step.")
+    # Older projects may still hold a "DEM_x (1).tif" left by a re-run before
+    # the DEM step started overwriting.  Say which one is being used rather
+    # than letting a stale duplicate be picked silently.
+    others = [q.name for q in Path(dem_dir).glob("DEM_*.tif")
+              if q.name != dem_filter]
+    if others:
+        log_fn(f"  '{name}': {len(others) + 1} DEM files present — using "
+               f"{dem_filter!r} (ignoring {', '.join(sorted(others)[:3])})")
 
     out_dir = str(Path(folder) / "nencarta-output")
     # A duration run maps each timestep's flow file separately.

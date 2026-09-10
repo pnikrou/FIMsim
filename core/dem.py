@@ -705,6 +705,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                 has_dem: bool, user_dem_path=None,
                 dem_source: str = "3dep",
                 skip_ascii: bool = False,
+                overwrite_dem: bool = False,
                 log_fn=print):
     """Prepare DEM (download or use existing) and export ASCII.
 
@@ -867,7 +868,8 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         from core.export import next_free_path
         log_fn("Downloading HAND tiles from UT Austin TACC …")
         # Auto-rename with (1), (2), … if a HAND_{aoi}.tif already exists
-        dem_path = next_free_path(project_dir, f"HAND_{aoi_name}", "tif")
+        dem_path = ((project_dir / f"HAND_{aoi_name}.tif") if overwrite_dem
+                    else next_free_path(project_dir, f"HAND_{aoi_name}", "tif"))
         hand_cache_dir = project_dir / f"HAND_raw_{aoi_name}"
         tile_paths = download_hand_for_aoi(aoi_gdf, hand_cache_dir, log_fn)
         log_fn(f"Merging + clipping {len(tile_paths)} HAND tile(s) to AOI …")
@@ -881,7 +883,17 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
     else:   # 3dep (default)
         from core.export import next_free_path
         log_fn("Downloading DEM from 3DEP...")
-        dem_path = next_free_path(project_dir, f"DEM_{aoi_name}", "tif")
+        if overwrite_dem:
+            # Re-running the step REPLACES the DEM instead of writing
+            # "DEM_x (1).tif" beside it.  ARC-Curve2Flood points NenCarta at a
+            # single file via dem_filter, and a stray duplicate ends up being
+            # the one selected — a filename with a space and brackets, feeding
+            # tools that pass paths through globs and shell-ish parsers.
+            dem_path = project_dir / f"DEM_{aoi_name}.tif"
+            if dem_path.exists():
+                log_fn(f"Replacing the existing {dem_path.name}")
+        else:
+            dem_path = next_free_path(project_dir, f"DEM_{aoi_name}", "tif")
         dem_tiles_dir = project_dir / f"DEM_raw_{aoi_name}"
         dem_tiles_dir.mkdir(parents=True, exist_ok=True)
 
