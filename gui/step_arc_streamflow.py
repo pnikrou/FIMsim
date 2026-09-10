@@ -279,21 +279,17 @@ class ArcFlowConfigPanel(QWidget):
         is_fore = self._rb_fore.isChecked()
         self._retro_box.setVisible(not is_fore)
         self._fore_box.setVisible(is_fore)
-        # Only relevant for NWM, and only worth showing when something is
-        # missing or the user may want to replace it.
-        self._key_row.setVisible(src == "NWM")
-        if src == "NWM":
-            if _load_api_key():
-                self._key_lbl.setText(
-                    "<span style='color:#2f855a;'>✓ NWM API key saved</span> "
-                    "<span style='color:#718096;'>— used for return periods</span>")
-                self._key_btn.setText("Change…")
-            else:
-                self._key_lbl.setText(
-                    "<span style='color:#c53030;'>No NWM API key saved</span> "
-                    "<span style='color:#718096;'>— needed for return periods "
-                    "(rp2 / rp100). Request one at hub.ciroh.org.</span>")
-                self._key_btn.setText("Set NWM API key…")
+        # Once a key is stored FIMsim just uses it, so the row disappears —
+        # it is only shown when NWM is selected and nothing is saved yet, which
+        # is the one moment the user has to do something about it.
+        needs_key = (src == "NWM" and not _load_api_key())
+        self._key_row.setVisible(needs_key)
+        if needs_key:
+            self._key_lbl.setText(
+                "<span style='color:#c53030;'>No NWM API key saved</span> "
+                "<span style='color:#718096;'>— needed once, for the return "
+                "periods (rp2 / rp100). Request one at hub.ciroh.org.</span>")
+            self._key_btn.setText("Set NWM API key…")
 
         # retrospective sub-choice
         is_dur = (self._period.currentData() == "duration")
