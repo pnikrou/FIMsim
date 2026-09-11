@@ -142,6 +142,11 @@ class _AOIDEMCard(QFrame):
             notes.append(f"{spec['short']} is flown project by project and "
                          "covers only part of the country — if none exists "
                          "here the run will say so before downloading.")
+        if spec["native_m"] <= 3.0 and spec["coverage"] == "partial":
+            notes.append("Tiles at this resolution are large (hundreds of MB "
+                         "each) — expect the download to take noticeably "
+                         "longer than 1/3 arc-second. The run logs the survey "
+                         "year it is using.")
         if cell < spec["native_m"] * 0.9:
             notes.append(f"{cell:g} m is finer than this source's native "
                          f"≈{spec['native_m']:g} m; the extra cells would be "

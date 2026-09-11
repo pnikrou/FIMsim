@@ -978,7 +978,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         # tiles are found by asking the USGS index rather than derived from
         # coordinates.  Both are read straight over the network (the 1/9
         # archives through /vsizip/), so there is nothing to cache locally.
-        from core.dem_sources import tile_paths as _tnm_tiles, label_for
+        from core.dem_sources import tile_selection as _tnm_tiles, label_for
         from core.export import next_free_path
         log_fn(f"Downloading DEM — {label_for(_dem_src)} …")
         if overwrite_dem:
@@ -988,7 +988,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         else:
             dem_path = next_free_path(project_dir, f"DEM_{aoi_name}", "tif")
         # Raises NoCoverageError, which the caller shows to the user verbatim.
-        remote_tiles = _tnm_tiles(aoi_gdf, _dem_src, log_fn=log_fn)
+        remote_tiles, _sel_info = _tnm_tiles(aoi_gdf, _dem_src, log_fn=log_fn)
         _apply_gdal_env()
         # The 1/9 tiles live inside zips; GDAL needs those extensions allowed.
         os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = ".tif,.tiff,.vrt,.img,.zip"
@@ -1119,6 +1119,11 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         from core.dem_sources import label_for as _lbl
         ctx["dem_source_id"] = _dem_src
         ctx["dem_source_label"] = _lbl(_dem_src)
+        _info = locals().get("_sel_info") or {}
+        if _info:
+            ctx["dem_survey_years"] = _info.get("survey_years") or []
+            ctx["dem_published"] = _info.get("published") or []
+            ctx["dem_tile_count"] = _info.get("n_tiles")
     ctx["dem_res_m"] = dem_res_m
     ctx["dem_path"] = str(dem_path)
     ctx["dem_tif_path"] = str(dem_path)

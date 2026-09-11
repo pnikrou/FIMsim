@@ -148,6 +148,11 @@ class DEMConfigPanel(QWidget):
         if spec["coverage"] == "partial":
             notes.append(f"{spec['short']} covers only part of the country; "
                          "FIMsim checks this AOI before downloading.")
+        if spec["native_m"] <= 3.0 and spec["coverage"] == "partial":
+            notes.append("Tiles at this resolution are large (hundreds of MB "
+                         "each) — expect the download to take noticeably "
+                         "longer than 1/3 arc-second. The run logs the survey "
+                         "year it is using.")
         if cell < spec["native_m"] * 0.9:
             notes.append(f"{cell:g} m is finer than the source's native "
                          f"≈{spec['native_m']:g} m — interpolated, not measured.")
