@@ -100,20 +100,12 @@ def inspect_features(aoi_path, selected_indices=None, log_fn=print) -> List[AOIF
     """
     aoi_path = Path(aoi_path)
     log_fn(f"Reading AOI file: {aoi_path}")
-    try:
-        gdf = gpd.read_file(aoi_path, engine="pyogrio")
-        log_fn(f"  pyogrio: read {len(gdf)} feature(s)")
-    except Exception as e1:
-        log_fn(f"  pyogrio failed ({e1}), trying fiona...")
-        try:
-            gdf = gpd.read_file(aoi_path, engine="fiona")
-            log_fn(f"  fiona: read {len(gdf)} feature(s)")
-        except Exception as e2:
-            raise RuntimeError(
-                f"Could not read shapefile with pyogrio or fiona.\n"
-                f"pyogrio error: {e1}\n"
-                f"fiona error:   {e2}"
-            ) from e2
+    from core.vector_io import read_vector
+    # read_vector keeps the pyogrio → fiona fallback and additionally rebuilds
+    # a missing .shx index, which is the usual reason an otherwise fine AOI
+    # shapefile will not open at all.
+    gdf = read_vector(aoi_path, log_fn=log_fn)
+    log_fn(f"  read {len(gdf)} feature(s)")
 
     if selected_indices is None:
         selected_indices = list(range(len(gdf)))
@@ -294,5 +286,6 @@ def get_single_feature_gdf(aoi_path, feature_index) -> gpd.GeoDataFrame:
     geopandas.GeoDataFrame
         Single-row GeoDataFrame preserving the source CRS.
     """
-    gdf = gpd.read_file(aoi_path)
+    from core.vector_io import read_vector
+    gdf = read_vector(aoi_path, log_fn=lambda m: None)
     return gdf.iloc[[feature_index]].reset_index(drop=True)

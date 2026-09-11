@@ -62,7 +62,8 @@ def make_bbox_aoi(
     written and ``path`` is None — the caller should keep using the original.
     """
     src_path = Path(src_path)
-    gdf = gpd.read_file(src_path)
+    from core.vector_io import read_vector
+    gdf = read_vector(src_path, log_fn=log_fn)
     if feature_index >= len(gdf):
         raise IndexError(
             f"Feature {feature_index} not in {src_path.name} "
@@ -114,7 +115,8 @@ def make_bbox_aoi(
 
 def _read_feature_geom(f):
     """The geometry an AOIFeatureInfo points at."""
-    gdf = gpd.read_file(f.source_file)
+    from core.vector_io import read_vector
+    gdf = read_vector(f.source_file, log_fn=lambda m: None)
     return gdf.geometry.iloc[int(f.feature_index or 0)]
 
 
