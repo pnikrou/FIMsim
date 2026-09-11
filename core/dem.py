@@ -245,6 +245,80 @@ def _fetch_tile_windows(tile_names, bounds_wgs84, dem_tiles_dir, log_fn):
     return sorted(tile_paths)
 
 
+def _localise_zip(gdal_path, out_dir, log_fn):
+    """Download a remote archive before reading inside it.
+
+    ``/vsizip//vsicurl/…`` works, but the 1/9 arc-second tiles are ERDAS IMG,
+    which is not laid out for random access, so GDAL ends up fetching much of
+    the archive in small ranged requests: one AOI measured at 498 s this way
+    versus seconds once the zip is local.  Pulling it down in one sequential
+    request first is the same bytes, in the order the network likes.
+    """
+    if not gdal_path.startswith("/vsizip//vsicurl/"):
+        return gdal_path
+    rest = gdal_path[len("/vsizip//vsicurl/"):]
+    zip_url, member = rest.rsplit(".zip/", 1)
+    zip_url += ".zip"
+    local_zip = Path(out_dir) / zip_url.rsplit("/", 1)[-1]
+    if not local_zip.exists():
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        log_fn(f"  downloading {local_zip.name} …")
+        tmp = local_zip.with_suffix(".zip.part")
+        urllib.request.urlretrieve(zip_url, tmp)
+        tmp.rename(local_zip)
+        log_fn(f"    {local_zip.stat().st_size / 1e6:.0f} MB")
+    return f"/vsizip/{local_zip}/{member}"
+
+
+def _fetch_remote_windows(gdal_paths, bounds_wgs84, out_dir, log_fn):
+    """Read only the AOI window of each remote raster, whatever its layout.
+
+    The 1/3 arc-second path knows its tiles are 1° COGs and builds their URLs
+    itself.  These come from the USGS index instead and vary: 1 m tiles are
+    10 000 × 10 000 px in UTM, 1/9 arc-second tiles are 8 000 px geographic
+    rasters inside zip archives.  Merging them whole would pull gigabytes
+    across the network to keep a few square kilometres, so each is windowed
+    down to the AOI first and written as a small local GeoTIFF.
+    """
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import Window, from_bounds as window_from_bounds
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    kept = []
+    for i, path in enumerate(gdal_paths):
+        try:
+            path = _localise_zip(path, out_dir, log_fn)
+            with rasterio.open(path) as ds:
+                tb = transform_bounds("EPSG:4326", ds.crs, *bounds_wgs84,
+                                      densify_pts=21)
+                pad = 3 * abs(ds.transform.a)
+                w = window_from_bounds(tb[0] - pad, tb[1] - pad,
+                                       tb[2] + pad, tb[3] + pad, ds.transform)
+                w = w.round_offsets().round_lengths()
+                w = w.intersection(Window(0, 0, ds.width, ds.height))
+                if w.width <= 0 or w.height <= 0:
+                    continue          # index said it overlaps; it does not
+                data = ds.read(1, window=w)
+                profile = {
+                    "driver": "GTiff", "height": int(w.height),
+                    "width": int(w.width), "count": 1, "dtype": ds.dtypes[0],
+                    "crs": ds.crs, "transform": ds.window_transform(w),
+                    "nodata": ds.nodata, "compress": "lzw",
+                }
+            local = out_dir / f"tile_{i:03d}_aoi.tif"
+            with rasterio.open(local, "w", **profile) as dst:
+                dst.write(data, 1)
+            kept.append(local)
+        except Exception as exc:
+            log_fn(f"  tile {i + 1}/{len(gdal_paths)} skipped ({exc})")
+    if not kept:
+        raise RuntimeError(
+            "The USGS index listed tiles for this AOI but none could be read.")
+    log_fn(f"  read {len(kept)}/{len(gdal_paths)} tile window(s)")
+    return kept
+
+
 def _download_full_tiles(tile_names, dem_tiles_dir, log_fn):
     """Legacy path — download entire 1° tiles with urllib (fallback only)."""
     n_threads = _max_connections()
@@ -758,6 +832,25 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
     # call so all three branches (user DEM / HAND / 3DEP) write the DEM in
     # the same metric projection.
     working_epsg = int(get_working_crs_epsg(ctx, aoi_gdf=aoi_gdf, log_fn=log_fn))
+
+    # Resolve the download source once, accepting the older spellings ("3dep",
+    # "download_3dep") so saved projects keep working.  Say which product it is
+    # and what its native resolution is: asking for a 2 m grid from a 1/3
+    # arc-second source produces a 2 m raster carrying ~10 m of information, and
+    # the only honest place to point that out is before the download.
+    from core.dem_sources import normalise as _norm_src, label_for, native_res_m
+    _dem_src = "hand" if str(dem_source).lower() == "hand" else _norm_src(dem_source)
+    if not has_dem:
+        _native = native_res_m(_dem_src)
+        log_fn(f"DEM source: {label_for(_dem_src)}")
+        # ARC-Curve2Flood runs in EPSG:4326 and passes dem_res_m in DEGREES, so
+        # comparing it against a metre figure would call every ARC run
+        # "interpolated".  Only judge the request when it really is in metres.
+        _res_in_m = int(working_epsg) != 4326
+        if _res_in_m and dem_res_m < _native * 0.9:
+            log_fn(f"  Note: you asked for {dem_res_m:g} m, finer than this "
+                   f"source's native ≈{_native:g} m — the extra cells are "
+                   f"interpolated, not measured.")
     # ``next_free_path`` returns the canonical name (e.g. ``dem.ascii``)
     # if it doesn't exist yet, otherwise ``dem (1).ascii``, ``dem (2)
     # .ascii``, …  This keeps previous runs' outputs intact instead of
@@ -863,7 +956,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         log_fn(f"Clipping, reprojecting and resampling to {dem_res_m} m → AOI CRS...")
         _clip_and_reproject(tiles_to_use, aoi_gdf, dem_res_m, dem_path, log_fn,
                             working_crs_epsg=working_epsg)
-    elif dem_source == "hand":
+    elif _dem_src == "hand":
         from core.hand import download_hand_for_aoi
         from core.export import next_free_path
         log_fn("Downloading HAND tiles from UT Austin TACC …")
@@ -880,7 +973,47 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         log_fn("Enforcing HAND ≥ 0 (clamping bilinear-resample artefacts) …")
         _enforce_non_negative(dem_path, log_fn)
 
-    else:   # 3dep (default)
+    elif _dem_src in ("3dep_19", "3dep_1m"):
+        # 1/9 arc-second and 1 m exist only where lidar was flown, so their
+        # tiles are found by asking the USGS index rather than derived from
+        # coordinates.  Both are read straight over the network (the 1/9
+        # archives through /vsizip/), so there is nothing to cache locally.
+        from core.dem_sources import tile_paths as _tnm_tiles, label_for
+        from core.export import next_free_path
+        log_fn(f"Downloading DEM — {label_for(_dem_src)} …")
+        if overwrite_dem:
+            dem_path = project_dir / f"DEM_{aoi_name}.tif"
+            if dem_path.exists():
+                log_fn(f"Replacing the existing {dem_path.name}")
+        else:
+            dem_path = next_free_path(project_dir, f"DEM_{aoi_name}", "tif")
+        # Raises NoCoverageError, which the caller shows to the user verbatim.
+        remote_tiles = _tnm_tiles(aoi_gdf, _dem_src, log_fn=log_fn)
+        _apply_gdal_env()
+        # The 1/9 tiles live inside zips; GDAL needs those extensions allowed.
+        os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = ".tif,.tiff,.vrt,.img,.zip"
+        dem_tiles_dir = project_dir / f"DEM_raw_{aoi_name}"
+        local_tiles = _fetch_remote_windows(
+            remote_tiles, _bounds_to_wgs84(aoi_gdf), dem_tiles_dir, log_fn)
+        log_fn(f"Clipping, reprojecting and resampling to {dem_res_m} m → AOI CRS …")
+        try:
+            _clip_and_reproject(local_tiles, aoi_gdf, dem_res_m, dem_path, log_fn,
+                                working_crs_epsg=working_epsg)
+        finally:
+            # The windowed tiles and any archive pulled down for them are
+            # per-run scratch — the DEM is the product.
+            for _tp in list(local_tiles) + list(dem_tiles_dir.glob("*.zip")) \
+                    + list(dem_tiles_dir.glob("*.zip.part")):
+                try:
+                    _tp.unlink()
+                except Exception:
+                    pass
+            try:
+                dem_tiles_dir.rmdir()
+            except OSError:
+                pass
+
+    else:   # 3dep 1/3 arc-second (default)
         from core.export import next_free_path
         log_fn("Downloading DEM from 3DEP...")
         if overwrite_dem:
@@ -975,10 +1108,17 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
     ctx["has_dem"] = has_dem
     if has_dem:
         ctx["dem_source"] = "user_provided"
-    elif dem_source == "hand":
+    elif _dem_src == "hand":
         ctx["dem_source"] = "download_hand"
     else:
-        ctx["dem_source"] = "download_3dep"
+        ctx["dem_source"] = f"download_{_dem_src}"
+    # Record WHICH product produced this raster, spelled the way the UI spells
+    # it — a 1 m and a 1/3 arc-second DEM are not interchangeable, and a project
+    # opened months later should not have to guess which one it holds.
+    if not has_dem:
+        from core.dem_sources import label_for as _lbl
+        ctx["dem_source_id"] = _dem_src
+        ctx["dem_source_label"] = _lbl(_dem_src)
     ctx["dem_res_m"] = dem_res_m
     ctx["dem_path"] = str(dem_path)
     ctx["dem_tif_path"] = str(dem_path)

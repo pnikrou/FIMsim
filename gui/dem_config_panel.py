@@ -11,7 +11,7 @@ a study-wide setting that applies to every AOI.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QRadioButton, QButtonGroup, QLineEdit, QPushButton, QFileDialog,
-    QDoubleSpinBox,
+    QDoubleSpinBox, QComboBox,
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -34,7 +34,7 @@ class DEMConfigPanel(QWidget):
 
         # ── Source radios — wrapped widget that spans both columns so
         # the radios stay anchored when the file picker shows / hides.
-        self._rb_download = QRadioButton("Download from 3DEP (USGS)")
+        self._rb_download = QRadioButton("Download")
         self._rb_existing = QRadioButton("I have a DEM raster")
         self._rb_download.setChecked(True)
         self._bg = QButtonGroup(self)
@@ -47,10 +47,22 @@ class DEMConfigPanel(QWidget):
         src_inner.addWidget(QLabel("<b>DEM source:</b>"))
         src_inner.addSpacing(8)
         src_inner.addWidget(self._rb_download)
+        # Which product, spelled out.  "Download from 3DEP" hid the fact that
+        # only one of several 3DEP products was ever fetched.
+        from core.dem_sources import SOURCES as _DEM_SOURCES
+        self._dl_combo = QComboBox()
+        for _sid, _spec in _DEM_SOURCES.items():
+            self._dl_combo.addItem(_spec["label"], _sid)
+        src_inner.addWidget(self._dl_combo)
         src_inner.addSpacing(16)
         src_inner.addWidget(self._rb_existing)
         src_inner.addStretch()
         form.addRow(src_widget)
+
+        self._cov_note = QLabel("")
+        self._cov_note.setWordWrap(True)
+        self._cov_note.setStyleSheet("font-size:11px; color:#975a16;")
+        form.addRow(self._cov_note)
 
         # ── Cell size (per-AOI — different AOIs may need different
         # resolutions).  Sits under the source row so the user always sees
@@ -108,11 +120,15 @@ class DEMConfigPanel(QWidget):
         self._rb_existing.toggled.connect(self._on_source_changed)
         self._dem_path_edit.textChanged.connect(self._emit_changed)
         self._cell_spin.valueChanged.connect(self._emit_changed)
+        self._dl_combo.currentIndexChanged.connect(self._on_source_changed)
+        self._on_source_changed()
 
     # ── visibility ────────────────────────────────────────────────────────────
 
     def _on_source_changed(self, *_):
         existing = self._rb_existing.isChecked()
+        self._dl_combo.setVisible(not existing)
+        self._refresh_coverage_note(existing)
         self._dem_path_lbl.setVisible(existing)
         self._dem_path_edit.setVisible(existing)
         self._browse_btn.setVisible(existing)
@@ -120,6 +136,23 @@ class DEMConfigPanel(QWidget):
         if not existing:
             self._dem_path_edit.clear()
         self._emit_changed()
+
+    def _refresh_coverage_note(self, existing: bool):
+        from core.dem_sources import SOURCES as _DS
+        if existing:
+            self._cov_note.setVisible(False)
+            return
+        spec = _DS.get(self._dl_combo.currentData() or "3dep_13")
+        cell = float(self._cell_spin.value())
+        notes = []
+        if spec["coverage"] == "partial":
+            notes.append(f"{spec['short']} covers only part of the country; "
+                         "FIMsim checks this AOI before downloading.")
+        if cell < spec["native_m"] * 0.9:
+            notes.append(f"{cell:g} m is finer than the source's native "
+                         f"≈{spec['native_m']:g} m — interpolated, not measured.")
+        self._cov_note.setText("  ".join(notes))
+        self._cov_note.setVisible(bool(notes))
 
     def _browse(self):
         files, _ = QFileDialog.getOpenFileNames(
@@ -148,6 +181,7 @@ class DEMConfigPanel(QWidget):
             "has_dem":       existing,
             "user_dem_path": paths,    # always a list (possibly empty)
             "dem_res_m":     float(self._cell_spin.value()),
+            "dem_source":    self._dl_combo.currentData() or "3dep_13",
         }
         if self._show_buffer:
             cfg["buffer_m"] = float(self._buffer_spin.value())
@@ -166,6 +200,16 @@ class DEMConfigPanel(QWidget):
         else:
             self._rb_download.setChecked(True)
             self._dem_path_edit.clear()
+        if cfg.get("dem_source"):
+            from core.dem_sources import normalise as _norm
+            try:
+                _sid = ("hand" if cfg["dem_source"] == "hand"
+                        else _norm(cfg["dem_source"]))
+            except Exception:
+                _sid = "3dep_13"
+            _i = self._dl_combo.findData(_sid)
+            if _i >= 0:
+                self._dl_combo.setCurrentIndex(_i)
         if "dem_res_m" in cfg:
             try:
                 self._cell_spin.setValue(float(cfg["dem_res_m"]))

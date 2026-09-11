@@ -114,12 +114,16 @@ def run_arc_dem_all(
             except Exception:
                 pass
 
+            # Which elevation product this AOI's card asked for.  Older
+            # projects have no such key and keep the 1/3 arc-second default.
+            this_source = (cfg.get("dem_source") if per_aoi_configs is not None
+                           else None) or "3dep_13"
             feat_ctx = prepare_dem(
                 ctx_path=feat_ctx_path, ctx=feat_ctx,
                 dem_res_m=this_res_deg,
                 overwrite_dem=True,
                 has_dem=this_has_dem, user_dem_path=this_user_paths,
-                dem_source="3dep",
+                dem_source=this_source,
                 log_fn=log_fn,
             )
 

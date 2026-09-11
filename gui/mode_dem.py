@@ -68,9 +68,22 @@ class _AOIDEMCard(QFrame):
         pf.setContentsMargins(18, 4, 4, 4)
         pf.setVerticalSpacing(6)
 
+        # The exact product, not just the programme: a 1 m DEM and a 1/3
+        # arc-second DEM are both "3DEP" and are not interchangeable.  Labels
+        # come from core.dem_sources so they cannot drift from what is
+        # downloaded.
+        from core.dem_sources import SOURCES as _DEM_SOURCES
         self._src_combo = QComboBox()
-        self._src_combo.addItems(["3DEP  (USGS)", "HAND  (TACC)"])
+        for _sid, _spec in _DEM_SOURCES.items():
+            self._src_combo.addItem(_spec["label"], _sid)
         pf.addRow("Source:", self._src_combo)
+
+        # Coverage note — 1/9 arc-second and 1 m exist only where lidar was
+        # flown, so the user is told before the run, not after it fails.
+        self._cov_lbl = QLabel("")
+        self._cov_lbl.setWordWrap(True)
+        self._cov_lbl.setStyleSheet("font-size:11px; color:#975a16;")
+        pf.addRow("", self._cov_lbl)
 
         self._fmt_combo = QComboBox()
         self._fmt_combo.addItems(["TIF (GeoTIFF)", "GPKG (GeoPackage)", "ASC (ASCII grid)"])
@@ -117,24 +130,43 @@ class _AOIDEMCard(QFrame):
         self.setStyleSheet(self._COLLAPSED)
 
     def _refresh_status(self):
-        src = "3DEP" if self._src_combo.currentIndex() == 0 else "HAND"
+        from core.dem_sources import SOURCES as _DS
+        sid = self._src_combo.currentData() or "3dep_13"
+        spec = _DS[sid]
         fmt = ["TIF", "GPKG", "ASC"][self._fmt_combo.currentIndex()]
         cell = self._cell_spin.value()
-        self._status_lbl.setText(f"{src}  ·  {fmt}  ·  {cell:.0f} m")
+        self._status_lbl.setText(f"{spec['short']}  ·  {fmt}  ·  {cell:.0f} m")
+
+        notes = []
+        if spec["coverage"] == "partial":
+            notes.append(f"{spec['short']} is flown project by project and "
+                         "covers only part of the country — if none exists "
+                         "here the run will say so before downloading.")
+        if cell < spec["native_m"] * 0.9:
+            notes.append(f"{cell:g} m is finer than this source's native "
+                         f"≈{spec['native_m']:g} m; the extra cells would be "
+                         "interpolated, not measured.")
+        self._cov_lbl.setText("  ".join(notes))
+        self._cov_lbl.setVisible(bool(notes))
 
     def is_expanded(self) -> bool:
         return self._expanded
 
     def get_config(self) -> dict:
         return {
-            "source":      "hand" if self._src_combo.currentIndex() == 1 else "3dep",
+            "source":      self._src_combo.currentData() or "3dep_13",
             "format":      ["tif", "gpkg", "asc"][self._fmt_combo.currentIndex()],
             "cell_size_m": float(self._cell_spin.value()),
         }
 
     def set_config(self, cfg: dict):
-        src_idx = 1 if cfg.get("source") == "hand" else 0
-        self._src_combo.setCurrentIndex(src_idx)
+        from core.dem_sources import normalise as _norm
+        try:
+            _sid = "hand" if cfg.get("source") == "hand" else _norm(cfg.get("source"))
+        except Exception:
+            _sid = "3dep_13"
+        _i = self._src_combo.findData(_sid)
+        self._src_combo.setCurrentIndex(max(_i, 0))
         fmt_map = {"tif": 0, "gpkg": 1, "asc": 2}
         self._fmt_combo.setCurrentIndex(fmt_map.get(cfg.get("format", "tif"), 0))
         try:
