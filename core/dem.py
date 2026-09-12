@@ -401,6 +401,45 @@ def _download_3dep_tiles(aoi_gdf, dem_res_m, dem_tiles_dir, log_fn):
         return _download_full_tiles(tile_names, dem_tiles_dir, log_fn)
 
 
+# One sentinel for every DEM FIMsim writes.  Sources disagree — 3DEP uses
+# -999999, HAND uses -3.4028235e38 (float32's most negative value) — and that
+# last one is where rasterio.merge breaks (see _normalise_nodata).
+_SAFE_NODATA = -9999.0
+
+# Anything this large in magnitude is a sentinel, not an elevation.  Earth's
+# relief spans about -11 km to +9 km.
+_ABSURD = 1e30
+
+
+def _normalise_nodata(arr, nodata):
+    """Put every no-data cell on ``_SAFE_NODATA`` and report that value.
+
+    Tiles arrive with whatever sentinel their producer chose, and the extreme
+    ones are not merely untidy — they are actively dangerous.  rasterio.merge
+    rejects HAND's -3.4028235e38 with
+
+        UserWarning: Ignoring nodata value. The nodata value ... cannot safely
+        be represented in the chosen data type, float32.
+
+    and returns an array of ZEROS: not an error, not empty, just a DEM that is
+    uniformly zero everywhere and passes every "is it valid?" check downstream.
+
+    Returns ``(array, safe_nodata)``.
+    """
+    a = np.asarray(arr)
+    bad = ~np.isfinite(a) | (np.abs(a) >= _ABSURD)
+    if nodata is not None:
+        try:
+            v = float(nodata)
+            if np.isfinite(v):
+                bad |= (a == np.asarray(v, dtype=a.dtype))
+        except (TypeError, ValueError):
+            pass
+    if bad.any():
+        a = np.where(bad, np.asarray(_SAFE_NODATA, dtype=a.dtype), a)
+    return a, _SAFE_NODATA
+
+
 def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
                         working_crs_epsg=None):
     """Clip the downloaded DEM tiles to the AOI and reproject into a
@@ -426,13 +465,27 @@ def _clip_and_reproject(tile_paths, aoi_gdf, dem_res_m, dem_path, log_fn,
             shapes = [feat["geometry"] for feat in aoi_in_dem_crs.__geo_interface__["features"]]
             out_image, out_transform = mask(src, shapes=shapes, crop=True)
             clipped_meta = src.meta.copy()
+        out_image, _safe = _normalise_nodata(out_image, clipped_meta.get("nodata"))
+        clipped_meta["nodata"] = _safe
     else:
         srcs = [rasterio.open(fp) for fp in tile_paths]
-        mosaic, mosaic_transform = merge(srcs)
+        # Pass the sentinel explicitly.  Left to itself, merge() silently
+        # discards a nodata it considers unrepresentable and hands back an
+        # all-zero mosaic — which is how five of nineteen HAND DEMs came out
+        # uniformly 0.00 while every single-tile case was fine.
+        mosaic, mosaic_transform = merge(srcs, nodata=_SAFE_NODATA)
         dem_src_crs = srcs[0].crs
-        src0_nodata = srcs[0].nodata
+        _orig_nodata = srcs[0].nodata          # e.g. -999999 (3DEP), -3.4e38 (HAND)
         for s in srcs:
             s.close()
+        # Belt and braces: whatever merge did internally, neither an absurd
+        # magnitude nor the tiles' OWN sentinel survives as if it were terrain.
+        mosaic, src0_nodata = _normalise_nodata(mosaic, _orig_nodata)
+        if not np.isfinite(mosaic).any() or (mosaic == _SAFE_NODATA).all():
+            raise RuntimeError(
+                f"Merging {len(tile_paths)} DEM tile(s) produced no usable "
+                "elevations. The tiles may not overlap the AOI, or their "
+                "nodata handling differs — check the tiles in a GIS tool.")
         aoi_in_dem_crs = aoi_gdf.to_crs(dem_src_crs)
         shapes = [feat["geometry"] for feat in aoi_in_dem_crs.__geo_interface__["features"]]
         # Use a clean meta for the MemoryFile to avoid bad keys from tile profile
