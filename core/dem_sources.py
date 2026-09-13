@@ -131,7 +131,7 @@ _TNM_MAX = 500
 
 
 def query_tnm(bounds_wgs84, dataset: str, timeout: int = 90,
-              attempts: int = 4, log_fn=print) -> List[dict]:
+              attempts: int = 5, log_fn=print) -> List[dict]:
     """Ask TNM which products of ``dataset`` intersect the bounds.
 
     Retries: the service returns 504 Gateway Timeout often enough that a single
@@ -162,9 +162,13 @@ def query_tnm(bounds_wgs84, dataset: str, timeout: int = 90,
         except Exception as exc:
             last = f"{type(exc).__name__}: {exc}"
         if attempt < attempts:
-            log_fn(f"  the USGS index did not answer ({last}); retrying "
-                   f"({attempt}/{attempts - 1}) …")
-            time.sleep(2 * attempt)
+            # Exponential, not linear: the 504s come in bursts lasting tens of
+            # seconds, and four retries inside twelve seconds all land in the
+            # same burst.
+            delay = 2 * (2 ** (attempt - 1))       # 2, 4, 8, 16 s
+            log_fn(f"  the USGS index did not answer ({last}); retrying in "
+                   f"{delay}s ({attempt}/{attempts - 1}) …")
+            time.sleep(delay)
     raise TNMUnavailable(
         f"Could not reach the USGS product index ({TNM_API}) — {last}. "
         "This says nothing about whether data exists here; try again, or use "

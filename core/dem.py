@@ -270,7 +270,8 @@ def _localise_zip(gdal_path, out_dir, log_fn):
     return f"/vsizip/{local_zip}/{member}"
 
 
-def _fetch_remote_windows(gdal_paths, bounds_wgs84, out_dir, log_fn):
+def _fetch_remote_windows(gdal_paths, bounds_wgs84, out_dir, log_fn,
+                          target_crs=None):
     """Read only the AOI window of each remote raster, whatever its layout.
 
     The 1/3 arc-second path knows its tiles are 1° COGs and builds their URLs
@@ -286,6 +287,7 @@ def _fetch_remote_windows(gdal_paths, bounds_wgs84, out_dir, log_fn):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     kept = []
+    reprojected_from = set()
     for i, path in enumerate(gdal_paths):
         try:
             path = _localise_zip(path, out_dir, log_fn)
@@ -306,6 +308,40 @@ def _fetch_remote_windows(gdal_paths, bounds_wgs84, out_dir, log_fn):
                     "crs": ds.crs, "transform": ds.window_transform(w),
                     "nodata": ds.nodata, "compress": "lzw",
                 }
+            # Put every window in ONE CRS before they are merged.  1 m tiles
+            # are published per UTM zone, so an AOI on a zone boundary gets
+            # tiles in two different projections — T2_09 straddles the 14/15
+            # line and returns 4 tiles in EPSG:26914 and 6 in EPSG:26915 —
+            # and rasterio.merge refuses that with "CRS mismatch with source".
+            if target_crs is not None and profile["crs"] != target_crs:
+                from rasterio.warp import calculate_default_transform
+                if profile["crs"] not in reprojected_from:
+                    reprojected_from.add(profile["crs"])
+                    log_fn(f"  Note: some tiles are published in "
+                           f"{profile['crs']} while your AOI is in "
+                           f"{target_crs} — this AOI sits on a UTM zone "
+                           f"boundary, so its tiles come from two different "
+                           f"zones. They are being reprojected to your AOI's "
+                           f"CRS before merging, which is why this step takes "
+                           f"a little longer.")
+                t, w2, h2 = calculate_default_transform(
+                    profile["crs"], target_crs, profile["width"],
+                    profile["height"],
+                    *array_bounds(profile["height"], profile["width"],
+                                  profile["transform"]))
+                warped = np.full((h2, w2), profile["nodata"]
+                                 if profile["nodata"] is not None else _SAFE_NODATA,
+                                 dtype=data.dtype)
+                reproject(source=data, destination=warped,
+                          src_transform=profile["transform"],
+                          src_crs=profile["crs"],
+                          dst_transform=t, dst_crs=target_crs,
+                          src_nodata=profile["nodata"],
+                          dst_nodata=profile["nodata"],
+                          resampling=Resampling.bilinear)
+                data = warped
+                profile.update(crs=target_crs, transform=t, width=w2, height=h2)
+
             local = out_dir / f"tile_{i:03d}_aoi.tif"
             with rasterio.open(local, "w", **profile) as dst:
                 dst.write(data, 1)
@@ -315,7 +351,9 @@ def _fetch_remote_windows(gdal_paths, bounds_wgs84, out_dir, log_fn):
     if not kept:
         raise RuntimeError(
             "The USGS index listed tiles for this AOI but none could be read.")
-    log_fn(f"  read {len(kept)}/{len(gdal_paths)} tile window(s)")
+    log_fn(f"  read {len(kept)}/{len(gdal_paths)} tile window(s)"
+           + (f", {len(reprojected_from) + 1} coordinate systems unified"
+              if reprojected_from else ""))
     return kept
 
 
@@ -1047,7 +1085,8 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = ".tif,.tiff,.vrt,.img,.zip"
         dem_tiles_dir = project_dir / f"DEM_raw_{aoi_name}"
         local_tiles = _fetch_remote_windows(
-            remote_tiles, _bounds_to_wgs84(aoi_gdf), dem_tiles_dir, log_fn)
+            remote_tiles, _bounds_to_wgs84(aoi_gdf), dem_tiles_dir, log_fn,
+            target_crs=rasterio.crs.CRS.from_epsg(int(working_epsg)))
         log_fn(f"Clipping, reprojecting and resampling to {dem_res_m} m → AOI CRS …")
         try:
             _clip_and_reproject(local_tiles, aoi_gdf, dem_res_m, dem_path, log_fn,
