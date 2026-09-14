@@ -707,6 +707,41 @@ def _enforce_non_negative(tif_path, log_fn):
         dst.write(arr, 1)
 
 
+def _assert_no_nodata(path, label, log_fn):
+    """Refuse to hand a hydraulic model a grid with holes in it.
+
+    The fill is cheap and the check is cheaper, but the failure it guards
+    against is expensive and quiet: a model run that completes and produces a
+    flood map built on a boundary whose elevation was -9999.  Checking the
+    written file — rather than trusting the array that was meant to be written
+    — is what makes this a guarantee instead of an intention.
+    """
+    if path is None:
+        return
+    with rasterio.open(str(path)) as src:
+        a = src.read(1)
+        nod = src.nodata
+    bad = ~np.isfinite(a)
+    if nod is not None:
+        try:
+            v = float(nod)
+            if np.isfinite(v):
+                bad |= (a == v)
+        except (TypeError, ValueError):
+            pass
+    n = int(bad.sum())
+    if n:
+        edge = int(np.concatenate([bad[0, :], bad[-1, :],
+                                   bad[:, 0], bad[:, -1]]).sum())
+        raise RuntimeError(
+            f"{label} still has {n:,} nodata cell(s) after filling "
+            f"({edge:,} of them on the domain boundary). The model would read "
+            f"those as real elevations. This should not happen — please report "
+            f"it with the AOI that produced it.")
+    log_fn(f"  ✓ {label}: no nodata anywhere, edges included "
+           f"({a.shape[1]}×{a.shape[0]} cells).")
+
+
 def _nearest_neighbour_fill(arr, invalid):
     """Fill cells marked True in *invalid* with the value of their
     nearest valid neighbour.  Returns the filled array.
@@ -727,9 +762,10 @@ def _nearest_neighbour_fill(arr, invalid):
 def _fill_dem_nodata(tif_path, log_fn):
     """Fill every nodata / NaN / negative-nodata cell in a DEM GeoTIFF.
 
-    TRITON treats every cell value as a real terrain elevation, including the
-    NODATA_value in the header.  Negative sentinel values (e.g. -9999) are
-    interpreted as -9999 m depressions and will absorb all flood water.
+    LISFLOOD-FP and TRITON both treat every cell value as a real terrain
+    elevation, including the NODATA_value in the header.  Negative sentinel
+    values (e.g. -9999) are interpreted as -9999 m depressions and will absorb
+    all flood water.
 
     Strategy:
       1. Identify all invalid cells (nodata sentinel + NaN + ±Inf).
@@ -743,7 +779,7 @@ def _fill_dem_nodata(tif_path, log_fn):
         from scipy.ndimage import distance_transform_edt  # noqa – imported in helper
     except ImportError:
         raise ImportError(
-            "scipy is required for TRITON DEM nodata fill.\n"
+            "scipy is required to fill DEM nodata.\n"
             "Install it with:  pip install scipy"
         )
 
@@ -772,7 +808,7 @@ def _fill_dem_nodata(tif_path, log_fn):
         )
 
     if n_invalid == 0:
-        log_fn("TRITON DEM: no nodata cells found — all cells are valid.")
+        log_fn("  DEM: no nodata cells found — all cells are valid.")
         # Still re-write to clear the nodata sentinel from the file header
         profile.update({"nodata": None, "dtype": "float32"})
         profile.pop("compress", None); profile.pop("blockxsize", None)
@@ -782,7 +818,7 @@ def _fill_dem_nodata(tif_path, log_fn):
         return
 
     log_fn(
-        f"TRITON DEM: filling {n_invalid:,} / {n_total:,} nodata/invalid cells "
+        f"  DEM: filling {n_invalid:,} / {n_total:,} nodata/invalid cells "
         f"({100 * n_invalid / n_total:.1f}%) with nearest-neighbour elevation…"
     )
 
@@ -824,26 +860,22 @@ def _export_ascii(dem_path, dem_ascii_path, log_fn, is_triton=False):
 
     dem_arr = dem_arr.astype("float32")
 
-    if is_triton:
-        # After _fill_dem_nodata the array has no invalid cells and nodata=None.
-        # TRITON treats the NODATA_value in the header as real terrain elevation,
-        # so we use 0 as a harmless sentinel (no cell should equal exactly 0).
-        # Any residual NaN/Inf is clamped to the observed valid range.
-        finite_mask = np.isfinite(dem_arr)
-        if finite_mask.any():
-            vmin = float(dem_arr[finite_mask].min())
-            dem_arr[~finite_mask] = vmin
-        nodata_out = 0.0
-    else:
-        try:
-            nodata_out = (
-                -9999.0
-                if (nodata_in is None or not np.isfinite(float(nodata_in)))
-                else float(nodata_in)
-            )
-        except (TypeError, ValueError):
-            nodata_out = -9999.0
-        dem_arr[~np.isfinite(dem_arr)] = nodata_out
+    # Any residual NaN/Inf is clamped to the observed valid range first, so the
+    # grid really is gap-free before a sentinel is chosen for the header.
+    finite_mask = np.isfinite(dem_arr)
+    if not finite_mask.all() and finite_mask.any():
+        dem_arr[~finite_mask] = float(dem_arr[finite_mask].min())
+
+    # The header's NODATA_value must be a number that does NOT occur in the
+    # grid.  TRITON's used to be 0, "a harmless sentinel since no cell should
+    # equal exactly 0" — true inland, false at the coast, where 0 m is ordinary
+    # terrain that a reader honouring the header would then drop.  -9999 is the
+    # conventional choice and cannot be a real elevation; if it somehow appears,
+    # go below the data instead.  Since the domain is gap-free either way, this
+    # only ever removes a way to be wrong.
+    nodata_out = -9999.0
+    if bool(np.any(dem_arr == np.float32(nodata_out))):
+        nodata_out = float(dem_arr.min()) - 1000.0
 
     # Build a clean minimal profile — do NOT copy the GeoTIFF profile
     # (it contains blockxsize/blockysize/compress that AAIGrid rejects)
@@ -1175,27 +1207,30 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
     if skip_ascii:
         log_fn("Skipping ASCII export (standalone mode — only GeoTIFF needed).")
         dem_ascii_path = None
-    elif _is_triton:
-        # TRITON needs a DEM with NO nodata cells for its .asc, but the GeoTIFF
-        # (dem_tif_path) is what the DEM preview shows — keep it MASKED so cells
-        # outside the AOI render as no-colour (like LULC/Manning).  So fill a
-        # TEMP copy for the headerless .asc and leave dem_path masked.
-        log_fn("TRITON mode: filling nodata into the .asc (preview tif stays masked)…")
-        import shutil
-        tmp_filled = dem_path.with_name(dem_path.stem + "__filled.tif")
-        shutil.copyfile(dem_path, tmp_filled)
-        try:
-            _fill_dem_nodata(tmp_filled, log_fn)
-            log_fn("Converting filled DEM to ASCII...")
-            _export_ascii(tmp_filled, dem_ascii_path, log_fn, is_triton=True)
-        finally:
-            try:
-                tmp_filled.unlink()
-            except Exception:
-                pass
     else:
+        # LISFLOOD-FP and TRITON both solve on a RECTANGULAR domain and read
+        # every cell as terrain, so a gap anywhere is wrong and a gap on the
+        # boundary is worse: -9999 reads as a 9,999 m pit that swallows water,
+        # and both boundary-condition steps probe the domain edges
+        # (bci.py / triton_bc.py :: _extrapolate_to_dem_bounds,
+        # _mean_end_elevation) to set HFIX and FREE elevations.  A nodata edge
+        # cell there puts the sentinel straight into a boundary condition.
+        #
+        # Edge gaps are not hypothetical: the output grid is sized with ceil(),
+        # so its last row/column overhangs the AOI by a fraction of a cell and
+        # the strict polygon mask trims exactly that sliver.  Measured on a
+        # 900x300 AOI: 79 nodata cells, every one of them on the edge.
+        #
+        # TRITON used to fill a temp copy and leave the GeoTIFF masked for the
+        # preview.  That kept the sentinel in the very file the BC steps read,
+        # so the fill now happens in place and serves both models.
+        log_fn("Filling nodata so the model domain has no gaps "
+               "(LISFLOOD-FP / TRITON read every cell as terrain) …")
+        _fill_dem_nodata(dem_path, log_fn)
+        _assert_no_nodata(dem_path, "DEM GeoTIFF", log_fn)
         log_fn("Converting DEM to ASCII...")
-        _export_ascii(dem_path, dem_ascii_path, log_fn, is_triton=False)
+        _export_ascii(dem_path, dem_ascii_path, log_fn, is_triton=_is_triton)
+        _assert_no_nodata(dem_ascii_path, "DEM ASCII", log_fn)
 
     ctx["has_dem"] = has_dem
     if has_dem:
