@@ -707,6 +707,19 @@ def _enforce_non_negative(tif_path, log_fn):
         dst.write(arr, 1)
 
 
+def _edge_count(mask) -> int:
+    """How many True cells lie on the grid's outer ring.
+
+    Counting four edge slices double-counts the corners, which can report more
+    boundary cells than there are cells.
+    """
+    import numpy as _np
+    ring = _np.zeros_like(mask, dtype=bool)
+    ring[0, :] = ring[-1, :] = True
+    ring[:, 0] = ring[:, -1] = True
+    return int((mask & ring).sum())
+
+
 def _assert_no_nodata(path, label, log_fn):
     """Refuse to hand a hydraulic model a grid with holes in it.
 
@@ -731,8 +744,7 @@ def _assert_no_nodata(path, label, log_fn):
             pass
     n = int(bad.sum())
     if n:
-        edge = int(np.concatenate([bad[0, :], bad[-1, :],
-                                   bad[:, 0], bad[:, -1]]).sum())
+        edge = _edge_count(bad)
         raise RuntimeError(
             f"{label} still has {n:,} nodata cell(s) after filling "
             f"({edge:,} of them on the domain boundary). The model would read "

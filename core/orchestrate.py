@@ -24,6 +24,66 @@ from core.nlcd import (
 )
 
 
+# Everything that belongs to ONE AOI and must never be inherited from another.
+#
+# Each LISFLOOD step used to keep its own hand-written list of keys to restore
+# from the AOI's saved context, and the PAR step's list was missing
+# `upstream_reach_id` and `main_river_name`.  That is not a small omission: the
+# per-AOI context is seeded from the PARENT project context, and the parent
+# holds the FIRST AOI's reach (see the bridge at the end of each loop).  So a
+# forgotten key does not arrive empty — it arrives holding another AOI's value,
+# and PAR then saved that over every AOI's own file.
+#
+# Running the workflow to the end and stepping back to BDY therefore rewrote all
+# ten cases to AOI #1's river, silently, because the key existed and simply held
+# the wrong number.  One shared list, used by every step, is what stops that
+# happening again the next time a key is added.  TRITON already works this way
+# (core/triton_orchestrate.py :: _PER_AOI_KEYS).
+_PER_AOI_KEYS = (
+    # AOI identity
+    "aoi_path", "aoi_name", "aoi_feature_index",
+    "working_crs_epsg", "working_crs_label",
+    # river / reach detection — the keys PAR forgot
+    "upstream_reach_id", "main_river_name", "main_feature_name",
+    "upstream_mode", "upstream_x", "upstream_y",
+    "downstream_type", "downstream_x", "downstream_y",
+    "flowlines_path",
+    # DEM artefacts
+    "dem_path", "dem_tif_path", "dem_ascii_path", "dem_res_m",
+    "dem_source", "dem_source_id", "dem_source_label", "par_dem_name",
+    # friction / LULC artefacts
+    "manning_ascii_path", "manning_tif_path", "lulc_path", "lulc_source",
+    "fric_mode", "par_fpfric", "par_use_manningfile", "par_use_fpfric",
+    # boundary conditions and the event they describe
+    "bci_path", "bdy_path", "bdy_written", "bdy_source", "bdy_helper_csv",
+    "event_start", "event_end",
+    # outputs
+    "par_path",
+)
+
+
+def _seed_feat_ctx(ctx: dict, folder) -> tuple:
+    """Build one AOI's context: project-wide settings + that AOI's OWN results.
+
+    Per-AOI keys are stripped from the parent before anything is restored, so a
+    value can only ever come from this AOI's own workflow_context.json.  A key
+    the AOI has not produced yet stays ABSENT, which a step can detect and
+    complain about — rather than silently holding its neighbour's answer.
+    """
+    feat_ctx = {k: v for k, v in ctx.items() if k not in _PER_AOI_KEYS}
+    per_aoi_ctx_path = Path(folder) / "workflow_context.json"
+    if per_aoi_ctx_path.exists():
+        try:
+            with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
+                saved = json.load(fr)
+            for k in _PER_AOI_KEYS:
+                if k in saved:
+                    feat_ctx[k] = saved[k]
+        except Exception:
+            pass
+    return feat_ctx, str(per_aoi_ctx_path)
+
+
 # ── per-feature helpers ───────────────────────────────────────────────────────
 
 def _make_feature_ctx(project_dir: Path, feature: AOIFeatureInfo) -> dict:
@@ -103,7 +163,9 @@ def run_lisflood_par_for_all_aois(
             Path(folder).mkdir(parents=True, exist_ok=True)
             mf_dir = model_files_subdir(folder, is_triton=False)
 
-            feat_ctx = dict(ctx)
+            # Project-wide settings plus THIS AOI's own saved results — never
+            # another AOI's (see _PER_AOI_KEYS).
+            feat_ctx, feat_ctx_path = _seed_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
@@ -118,28 +180,6 @@ def run_lisflood_par_for_all_aois(
             feat_ctx["model_dir"]         = mf_dir
             feat_ctx.pop("triton_dir", None)
 
-            # Pull this AOI's per-AOI ctx (DEM, Manning, BCI, BDY paths) so
-            # create_par can find every input file it needs.
-            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
-            if per_aoi_ctx_path.exists():
-                try:
-                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
-                        saved = json.load(fr)
-                    for k in (
-                        "dem_path", "dem_tif_path", "dem_ascii_path",
-                        "manning_ascii_path", "manning_tif_path",
-                        "fric_mode", "par_fpfric", "par_use_manningfile",
-                        "par_use_fpfric", "par_dem_name",
-                        "bci_path", "bdy_path", "bdy_written",
-                        "upstream_mode", "downstream_type",
-                        "event_start", "event_end",
-                    ):
-                        if k in saved:
-                            feat_ctx[k] = saved[k]
-                except Exception:
-                    pass
-
-            feat_ctx_path = str(per_aoi_ctx_path)
 
             feat_ctx = create_par(
                 ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn, **cfg,
@@ -226,7 +266,9 @@ def run_lisflood_bdy_for_all_aois(
             Path(folder).mkdir(parents=True, exist_ok=True)
             mf_dir = model_files_subdir(folder, is_triton=False)
 
-            feat_ctx = dict(ctx)
+            # Project-wide settings plus THIS AOI's own saved results — never
+            # another AOI's (see _PER_AOI_KEYS).
+            feat_ctx, feat_ctx_path = _seed_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
@@ -241,24 +283,6 @@ def run_lisflood_bdy_for_all_aois(
             feat_ctx["model_dir"]         = mf_dir
             feat_ctx.pop("triton_dir", None)
 
-            # Pull this AOI's per-AOI ctx (DEM + BCI info) so create_bdy knows
-            # the upstream mode and reach id.
-            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
-            if per_aoi_ctx_path.exists():
-                try:
-                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
-                        saved = json.load(fr)
-                    for k in (
-                        "dem_path", "dem_tif_path", "dem_ascii_path",
-                        "upstream_mode", "upstream_reach_id",
-                        "main_river_name", "downstream_type",
-                    ):
-                        if k in saved:
-                            feat_ctx[k] = saved[k]
-                except Exception:
-                    pass
-
-            feat_ctx_path = str(per_aoi_ctx_path)
 
             kw = dict(
                 start_dt=cfg["start_dt"],
@@ -374,7 +398,9 @@ def run_lisflood_bci_for_all_aois(
             Path(folder).mkdir(parents=True, exist_ok=True)
             mf_dir = model_files_subdir(folder, is_triton=False)
 
-            feat_ctx = dict(ctx)
+            # Project-wide settings plus THIS AOI's own saved results — never
+            # another AOI's (see _PER_AOI_KEYS).
+            feat_ctx, feat_ctx_path = _seed_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
@@ -389,21 +415,6 @@ def run_lisflood_bci_for_all_aois(
             feat_ctx["model_dir"]         = mf_dir
             feat_ctx.pop("triton_dir", None)
 
-            # Pull this AOI's per-AOI ctx (DEM + Manning paths) so create_bci
-            # knows where the DEM lives.
-            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
-            if per_aoi_ctx_path.exists():
-                try:
-                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
-                        saved = json.load(fr)
-                    for k in ("dem_path", "dem_tif_path", "dem_ascii_path",
-                              "manning_ascii_path", "fric_mode", "par_fpfric"):
-                        if k in saved:
-                            feat_ctx[k] = saved[k]
-                except Exception:
-                    pass
-
-            feat_ctx_path = str(per_aoi_ctx_path)
 
             feat_ctx = create_bci(
                 ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn, **cfg,
@@ -521,7 +532,9 @@ def run_lisflood_manning_for_all_aois(
             # sub-folder so prepare_manning writes lulc.ascii into the right
             # location, while project_dir stays at the AOI folder for
             # intermediate scratch files.
-            feat_ctx = dict(ctx)
+            # Project-wide settings plus THIS AOI's own saved results — never
+            # another AOI's (see _PER_AOI_KEYS).
+            feat_ctx, feat_ctx_path = _seed_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
@@ -535,23 +548,6 @@ def run_lisflood_manning_for_all_aois(
             feat_ctx["lisflood_dir"]      = mf_dir
             feat_ctx["model_dir"]         = mf_dir
             feat_ctx.pop("triton_dir", None)
-
-            # Pull this AOI's DEM info from its own per-AOI ctx (written by
-            # the DEM step's orchestrator).  Fall back to the parent ctx so a
-            # single-AOI legacy run still works.
-            per_aoi_ctx_path = Path(folder) / "workflow_context.json"
-            if per_aoi_ctx_path.exists():
-                try:
-                    with open(per_aoi_ctx_path, "r", encoding="utf-8") as fr:
-                        saved = json.load(fr)
-                    for k in ("dem_path", "dem_tif_path", "dem_ascii_path",
-                              "dem_res_m", "dem_source"):
-                        if k in saved:
-                            feat_ctx[k] = saved[k]
-                except Exception:
-                    pass
-
-            feat_ctx_path = str(per_aoi_ctx_path)
 
             feat_ctx = prepare_manning(
                 ctx_path=feat_ctx_path, ctx=feat_ctx, log_fn=log_fn, **cfg,
@@ -677,7 +673,7 @@ def run_lisflood_dem_all(
             # ``dem.ascii`` / ``dem.asc`` lands where LISFLOOD-FP / TRITON
             # expects to find it.
             mf_dir = model_files_subdir(folder, is_triton=is_triton)
-            feat_ctx = dict(ctx)
+            feat_ctx, _per_aoi_ctx_path = _seed_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]

@@ -54,7 +54,7 @@ def create_par(ctx_path, ctx: dict,
 
     # ── Resolve the actual filenames the upstream steps wrote ───────────
     # The BCI / BDY steps name their output after this AOI (e.g.
-    # "Neuse.bci", "Neuse.bdy"); the DEM / Manning steps use ``next_free_path``
+    # "Neuse.bci", "Neuse.bdy"); every LISFLOOD step now REPLACES its output
     # so re-runs produce versioned outputs (``dem.ascii`` → ``dem (1).ascii``).
     # For each AOI we must reference *that AOI's own* companion files.
     aoi_name = ctx.get("aoi_name") or project_name
@@ -145,12 +145,11 @@ def create_par(ctx_path, ctx: dict,
 
     if not par_name.lower().endswith(".par"):
         par_name += ".par"
-    # Version the .par itself with ``next_free_path`` so re-running
-    # doesn't clobber the previous run's .par either.  The stem comes
-    # from the user-supplied name minus its .par extension.
-    from core.export import next_free_path
+    # Re-running REPLACES the .par rather than versioning it.  Versioning meant
+    # the file you launched and the file you edited could be different files,
+    # and only one of them named the .bci/.bdy the run actually used.
     par_stem = par_name[:-4]   # drop the trailing ".par"
-    par_path = next_free_path(lisflood_dir, par_stem, "par")
+    par_path = Path(lisflood_dir) / f"{par_stem}.par"
 
     # ``dirroot`` is written into the .par as a bare folder name (e.g.
     # "<AOI>_Results"), NOT an absolute path.  LISFLOOD-FP creates this

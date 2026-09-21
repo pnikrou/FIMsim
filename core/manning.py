@@ -56,7 +56,8 @@ def _atomic_write_gtiff(array2d, out_path, crs, transform, dtype, nodata, compre
     os.replace(tmp, out_path)
 
 
-def _write_ascii_from_tif(src_tif, out_ascii, out_dtype="float32", nodata_fallback=-9999.0):
+def _write_ascii_from_tif(src_tif, out_ascii, out_dtype="float32",
+                          nodata_fallback=-9999.0, log_fn=print):
     src_tif = Path(src_tif)
     out_ascii = Path(out_ascii)
     out_ascii.parent.mkdir(parents=True, exist_ok=True)
@@ -76,10 +77,43 @@ def _write_ascii_from_tif(src_tif, out_ascii, out_dtype="float32", nodata_fallba
         transform = src.transform
         width, height = src.width, src.height
 
+    # The friction grid must have no holes, for the same reason the DEM must
+    # not.  LISFLOOD-FP's manual is explicit that `manningfile` "should have the
+    # same dimensions and resolution as the DEMfile", and that when it is given
+    # "fpfric will be redundant" — so a nodata cell is not a cell that quietly
+    # falls back to the uniform n, it is an undefined roughness.  The gaps land
+    # exactly where they do most harm: T2_04's entire south edge was nodata, and
+    # its .bci puts the FREE outflow boundary on that same south edge.
+    #
+    # Filled from the nearest valid neighbour, like core/dem.py does.
+    from core.dem import _nearest_neighbour_fill
+    a = arr.astype("float32")
+    invalid = ~np.isfinite(a)
     try:
-        nodata_out = nodata_fallback if (nodata_in is None or not np.isfinite(float(nodata_in))) else float(nodata_in)
+        if nodata_in is not None and np.isfinite(float(nodata_in)):
+            invalid |= (a == np.float32(float(nodata_in)))
     except (TypeError, ValueError):
-        nodata_out = nodata_fallback
+        pass
+    n_bad = int(invalid.sum())
+    if n_bad:
+        if invalid.all():
+            raise RuntimeError(
+                f"{out_ascii.name}: every cell is nodata — the Manning grid "
+                "does not overlap the AOI.")
+        from core.dem import _edge_count
+        edge = _edge_count(invalid)
+        a = _nearest_neighbour_fill(a, invalid)
+        log_fn(f"  Manning grid: filled {n_bad:,} nodata cell(s) "
+               f"({edge:,} on the domain boundary) from their nearest "
+               f"neighbours — LISFLOOD-FP has no fallback for an undefined n.")
+    arr = a
+
+    # With no gaps left, the header's NODATA_value only has to be a number that
+    # cannot occur in the grid — Manning's n is always positive, so -9999 is
+    # safe and can never swallow a real roughness value.
+    nodata_out = -9999.0
+    if bool(np.any(arr == np.float32(nodata_out))):
+        nodata_out = float(arr.min()) - 1000.0
 
     # Clean minimal profile — avoid copying GeoTIFF-specific keys (blockxsize etc.)
     ascii_profile = {
@@ -337,11 +371,11 @@ def prepare_manning(ctx_path, ctx: dict,
         raise FileNotFoundError(f"DEM not found: {dem_tif_path}")
 
     from core.aoi import read_aoi
-    from core.export import next_free_path
     aoi_gdf = read_aoi(ctx)
-    # Use ``next_free_path`` so re-running the step doesn't clobber
-    # previous outputs: ``lulc.ascii`` → ``lulc (1).ascii`` → …
-    manning_ascii_path = next_free_path(lisflood_dir, "lulc", "ascii")
+    # Re-running REPLACES the grid rather than versioning it: the .par names
+    # exactly one file, so a "lulc (1).ascii" beside it is dead weight that
+    # silently diverges from what the model reads.
+    manning_ascii_path = Path(lisflood_dir) / "lulc.ascii"
 
     if fric_mode == "fixed":
         if fpfric_val is None or fpfric_val <= 0:
@@ -447,7 +481,7 @@ def prepare_manning(ctx_path, ctx: dict,
         log_fn("Creating Manning raster from LULC...")
         _create_manning_from_lulc(lulc_path, manning_tif_path, mapping)
 
-    _write_ascii_from_tif(manning_tif_path, manning_ascii_path)
+    _write_ascii_from_tif(manning_tif_path, manning_ascii_path, log_fn=log_fn)
     log_fn(f"Manning ASCII saved: {manning_ascii_path}")
 
     ctx["floodplain_friction_mode"] = "varying"

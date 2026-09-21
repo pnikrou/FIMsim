@@ -471,12 +471,12 @@ def create_bdy(ctx_path, ctx: dict,
     project_dir = Path(ctx["project_dir"])
     lisflood_dir = Path(ctx["lisflood_dir"])
     project_name = ctx["project_name"]
-    # Name the .bdy file after this AOI so each AOI's boundary file is
-    # uniquely identifiable.  ``next_free_path`` versions a re-run as
-    # "<AOI> (1).bdy", "<AOI> (2).bdy" … instead of overwriting.
+    # Named after this AOI, and REPLACED on a re-run.  Versioning produced
+    # "<AOI> (1).bdy", "<AOI> (2).bdy" … while the .par kept naming the
+    # original, so the newest boundary data ended up in a file the model never
+    # read.
     aoi_name = ctx.get("aoi_name") or project_name
-    from core.export import next_free_path
-    bdy_path = next_free_path(lisflood_dir, aoi_name, "bdy")
+    bdy_path = Path(lisflood_dir) / f"{aoi_name}.bdy"
     upstream_mode = ctx.get("upstream_mode")
     # Manual feature ID overrides the auto-detected one from the BCI step
     if manual_feature_id and str(manual_feature_id).strip():
@@ -760,7 +760,21 @@ def create_bdy(ctx_path, ctx: dict,
 
     else:  # "nwm" | "nwm_retro" | "nwm_forecast"
         if upstream_reach_id is None:
-            raise ValueError("upstream_reach_id not found in context. Run the BCI step first.")
+            raise ValueError(
+                f"No NWM reach is recorded for AOI '{ctx.get('aoi_name')}'. "
+                "Run the BCI step for this AOI first — it detects the main "
+                "river and its most upstream reach.\n"
+                "FIMsim will NOT fall back to another AOI's reach: that would "
+                "silently force this domain with a different river's "
+                "discharge.")
+        # The reach must belong to THIS AOI.  It used to be able to arrive from
+        # the parent project context, which holds the first AOI's reach, and a
+        # step that forgot to restore the per-AOI value would hand every case
+        # AOI #1's hydrograph without a word.  Recording it next to the result
+        # makes the substitution visible in the saved project if it recurs.
+        log_fn(f"Upstream reach for '{ctx.get('aoi_name')}': {upstream_reach_id}"
+               + (f" on {ctx['main_river_name']}" if ctx.get("main_river_name")
+                  else ""))
         start_ts = pd.Timestamp(start_dt)
         end_ts   = pd.Timestamp(end_dt)
         if bdy_source == "nwm_forecast":

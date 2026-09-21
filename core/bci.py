@@ -433,13 +433,10 @@ def create_bci(
         ctx["downstream_y"] = float(manual_downstream_y)
 
     # ── Write <AOI name>.bci ────────────────────────────────────────────────────
-    # The .bci file is named after this AOI so each AOI's boundary file is
-    # uniquely identifiable.  ``next_free_path`` versions a re-run as
-    # "<AOI> (1).bci", "<AOI> (2).bci" … instead of overwriting the previous
-    # file.  The PAR step reads the actual filename from ctx and writes it
-    # into the .par file.
-    from core.export import next_free_path
-    bci_path = next_free_path(lisflood_dir, aoi_name, "bci")
+    # Named after this AOI, and REPLACED on a re-run, for the same reason as
+    # the .bdy: the .par names exactly one .bci, so a versioned copy beside it
+    # is never the one the model reads.
+    bci_path = Path(lisflood_dir) / f"{aoi_name}.bci"
 
     if upstream_mode == "fixed_discharge":
         up_line = (
