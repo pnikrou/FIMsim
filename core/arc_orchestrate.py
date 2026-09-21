@@ -87,8 +87,7 @@ def run_arc_dem_all(
             # project ctx: re-running the DEM step otherwise overwrites
             # workflow_context.json and throws away the flowline and
             # streamflow keys later steps put there.
-            _, _saved = _load_feat_ctx(folder)
-            feat_ctx = {**dict(ctx), **(_saved or {})}
+            _, feat_ctx = _isolate_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
@@ -213,7 +212,7 @@ def run_arc_manning_for_all_aois(
             arc_dir = _arc_model_dir(folder)
             dem_dir = _arc_dem_dir(folder)
 
-            feat_ctx = dict(ctx)
+            _, feat_ctx = _isolate_feat_ctx(ctx, folder)
             feat_ctx["aoi_path"]          = feat["source_file"]
             feat_ctx["aoi_name"]          = feat["folder_name"]
             feat_ctx["aoi_feature_index"] = feat["feature_index"]
@@ -388,6 +387,40 @@ def _load_feat_ctx(folder: str) -> tuple:
                 feat_ctx = json.load(fr)
         except Exception:
             feat_ctx = {}
+    return feat_ctx_path, feat_ctx
+
+
+# Keys that describe ONE AOI's results.  ARC has no reach/boundary concept, so
+# it never hit the swap that bit LISFLOOD — but it seeded per-AOI contexts from
+# the parent the same way, which is how that bug became possible.  All three
+# orchestrators now strip these before restoring, so a value can only come from
+# the AOI that produced it.  Each model keeps its OWN list: the three workflows
+# are deliberately independent (see the module docstring).
+_PER_AOI_KEYS = (
+    "aoi_path", "aoi_name", "aoi_feature_index",
+    "working_crs_epsg", "working_crs_label",
+    "dem_path", "dem_tif_path", "dem_ascii_path", "dem_dir", "dem_res_m",
+    "dem_source", "dem_source_id", "dem_source_label", "dem_prepared",
+    "has_dem", "par_dem_name",
+    "arc_dir", "arc_flowline_path", "arc_flowline_count", "arc_flowline_source",
+    "arc_mannings_n_path", "arc_output_dir",
+    "nencarta_json_path", "nencarta_streamflow", "nencarta_flow_files",
+    "geoglows_vpu",
+)
+
+
+def _isolate_feat_ctx(ctx: dict, folder: str) -> tuple:
+    """Project-wide settings plus THIS AOI's own saved results.
+
+    Per-AOI keys are dropped from the parent before the AOI's file is read, so
+    a key the AOI has not produced stays ABSENT instead of silently holding a
+    neighbour's value.
+    """
+    feat_ctx_path, saved = _load_feat_ctx(folder)
+    feat_ctx = {k: v for k, v in (ctx or {}).items() if k not in _PER_AOI_KEYS}
+    for k in _PER_AOI_KEYS:
+        if k in (saved or {}):
+            feat_ctx[k] = saved[k]
     return feat_ctx_path, feat_ctx
 
 

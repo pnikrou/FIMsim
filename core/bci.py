@@ -271,9 +271,10 @@ def create_bci(
         if flowlines_clip.empty:
             raise RuntimeError("No flowlines remain after clipping to AOI.")
 
-        # Save diagnostic files — use next_free_path so re-runs don't crash
-        from core.export import next_free_path as _nfp
-        flowlines_path = _nfp(project_dir, f"NHD_flowlines_{aoi_name}", "gpkg")
+        # Diagnostic layer — REPLACED on a re-run like every other output, so
+        # a project does not accumulate NHD_flowlines_<aoi> (1).gpkg, (2) …
+        # that are indistinguishable from the current one.
+        flowlines_path = Path(project_dir) / f"NHD_flowlines_{aoi_name}.gpkg"
         if flowlines_path.exists():
             flowlines_path.unlink(missing_ok=True)
         flowlines_clip.to_file(flowlines_path, driver="GPKG")

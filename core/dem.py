@@ -914,7 +914,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                 has_dem: bool, user_dem_path=None,
                 dem_source: str = "3dep",
                 skip_ascii: bool = False,
-                overwrite_dem: bool = False,
+                overwrite_dem: bool = True,
                 log_fn=print):
     """Prepare DEM (download or use existing) and export ASCII.
 
@@ -929,6 +929,12 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         When `has_dem=True`, either a single path (str / Path) or a list of
         paths (tiles will be filtered to those overlapping the AOI and
         then merged by _clip_and_reproject).
+    overwrite_dem : bool
+        True (the default) REPLACES the AOI's DEM on a re-run.  Versioning was
+        the old behaviour and it was a trap: the .par names exactly one DEM, so
+        "DEM_x (1).tif" and "dem (1).ascii" accumulated beside the files the
+        model actually read.  Pass False only if you genuinely want every run
+        kept side by side.
     skip_ascii : bool
         When True, do NOT write a `.ascii` / `.asc` ESRI grid alongside the
         GeoTIFF.  LISFLOOD-FP and TRITON workflows leave this False (they
@@ -986,11 +992,11 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
             log_fn(f"  Note: you asked for {dem_res_m:g} m, finer than this "
                    f"source's native ≈{_native:g} m — the extra cells are "
                    f"interpolated, not measured.")
-    # ``next_free_path`` returns the canonical name (e.g. ``dem.ascii``)
-    # if it doesn't exist yet, otherwise ``dem (1).ascii``, ``dem (2)
-    # .ascii``, …  This keeps previous runs' outputs intact instead of
-    # overwriting them.
-    dem_ascii_path = next_free_path(model_dir, dem_ascii_stem, dem_ascii_ext)
+    # REPLACED on a re-run, like every other model input.  Versioning wrote
+    # "dem (1).ascii" while the .par went on naming "dem.ascii", so a re-run's
+    # terrain landed in a file LISFLOOD-FP and TRITON never read — the same
+    # trap the .bdy/.bci/.par had.
+    dem_ascii_path = Path(model_dir) / f"{dem_ascii_stem}.{dem_ascii_ext}"
 
     if has_dem and user_dem_path:
         # user_dem_path can be either a single path (str/Path) or a list of
