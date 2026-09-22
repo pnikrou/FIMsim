@@ -805,56 +805,78 @@ def run_dem_mode(
         fmt    = dem_formats[idx]    if dem_formats    and idx < len(dem_formats)    else out_format
         cell_m = dem_cell_sizes[idx] if dem_cell_sizes and idx < len(dem_cell_sizes) else dem_cell_size_m
         log_fn(f"▶ Running [{i}/{n}]: '{f.name}' ...")
-        ctx = _make_feature_ctx(project_dir, f)
-        ctx_path = _save_feature_ctx(ctx)
-
-        # 1. Run the selected DEM source pipeline.  skip_ascii=True so we
-        #    don't produce a stray .ascii file the user didn't request.
-        ctx = prepare_dem(
-            ctx_path=str(ctx_path), ctx=ctx,
-            dem_res_m=cell_m,
-            has_dem=False, user_dem_path=None,
-            dem_source=src,
-            skip_ascii=True,
-            log_fn=log_fn,
-        )
-
-        # 2. Export to user-requested format with a source-tagged filename,
-        #    auto-renaming (1), (2), … if the target already exists.
-        dem_tif = Path(ctx["dem_tif_path"])
-        src_tag = "HAND" if src == "hand" else "3DEP"
-        stem = f"DEM_{src_tag}_{f.folder_name}"
-        out_path = next_free_path(Path(f.folder_path), stem, fmt)
-        export_raster(
-            src_tif=str(dem_tif),
-            out_path=str(out_path),
-            out_format=fmt,
-            cell_size_m=cell_m,
-            log_fn=log_fn,
-        )
-
-        # 3. Remove the intermediate prepare_dem output now that we've
-        #    written the user-requested file — keep only ONE file in the
-        #    AOI folder (plus the cached raw download in its subfolder).
+        # One AOI must not take the batch down with it.  A ten-case run used to
+        # stop dead on the first failure — the remaining cases never started,
+        # and the banner named no AOI, so there was no way to tell which of the
+        # ten had the problem.  Every other orchestrator already works this way.
         try:
-            if dem_tif.resolve() != out_path.resolve() and dem_tif.exists():
-                dem_tif.unlink()
-                # Also drop the auxiliary .tif.aux.xml if rasterio wrote one
-                aux = dem_tif.with_suffix(dem_tif.suffix + ".aux.xml")
-                if aux.exists():
-                    aux.unlink()
-        except Exception as ex:
-            log_fn(f"  (kept intermediate {dem_tif.name}: {ex})")
+            ctx = _make_feature_ctx(project_dir, f)
+            ctx_path = _save_feature_ctx(ctx)
 
-        # Compact relative path: <project_folder>/<aoi_folder>/<filename>
-        rel_path = f"{project_dir.name}/{f.folder_name}/{out_path.name}"
-        log_fn(f"✓ Done [{i}/{n}]: {rel_path}")
-        summary["features"].append({
-            "name": f.name,
-            "folder": f.folder_path,
-            "dem_path": str(out_path),
-        })
-    log_fn(f"All {n} AOI(s) processed successfully.")
+            # 1. Run the selected DEM source pipeline.  skip_ascii=True so we
+            #    don't produce a stray .ascii file the user didn't request.
+            ctx = prepare_dem(
+                ctx_path=str(ctx_path), ctx=ctx,
+                dem_res_m=cell_m,
+                has_dem=False, user_dem_path=None,
+                dem_source=src,
+                skip_ascii=True,
+                log_fn=log_fn,
+            )
+
+            # 2. Export to user-requested format with a source-tagged filename,
+            #    auto-renaming (1), (2), … if the target already exists.
+            dem_tif = Path(ctx["dem_tif_path"])
+            src_tag = "HAND" if src == "hand" else "3DEP"
+            stem = f"DEM_{src_tag}_{f.folder_name}"
+            out_path = next_free_path(Path(f.folder_path), stem, fmt)
+            export_raster(
+                src_tif=str(dem_tif),
+                out_path=str(out_path),
+                out_format=fmt,
+                cell_size_m=cell_m,
+                log_fn=log_fn,
+            )
+
+            # 3. Remove the intermediate prepare_dem output now that we've
+            #    written the user-requested file — keep only ONE file in the
+            #    AOI folder (plus the cached raw download in its subfolder).
+            try:
+                if dem_tif.resolve() != out_path.resolve() and dem_tif.exists():
+                    dem_tif.unlink()
+                    # Also drop the auxiliary .tif.aux.xml if rasterio wrote one
+                    aux = dem_tif.with_suffix(dem_tif.suffix + ".aux.xml")
+                    if aux.exists():
+                        aux.unlink()
+            except Exception as ex:
+                log_fn(f"  (kept intermediate {dem_tif.name}: {ex})")
+
+            # Compact relative path: <project_folder>/<aoi_folder>/<filename>
+            rel_path = f"{project_dir.name}/{f.folder_name}/{out_path.name}"
+            log_fn(f"✓ Done [{i}/{n}]: {rel_path}")
+            summary["features"].append({
+                "name": f.name,
+                "folder": f.folder_path,
+                "dem_path": str(out_path),
+            })
+        except Exception as _aoi_exc:
+            import traceback
+            log_fn(f"✗ FAILED [{i}/{n}]: '{f.name}' — {_aoi_exc}")
+            log_fn(traceback.format_exc())
+            summary["features"].append({
+                "name": f.name,
+                "folder": f.folder_path,
+                "failed": True,
+                "error": str(_aoi_exc),
+            })
+
+    done = [x for x in summary["features"] if not x.get("failed")]
+    bad  = [x for x in summary["features"] if x.get("failed")]
+    if bad:
+        log_fn(f"Finished: {len(done)} of {n} AOI(s) succeeded. "
+               f"Failed: {', '.join(x['name'] for x in bad)}")
+    else:
+        log_fn(f"All {n} AOI(s) processed successfully.")
     return summary
 
 

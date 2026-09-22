@@ -281,10 +281,30 @@ def download_hand_for_aoi(aoi_gdf, cache_dir, log_fn=print) -> List[Path]:
     Each call reads ONLY the AOI's bbox-sized window via /vsicurl/.  Returns
     a list of local GeoTIFF paths suitable for `_clip_and_reproject`.
     """
+    # Distinguish the two ways this can come back empty.  They need different
+    # actions from the user, and "no HUC6 intersects" was being shown for both.
+    n_rows = 0 if aoi_gdf is None else len(aoi_gdf)
+    empty_geom = (n_rows == 0) or bool(aoi_gdf.geometry.is_empty.all())
+    where = ""
+    if not empty_geom:
+        try:
+            b = aoi_gdf.to_crs(4326).total_bounds
+            where = (f" The AOI covers {b[1]:.3f}–{b[3]:.3f}°N, "
+                     f"{b[0]:.3f}–{b[2]:.3f}°W.")
+        except Exception:
+            pass
+    if empty_geom:
+        raise RuntimeError(
+            "The AOI has no usable geometry — it read back as "
+            f"{n_rows} feature(s) with an empty shape, so nothing can "
+            "intersect it. This is a problem with the AOI itself, not with "
+            "HAND coverage: re-select the AOI in Step 2 and check the "
+            "shapefile opens in a GIS.")
+
     codes = find_huc6_for_aoi(aoi_gdf, log_fn=log_fn)
     if not codes:
         raise RuntimeError(
-            "No HUC6 region intersects the AOI — HAND source is only "
+            f"No HUC6 region intersects this AOI.{where} HAND is only "
             "available for the continental US.\n"
             "Use the 3DEP source or supply a user DEM."
         )
