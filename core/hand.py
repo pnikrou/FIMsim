@@ -132,6 +132,20 @@ def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
                    f"{type(exc).__name__})")
 
     codes = sorted({str(c).zfill(6) for c in hits["huc6"].tolist()})
+
+    # Drop regions HAND does not publish, and name them — "0 HUC6 regions" for
+    # an AOI in Hawaii is true but unhelpful, and letting it through means a
+    # 404 part way into the download instead.
+    outside = _outside_conus(codes)
+    served = [c for c in codes if c[:2] in _CONUS_HUC2]
+    if outside and not served:
+        log_fn(f"AOI is in {', '.join(outside)} — HAND has no data there.")
+        return []
+    if outside:
+        log_fn(f"  Note: part of this AOI is in {', '.join(outside)}, which "
+               f"HAND does not cover; only the continental part will be used.")
+    codes, hits = served, hits[hits["huc6"].astype(str).str.zfill(6).isin(served)]
+
     log_fn(f"AOI intersects {len(codes)} HUC6 region(s): {', '.join(codes) or '(none)'}")
     if hits.empty:
         return []
@@ -139,6 +153,50 @@ def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
     for _, row in hits.drop_duplicates(subset=["huc6"]).iterrows():
         log_fn(f"  • {row['huc6']}  {row.get('name', '')}  ({row.get('states', '')})")
     return codes
+
+
+# HAND is published for the continental US only.  The bundled HUC6 layer is the
+# full national set, so it also contains Alaska, Hawaii and the Caribbean — and
+# TACC returns 404 for every one of those (verified: 190604, 200100, 210100 and
+# 220100 all 404, while 010100 … 180500 all return 200).  Matching an AOI to a
+# HUC6 is therefore not the same question as HAND being able to serve it.
+_CONUS_HUC2 = {f"{i:02d}" for i in range(1, 19)}      # 01–18
+_NON_CONUS_REGIONS = {
+    "19": "Alaska", "20": "Hawaii",
+    "21": "Puerto Rico and the US Virgin Islands",
+    "22": "the Pacific islands (Guam, American Samoa, …)",
+}
+
+
+def _outside_conus(codes):
+    """Human-readable names for any HUC6 codes HAND does not publish."""
+    return sorted({_NON_CONUS_REGIONS[c[:2]] for c in codes
+                   if c[:2] in _NON_CONUS_REGIONS})
+
+
+def hand_covers(aoi_source, feature_index=0) -> bool:
+    """True when HAND has data for this AOI.
+
+    HAND is published per HUC6 and only covers the continental US, so an AOI
+    anywhere else can never be served.  That is knowable the moment the AOI is
+    chosen — the boundary layer is bundled and the test is arithmetic — so the
+    UI can say so instead of letting a download start and fail.
+
+    Takes a path (or a GeoDataFrame) and never raises: an AOI that cannot even
+    be read is reported as "no coverage", which is the safe answer for a
+    yes/no shown beside a source picker.
+    """
+    try:
+        if isinstance(aoi_source, gpd.GeoDataFrame):
+            gdf = aoi_source
+        else:
+            from core.vector_io import read_vector
+            gdf = read_vector(str(aoi_source), log_fn=lambda m: None)
+            if feature_index is not None and len(gdf) > 1:
+                gdf = gdf.iloc[[int(feature_index)]]
+        return bool(find_huc6_for_aoi(gdf, log_fn=lambda m: None))
+    except Exception:
+        return False
 
 
 def download_hand_tile(huc6: str, out_path: Path, log_fn=print) -> Path:

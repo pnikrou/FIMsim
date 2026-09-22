@@ -29,10 +29,16 @@ class _AOIDEMCard(QFrame):
         "border-radius:6px; padding:4px; }"
     )
 
-    def __init__(self, aoi_name: str, parent=None):
+    def __init__(self, aoi_name: str, parent=None, hand_available: bool = True,
+                 hand_reason: str = ""):
         super().__init__(parent)
         self.setObjectName("card")
         self._aoi_name = aoi_name
+        # Whether HAND can serve THIS AOI.  Known the moment the AOI is chosen
+        # (the boundary layer is bundled), so the user is told here rather than
+        # part way into a download.
+        self._hand_available = bool(hand_available)
+        self._hand_reason = hand_reason
         self._expanded = False
         self._build_ui()
         self.setStyleSheet(self._COLLAPSED)
@@ -138,6 +144,15 @@ class _AOIDEMCard(QFrame):
         self._status_lbl.setText(f"{spec['short']}  ·  {fmt}  ·  {cell:.0f} m")
 
         notes = []
+        if sid == "hand" and not self._hand_available:
+            self._cov_lbl.setText(
+                f"⚠ HAND has no data for this AOI{self._hand_reason}. "
+                f"Choose a 3DEP source or supply your own DEM — this AOI will "
+                f"fail if you run it with HAND.")
+            self._cov_lbl.setStyleSheet("font-size:11px; color:#c53030;")
+            self._cov_lbl.setVisible(True)
+            return
+        self._cov_lbl.setStyleSheet("font-size:11px; color:#975a16;")
         if spec["coverage"] == "partial":
             notes.append(f"{spec['short']} is flown project by project and "
                          "covers only part of the country — if none exists "
@@ -424,7 +439,24 @@ class ModeDEMWidget(QWidget):
         self._aoi_dem_cards = []
 
         for f in features:
-            card = _AOIDEMCard(f.name, self)
+            # Cheap: bundled boundaries, arithmetic only, no network.
+            try:
+                from core.hand import hand_covers, find_huc6_for_aoi
+                from core.vector_io import read_vector
+                _g = read_vector(f.source_file, log_fn=lambda m: None)
+                if f.feature_index is not None and len(_g) > 1:
+                    _g = _g.iloc[[int(f.feature_index)]]
+                _msgs = []
+                find_huc6_for_aoi(_g, log_fn=_msgs.append)
+                _ok = hand_covers(_g)
+                _why = ""
+                for _m in _msgs:
+                    if "HAND has no data there" in _m:
+                        _why = " — it is in " + _m.split("AOI is in ")[-1].split(" —")[0]
+                        break
+            except Exception:
+                _ok, _why = True, ""        # never block on a failed check
+            card = _AOIDEMCard(f.name, self, hand_available=_ok, hand_reason=_why)
             card.expand_requested.connect(self._on_card_expand_requested)
             self._aoi_cards_layout.addWidget(card)
             self._aoi_dem_cards.append(card)
