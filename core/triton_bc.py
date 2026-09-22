@@ -40,8 +40,9 @@ import geopandas as gpd
 import numpy as np
 import rasterio
 from shapely.geometry import Point, LineString, MultiLineString
-from shapely.ops import linemerge
+from shapely.ops import linemerge, unary_union
 
+from core.bci import _longest_connected_m
 from core.context import save_context
 from core.nhd_utils import _nhd_bygeom, _extend_to_boundary, _extrapolate_to_dem_bounds
 
@@ -120,7 +121,23 @@ def _build_main_river(flowlines_clip):
     ).reset_index(drop=True)
 
     spanning = summary[summary["span_m"] >= min_span_m]
-    chosen   = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
+
+    # Same guard as core/bci.py: a bounding-box diagonal measures how far apart
+    # a candidate's pieces lie, not how much river is there, so scattered
+    # fragments can out-rank a whole river (Test07_MO: 8 unnamed fragments,
+    # 2.2 km of channel, beat the 13.3 km Saint Francis River by 21 m of span).
+    # Walk the SAME ranking and skip only candidates whose longest connected run
+    # cannot cross the domain — a real river clears it on the first test, so a
+    # case that already chooses correctly is unaffected.
+    chosen = None
+    for _, cand in spanning.iterrows():
+        mask = ((gdf["StreamOrde"] == cand["stream_order"])
+                & (gdf["river_name"] == cand["river_name"]))
+        if _longest_connected_m(gdf[mask]) >= min_span_m:
+            chosen = cand
+            break
+    if chosen is None:
+        chosen = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
 
     main_river_name     = chosen["river_name"]
     main_order          = int(chosen["stream_order"])

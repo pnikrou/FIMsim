@@ -7,7 +7,7 @@ import geopandas as gpd
 import numpy as np
 import rasterio
 from shapely.geometry import Point, LineString, MultiLineString
-from shapely.ops import linemerge
+from shapely.ops import linemerge, unary_union
 
 from core.context import save_context
 from core.nhd_utils import _nhd_bygeom, _extend_to_boundary, _extrapolate_to_dem_bounds
@@ -50,6 +50,34 @@ def _sample_dem(dem_path, x, y):
     return float(val) if np.isfinite(val) else np.nan
 
 
+def _longest_connected_m(segments) -> float:
+    """Length of the longest UNBROKEN run through a set of stream segments.
+
+    Answers "does this candidate actually cross the domain?", which neither
+    total length nor bounding-box diagonal can: total length adds up fragments
+    that never touch, and a diagonal measures how far apart they lie.  Only a
+    connected run can carry a boundary condition at each end.
+    """
+    if segments is None or len(segments) == 0:
+        return float("inf")
+    try:
+        geoms = [g for g in segments.geometry if g is not None and not g.is_empty]
+        if not geoms:
+            return float("inf")
+        # linemerge RAISES on a bare LineString ("Cannot linemerge LINESTRING
+        # (...)"), so a single-segment river must not be passed to it — that
+        # read as "connected length 0" and skipped a perfectly good river.
+        u = unary_union(geoms)
+        merged = u if isinstance(u, LineString) else linemerge(u)
+        parts = list(merged.geoms) if hasattr(merged, "geoms") else [merged]
+        return max(float(p.length) for p in parts) if parts else 0.0
+    except Exception:
+        # An unexpected geometry must never change which river is chosen, so
+        # fail towards the ORIGINAL behaviour: +inf always clears the guard,
+        # leaving the existing ranking to decide exactly as it did before.
+        return float("inf")
+
+
 def _build_main_river(flowlines_clip):
     if "StreamOrde" not in flowlines_clip.columns:
         raise ValueError("StreamOrde field not found in clipped flowlines.")
@@ -88,7 +116,38 @@ def _build_main_river(flowlines_clip):
     ).reset_index(drop=True)
 
     spanning = summary[summary["span_m"] >= min_span_m]
-    chosen   = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
+
+    # The ranking above is unchanged and decides every ordinary case.  One
+    # situation it cannot see is a candidate whose segments are SCATTERED: a
+    # bounding-box diagonal measures how far apart the pieces lie, not how much
+    # river is there, so a handful of fragments can out-rank a whole river.
+    #
+    # Test07_MO is that case.  Two order-5 candidates:
+    #
+    #     "Unnamed"              8 segs   2,203 m of channel   span 11,384 m
+    #     Saint Francis River   14 segs  13,311 m of channel   span 11,362 m
+    #
+    # "Unnamed" won by 21 m of span — 0.2% — with one sixth of the river.  Its
+    # longest CONNECTED run is 1,181 m; the Saint Francis River is a single
+    # unbroken 13,311 m line through the domain.  BCI then has 21 disconnected
+    # pieces and no upstream or downstream end to put a boundary on, so it
+    # produces nothing at all.
+    #
+    # So: walk the existing ranking in its existing order and skip only those
+    # candidates that cannot form a river line — judged by their longest
+    # connected run against the SAME 30% threshold the span test already uses.
+    # A candidate that is a real river passes on the first test, which is why
+    # this cannot change a case that is already choosing correctly.  If none
+    # qualifies, the original pick stands untouched.
+    chosen = None
+    for _, cand in spanning.iterrows():
+        mask = ((gdf["StreamOrde"] == cand["stream_order"])
+                & (gdf["river_name"] == cand["river_name"]))
+        if _longest_connected_m(gdf[mask]) >= min_span_m:
+            chosen = cand
+            break
+    if chosen is None:
+        chosen = spanning.iloc[0] if not spanning.empty else summary.iloc[0]
 
     main_river_name     = chosen["river_name"]
     main_order          = int(chosen["stream_order"])
