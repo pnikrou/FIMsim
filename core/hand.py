@@ -91,7 +91,8 @@ def _aoi_bounds_in(aoi_gdf, epsg: int):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
+def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print,
+                      conus_only: bool = True) -> List[str]:
     """Return the 6-digit HUC6 codes covering the AOI.
 
     Selection is by BOUNDING BOX, compared numerically against the boundary
@@ -136,8 +137,12 @@ def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
     # Drop regions HAND does not publish, and name them — "0 HUC6 regions" for
     # an AOI in Hawaii is true but unhelpful, and letting it through means a
     # 404 part way into the download instead.
-    outside = _outside_conus(codes)
-    served = [c for c in codes if c[:2] in _CONUS_HUC2]
+    # conus_only is about HAND, not about the HUC system.  Alaska, Hawaii and
+    # the Caribbean have perfectly real HUC6 codes; HAND simply does not publish
+    # tiles for them.  Callers asking "which HUC6 is this AOI in?" — the AOI
+    # step, for instance — must get the true answer.
+    outside = _outside_conus(codes) if conus_only else []
+    served = [c for c in codes if c[:2] in _CONUS_HUC2] if conus_only else codes
     if outside and not served:
         log_fn(f"AOI is in {', '.join(outside)} — HAND has no data there.")
         return []

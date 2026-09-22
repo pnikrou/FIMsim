@@ -79,24 +79,41 @@ def lookup_huc6(aoi_path: str, feature_index: int, log_fn=print) -> List[str]:
     if key in _HUC6_CACHE:
         return _HUC6_CACHE[key]
 
-    # First, try the bundled HUC6 GeoJSON (offline, instant)
+    # Bundled HUC6 boundaries — offline and instant.
+    #
+    # This used to run its own gpd.sjoin, which is the operation that made the
+    # HAND lookup report "no coverage" for AOIs sitting squarely in Missouri:
+    # one invalid polygon in the 407-region layer can make GEOS throw part way
+    # through a predicate, and an empty result is indistinguishable from an AOI
+    # outside the US.  Here it was worse than a wrong answer — an empty result
+    # fell through to the network WITHOUT a word, pynhd was handed the geometry
+    # that had just failed, and the log filled with POLYGON EMPTY while the AOI
+    # simply never showed a HUC6 line at all.
+    #
+    # core.hand.find_huc6_for_aoi now answers this by arithmetic, so there is no
+    # reason for a second implementation: one lookup, one behaviour.
+    bundled_ok = False
     try:
-        from core.hand import _load_huc6_boundaries
-        huc_gdf = _load_huc6_boundaries()
+        from core.hand import find_huc6_for_aoi
         feature, _ = _aoi_geom_4326_for(aoi_path, feature_index)
-        feature_in_huc_crs = feature.to_crs(huc_gdf.crs)
-        import geopandas as gpd
-        hits = gpd.sjoin(
-            huc_gdf, feature_in_huc_crs[["geometry"]],
-            how="inner", predicate="intersects",
-        )
-        if not hits.empty:
-            codes = sorted({str(c).zfill(6) for c in hits["huc6"].tolist()})
+        codes = find_huc6_for_aoi(feature, log_fn=lambda m: None,
+                                  conus_only=False)
+        bundled_ok = True
+        if codes:
             _HUC6_CACHE[key] = codes
             log_fn(f"  HUC6: {', '.join(codes)} (bundled)")
             return codes
     except Exception as ex:
         log_fn(f"HUC6 bundled lookup failed ({ex}) — falling back to network.")
+
+    if bundled_ok:
+        # The boundaries loaded and genuinely contain nothing here, so the AOI
+        # is outside the HUC system.  Asking the network the same question only
+        # produces the POLYGON EMPTY errors seen in the log.
+        log_fn("  HUC6: none — the AOI is outside the US hydrologic unit "
+               "map (HUC codes cover the US only).")
+        _HUC6_CACHE[key] = []
+        return []
 
     # Fallback: pynhd
     try:
@@ -142,11 +159,25 @@ def lookup_huc8(aoi_path: str, feature_index: int, log_fn=print) -> List[str]:
         huc_gdf = _load_huc8_boundaries()
         if huc_gdf is not None:
             feature, _ = _aoi_geom_4326_for(aoi_path, feature_index)
-            feature_in_huc_crs = feature.to_crs(huc_gdf.crs)
-            hits = gpd.sjoin(
-                huc_gdf, feature_in_huc_crs[["geometry"]],
-                how="inner", predicate="intersects",
-            )
+            # Bounding-box overlap, for the same reason as HUC6: a gpd.sjoin
+            # over a national boundary layer can throw inside GEOS on one bad
+            # polygon, and an empty result then reads as "this AOI is nowhere".
+            # Arithmetic cannot fail that way.
+            from core.hand import _aoi_bounds_in
+            _epsg = huc_gdf.crs.to_epsg() or 4326
+            _minx, _miny, _maxx, _maxy = _aoi_bounds_in(feature, _epsg)
+            _b = huc_gdf.geometry.bounds
+            hits = huc_gdf[(_b["minx"] <= _maxx) & (_b["maxx"] >= _minx)
+                           & (_b["miny"] <= _maxy) & (_b["maxy"] >= _miny)]
+            if len(hits) > 1:
+                try:
+                    from shapely.geometry import box as _box
+                    _precise = hits[hits.geometry.intersects(
+                        _box(_minx, _miny, _maxx, _maxy))]
+                    if not _precise.empty:
+                        hits = _precise
+                except Exception:
+                    pass
             if not hits.empty:
                 col = "huc8" if "huc8" in hits.columns else next(
                     (c for c in hits.columns if c.lower() == "huc8"), None
