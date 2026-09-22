@@ -52,54 +52,84 @@ def _load_huc6_boundaries() -> gpd.GeoDataFrame:
                 f"HUC6 boundary file not found: {HUC6_DATA_PATH}\n"
                 "This file is required for HAND source lookup."
             )
-        _HUC6_GDF = gpd.read_file(HUC6_DATA_PATH)
+        gdf = gpd.read_file(HUC6_DATA_PATH)
+        # One of the 407 regions (180500) is an invalid polygon.  A single bad
+        # geometry can make GEOS throw part way through a predicate over the
+        # whole layer — "Points of LinearRing do not form a closed linestring" —
+        # and the failure lands on whatever AOI happened to be asking.  Repair
+        # it once, here, rather than leaving it to surface unpredictably.
+        try:
+            bad = ~gdf.geometry.is_valid
+            if bad.any():
+                gdf.loc[bad, "geometry"] = gdf.loc[bad, "geometry"].buffer(0)
+        except Exception:
+            pass
+        _HUC6_GDF = gdf
     return _HUC6_GDF
 
 
-def _sjoin_huc6(huc_gdf, aoi_gdf):
-    """Spatial join of the AOI against the HUC6 layer, in the layer's CRS."""
-    aoi_proj = aoi_gdf.to_crs(huc_gdf.crs)
-    return gpd.sjoin(huc_gdf, aoi_proj[["geometry"]], how="inner",
-                     predicate="intersects")
+def _aoi_bounds_in(aoi_gdf, epsg: int):
+    """AOI bounds in ``epsg``, transformed WITHOUT touching GEOS.
+
+    Only the four corner coordinates go through pyproj, so a polygon GEOS
+    dislikes — an unclosed ring, a self-intersection — cannot make this fail.
+    The geometry engine was never needed to answer "where is this AOI".
+    """
+    from pyproj import Transformer
+
+    b = aoi_gdf.total_bounds                      # minx, miny, maxx, maxy
+    src = aoi_gdf.crs
+    if src is None:
+        raise ValueError("The AOI has no CRS, so its location cannot be found.")
+    src_str = src.to_wkt() if hasattr(src, "to_wkt") else str(src)
+    t = Transformer.from_crs(src_str, f"EPSG:{int(epsg)}", always_xy=True)
+    xs, ys = t.transform([b[0], b[2], b[0], b[2]], [b[1], b[1], b[3], b[3]])
+    if not all(np.isfinite(v) for v in list(xs) + list(ys)):
+        raise ValueError(
+            f"The AOI's corners did not transform to EPSG:{epsg} "
+            f"(got {list(xs)}, {list(ys)}) — check the AOI's CRS.")
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
-    """Return a list of 6-digit HUC6 codes covering the AOI.
+    """Return the 6-digit HUC6 codes covering the AOI.
 
-    The AOI is reprojected to the HUC6 CRS (EPSG:4269) for the spatial join.
-    Returns an empty list if no HUC6 intersects (e.g. AOI outside CONUS).
+    Selection is by BOUNDING BOX, compared numerically against the boundary
+    layer's own bounds.  It used to be a gpd.sjoin, which reported "0 HUC6
+    regions" — indistinguishable from an AOI outside the US — whenever anything
+    in the geometry engine misbehaved.  Two Missouri AOIs failed that way while
+    seven others in the same run succeeded, and the re-check finally named the
+    reason: "Points of LinearRing do not form a closed linestring", thrown from
+    inside GEOS over a layer holding one invalid polygon.
+
+    A rectangle-overlap test is pure arithmetic: it cannot throw, cannot depend
+    on process state, and for a HUC6 region against an AOI bbox it is the same
+    answer a precise intersects would give in all but pathological cases.  The
+    precise test is still applied afterwards to trim candidates, but only as a
+    refinement — if it fails, the bbox answer stands rather than the run being
+    told the AOI is outside the country.
     """
     huc_gdf = _load_huc6_boundaries()
-    hits = _sjoin_huc6(huc_gdf, aoi_gdf)
+    minx, miny, maxx, maxy = _aoi_bounds_in(aoi_gdf, 4269)
 
-    # A zero result is worth a second opinion before it is believed.
-    #
-    # FIMsim runs this while the AOI step's river and gage lookups are still
-    # reprojecting the same AOIs on other threads, and PROJ/geometry state is
-    # shared across the process.  Two AOIs in EPSG:32615 came back with no HUC6
-    # in a run where the identical lookup succeeded seven times, and the same
-    # session sent POLYGON EMPTY to the USGS service from a background thread —
-    # the same symptom, a reprojection that yields a geometry intersecting
-    # nothing.  Neither reproduces single-threaded.
-    #
-    # So the retry rebuilds BOTH sides from scratch: the boundary layer is
-    # re-read from disk (in case the cached one is the corrupted party) and the
-    # join is redone in EPSG:4326 through freshly built geometry.  This runs
-    # only when the first attempt found nothing, so it cannot change a lookup
-    # that already succeeded — and an AOI genuinely outside CONUS still comes
-    # back empty, just a second later.
-    if hits.empty:
+    hb = huc_gdf.geometry.bounds                  # per-polygon minx/miny/maxx/maxy
+    overlaps = ((hb["minx"] <= maxx) & (hb["maxx"] >= minx)
+                & (hb["miny"] <= maxy) & (hb["maxy"] >= miny))
+    hits = huc_gdf[overlaps]
+
+    # Refine: a bbox can straddle a neighbouring region it does not really
+    # touch.  Guarded, because a GEOS failure here must not turn coverage into
+    # "no coverage" — that is exactly the bug this function is recovering from.
+    if len(hits) > 1:
         try:
-            fresh = gpd.read_file(HUC6_DATA_PATH)
-            retry = _sjoin_huc6(fresh.to_crs(4326), aoi_gdf.to_crs(4326))
+            from shapely.geometry import box
+            aoi_box = box(minx, miny, maxx, maxy)
+            precise = hits[hits.geometry.intersects(aoi_box)]
+            if not precise.empty:
+                hits = precise
         except Exception as exc:
-            log_fn(f"  (re-check of the HUC6 lookup failed: {exc})")
-            retry = hits
-        if not retry.empty:
-            log_fn("  ⚠ The first HUC6 lookup found nothing and the re-check "
-                   "found coverage — the first reprojection was bad. Using the "
-                   "re-check.")
-            hits = retry
+            log_fn(f"  (using bounding-box overlap; the precise test failed: "
+                   f"{type(exc).__name__})")
 
     codes = sorted({str(c).zfill(6) for c in hits["huc6"].tolist()})
     log_fn(f"AOI intersects {len(codes)} HUC6 region(s): {', '.join(codes) or '(none)'}")
