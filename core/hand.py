@@ -56,6 +56,13 @@ def _load_huc6_boundaries() -> gpd.GeoDataFrame:
     return _HUC6_GDF
 
 
+def _sjoin_huc6(huc_gdf, aoi_gdf):
+    """Spatial join of the AOI against the HUC6 layer, in the layer's CRS."""
+    aoi_proj = aoi_gdf.to_crs(huc_gdf.crs)
+    return gpd.sjoin(huc_gdf, aoi_proj[["geometry"]], how="inner",
+                     predicate="intersects")
+
+
 def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
     """Return a list of 6-digit HUC6 codes covering the AOI.
 
@@ -63,10 +70,37 @@ def find_huc6_for_aoi(aoi_gdf: gpd.GeoDataFrame, log_fn=print) -> List[str]:
     Returns an empty list if no HUC6 intersects (e.g. AOI outside CONUS).
     """
     huc_gdf = _load_huc6_boundaries()
-    aoi_proj = aoi_gdf.to_crs(huc_gdf.crs)
-    hits = gpd.sjoin(
-        huc_gdf, aoi_proj[["geometry"]], how="inner", predicate="intersects"
-    )
+    hits = _sjoin_huc6(huc_gdf, aoi_gdf)
+
+    # A zero result is worth a second opinion before it is believed.
+    #
+    # FIMsim runs this while the AOI step's river and gage lookups are still
+    # reprojecting the same AOIs on other threads, and PROJ/geometry state is
+    # shared across the process.  Two AOIs in EPSG:32615 came back with no HUC6
+    # in a run where the identical lookup succeeded seven times, and the same
+    # session sent POLYGON EMPTY to the USGS service from a background thread —
+    # the same symptom, a reprojection that yields a geometry intersecting
+    # nothing.  Neither reproduces single-threaded.
+    #
+    # So the retry rebuilds BOTH sides from scratch: the boundary layer is
+    # re-read from disk (in case the cached one is the corrupted party) and the
+    # join is redone in EPSG:4326 through freshly built geometry.  This runs
+    # only when the first attempt found nothing, so it cannot change a lookup
+    # that already succeeded — and an AOI genuinely outside CONUS still comes
+    # back empty, just a second later.
+    if hits.empty:
+        try:
+            fresh = gpd.read_file(HUC6_DATA_PATH)
+            retry = _sjoin_huc6(fresh.to_crs(4326), aoi_gdf.to_crs(4326))
+        except Exception as exc:
+            log_fn(f"  (re-check of the HUC6 lookup failed: {exc})")
+            retry = hits
+        if not retry.empty:
+            log_fn("  ⚠ The first HUC6 lookup found nothing and the re-check "
+                   "found coverage — the first reprojection was bad. Using the "
+                   "re-check.")
+            hits = retry
+
     codes = sorted({str(c).zfill(6) for c in hits["huc6"].tolist()})
     log_fn(f"AOI intersects {len(codes)} HUC6 region(s): {', '.join(codes) or '(none)'}")
     if hits.empty:
