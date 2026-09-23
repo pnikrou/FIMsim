@@ -240,6 +240,17 @@ def _create_manning_from_lulc(lulc_tif, manning_tif, mapping):
 
 
 def _download_lulc_to_dem_grid(aoi_gdf, snap_path, lulc_year, out_lulc_path, log_fn):
+    # The service answers an unknown year with HTTP 200 and an all-zero raster
+    # rather than an error — asking for 2026 returned a full tile of nodata —
+    # so an unchecked year produces a blank land cover and a Manning grid built
+    # from nothing.  The dropdown only offers real years; this catches every
+    # other route in (a saved project, an older context, a direct call).
+    from core.nlcd import SENTINEL2_YEARS
+    if str(lulc_year) not in SENTINEL2_YEARS:
+        raise ValueError(
+            f"The ESRI Sentinel-2 10 m land cover has no data for "
+            f"{lulc_year}. Available years: {', '.join(SENTINEL2_YEARS)}.")
+
     IMAGE_SERVER_URL = "https://ic.imagery1.arcgis.com/arcgis/rest/services/Sentinel2_10m_LandCover/ImageServer"
     EXPORT_URL = IMAGE_SERVER_URL + "/exportImage"
     PIXEL_SIZE_3857 = 10.0
@@ -477,6 +488,17 @@ def prepare_manning(ctx_path, ctx: dict,
         if lulc_nodata is not None:
             vals = vals[vals != lulc_nodata]
         log_fn(f"Unique LULC classes: {vals.tolist()}")
+        # A land cover with no classes is not a Manning grid waiting to happen,
+        # it is a failed download wearing the right file name.  The ESRI service
+        # returns nodata rather than an error when it has nothing for a year or
+        # an area, so this is the last place to notice before every cell gets a
+        # fallback roughness and the run looks fine.
+        if vals.size == 0 or (vals.size == 1 and int(vals[0]) == 0):
+            raise RuntimeError(
+                f"The downloaded land cover for this AOI is empty — every cell "
+                f"is nodata, so no Manning value can be derived from it. The "
+                f"source returned a blank raster rather than an error; check "
+                f"the year and that the AOI is inside its coverage.")
 
         log_fn("Creating Manning raster from LULC...")
         _create_manning_from_lulc(lulc_path, manning_tif_path, mapping)

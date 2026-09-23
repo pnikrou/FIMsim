@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QComboBox, QDoubleSpinBox, QWidget, QGroupBox, QSizePolicy,
 )
+from core.nlcd import NLCD_YEARS, SENTINEL2_YEARS
 from PyQt6.QtCore import pyqtSignal
 
 from gui.manning_table_widget import ManningTableWidget
@@ -116,14 +117,14 @@ class AOILulcCard(QFrame):
         # NLCD year row  (all official NLCD releases via MRLC WMS)
         self._nlcd_year_lbl = QLabel("NLCD year:")
         self._nlcd_year = QComboBox()
-        for y in ("2021", "2019", "2016", "2013", "2011", "2008", "2006", "2004", "2001"):
+        for y in NLCD_YEARS:
             self._nlcd_year.addItem(y, y)
         form.addRow(self._nlcd_year_lbl, self._nlcd_year)
 
         # Sentinel-2 / ESRI year row  (ESRI Sentinel-2 10m LULC: 2017 – 2023)
         self._s2_year_lbl = QLabel("Sentinel-2 year:")
         self._s2_year = QComboBox()
-        for y in ("2023", "2022", "2021", "2020", "2019", "2018", "2017"):
+        for y in SENTINEL2_YEARS:
             self._s2_year.addItem(y, y)
         form.addRow(self._s2_year_lbl, self._s2_year)
 

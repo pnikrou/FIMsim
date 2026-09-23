@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QPushButton, QDoubleSpinBox,
     QComboBox, QFileDialog,
 )
+from core.nlcd import NLCD_YEARS, SENTINEL2_YEARS
 from PyQt6.QtCore import pyqtSignal, Qt
 
 from core.nlcd import NLCD_MANNING, SENTINEL2_MANNING
@@ -170,14 +171,15 @@ class ManningConfigPanel(QWidget):
         self._year_combo.clear()
         if src == "nlcd":
             # Every NLCD epoch the MRLC WMS serves (core.nlcd._NLCD_LAYERS).
-            self._year_combo.addItems(
-                ["2021", "2019", "2016", "2013", "2011",
-                 "2008", "2006", "2004", "2001"])
+            self._year_combo.addItems(list(NLCD_YEARS))
             self._table.set_table_data(NLCD_MANNING)
         elif src == "esri":
-            for yr in range(2017, 2025):
+            for yr in SENTINEL2_YEARS:
                 self._year_combo.addItem(str(yr))
-            self._year_combo.setCurrentIndex(self._year_combo.count() - 1)
+            # SENTINEL2_YEARS is newest-first, so the newest is index 0.  This
+            # used to be count()-1, which was the newest only because the old
+            # range() ran oldest-first — the same line would now pick 2017.
+            self._year_combo.setCurrentIndex(0)
             self._table.set_table_data(SENTINEL2_MANNING)
         self._year_combo.blockSignals(False)
 

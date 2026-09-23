@@ -67,6 +67,32 @@ _NLCD_LAYERS = {
 }
 
 
+# The years each source actually publishes — ONE definition, so the three GUI
+# panels that offer a year cannot drift apart.  They had: 2001-2021 in the LULC
+# parameters card, only 2021/2019/2016 in the LISFLOOD Manning panel, and
+# 2017-2024 for Sentinel-2 where the service holds 2017-2025.
+#
+# Verified against the services themselves on 2026-09-23, not from documentation:
+#
+#   NLCD       MRLC WMS GetCapabilities lists exactly these nine
+#              NLCD_<year>_Land_Cover_L48 layers.  2021 is the newest; the
+#              Annual NLCD products on that server are change-summary layers
+#              (ChgCnt / ChgIdx 1985-2023), not per-year land cover.
+#              Alaska has 2001/2011/2016 and Hawaii and Puerto Rico only 2001,
+#              so a non-CONUS AOI cannot use most of this list.
+#
+#   Sentinel-2 The ESRI/Impact Observatory ImageServer holds nine annual
+#              layers, 2017 through 2025, and every one returns real data.
+#
+# A year the service does NOT have is the dangerous case: exportImage answers a
+# nonexistent year with HTTP 200 and an all-zero raster rather than an error
+# (2026 returned 16,384 nodata pixels), so an out-of-range year would silently
+# produce a blank land cover and a Manning grid built from nothing.  Hence
+# these lists, and the emptiness check in core/manning.py.
+NLCD_YEARS = tuple(sorted(_NLCD_LAYERS, reverse=True))
+SENTINEL2_YEARS = tuple(str(y) for y in range(2025, 2016, -1))
+
+
 def download_nlcd(aoi_gdf, cell_size_m, out_path, year="2021", log_fn=print):
     """
     Download NLCD land cover data for an area of interest via WMS.
@@ -89,6 +115,15 @@ def download_nlcd(aoi_gdf, cell_size_m, out_path, year="2021", log_fn=print):
     Path
         Path to the output GeoTIFF.
     """
+    # The dropdowns only offer real years, but nothing else should be able to
+    # slip one through — a saved project, an older context, a direct call.  The
+    # MRLC WMS answers an unknown layer with an error image rather than an HTTP
+    # error, so an unchecked year becomes a blank land cover.
+    year = str(year)
+    if year not in _NLCD_LAYERS:
+        raise ValueError(
+            f"NLCD has no land cover for {year}. The MRLC service publishes "
+            f"these years for the continental US: {', '.join(NLCD_YEARS)}.")
     from pygeoogc import WMS
 
     out_path = Path(out_path)
