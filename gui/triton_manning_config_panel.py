@@ -335,6 +335,17 @@ class ManningConfigPanel(QWidget):
         self._mode_combo.blockSignals(False)
         self._on_mode_changed()
 
+    def reset(self):
+        """Restore every field to its true just-opened default — see the
+        matching LISFLOOD ManningConfigPanel.reset() for why this exists
+        instead of calling set_config() with a near-empty dict."""
+        self.set_mode_radios(fixed=False, varying=False)
+        self._fixed_spin.setValue(0.06)
+        self._lulc_src_combo.setCurrentIndex(0)
+        self._raster_edit.clear()
+        self._user_table_data = None
+        self._on_source_changed()
+
     def get_config(self) -> dict:
         """Snapshot the current form selections so they can be copied to
         another panel via set_config (used by Apply-to-all)."""

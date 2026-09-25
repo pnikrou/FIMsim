@@ -71,7 +71,7 @@ class StepManningWidget(QWidget):
         self._clear_cards()
         self._clear_results()
         if self._single_panel is not None:
-            self._single_panel.set_config({"mode": ""})
+            self._single_panel.reset()
         self._error_lbl.setVisible(False)
 
         self._progress.setValue(0)

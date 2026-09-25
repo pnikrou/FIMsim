@@ -236,6 +236,24 @@ class TritonBCConfigPanel(QWidget):
         self._on_mode_changed()
         self._on_type_changed()
 
+    def reset(self):
+        """Restore every field to its true just-opened default — see the
+        matching LISFLOOD BCIConfigPanel for why this exists instead of
+        calling set_config() with a near-empty dict (that call left manual
+        inflow/segment coordinates and the slope/Froude value on screen from
+        whatever AOI configured them last)."""
+        self._mode_combo.setCurrentIndex(0)
+        self._inflow_x.setValue(0.0)
+        self._inflow_y.setValue(0.0)
+        self._seg_x1.setValue(0.0); self._seg_y1.setValue(0.0)
+        self._seg_x2.setValue(0.0); self._seg_y2.setValue(0.0)
+        self._type_combo.setCurrentIndex(2)
+        self._slope_spin.setValue(0.001)
+        self._froude_spin.setValue(0.5)
+        self._stage_edit.clear()
+        self._on_mode_changed()
+        self._on_type_changed()
+
 
 def _wrap(layout):
     w = QWidget()

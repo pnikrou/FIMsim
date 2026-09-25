@@ -284,6 +284,31 @@ class BDYConfigPanel(QWidget):
         }
         return labels.get(self._src_combo.currentIndex(), "—")
 
+    def reset(self):
+        """Restore every field to its true just-opened default.
+
+        ``set_config`` only touches start_dt/end_dt/forecast_date when the
+        passed dict actually carries a real datetime (so restoring a saved
+        AOI doesn't clobber fields it didn't save) — that means calling it
+        with a near-empty dict, as a naive "reset" would, leaves whatever
+        dates were last entered on screen untouched.  This clears them for
+        real, matching the panel's true initial defaults.
+        """
+        self._src_combo.setCurrentIndex(0)
+        self._gage_edit.clear()
+        self._file_edit.clear()
+        self._fid_auto_rb.setChecked(True)
+        self._fid_edit.clear()
+        self._start_date.setDateTime(
+            QDateTime.fromString("2020-11-01 00:00", "yyyy-MM-dd HH:mm"))
+        self._end_date.setDateTime(
+            QDateTime.fromString("2020-12-01 00:00", "yyyy-MM-dd HH:mm"))
+        self._interval_spin.setValue(1.0)
+        self._fc_range_combo.setCurrentIndex(0)
+        self._fc_date.setDateTime(
+            QDateTime.fromString("2024-06-01 00:00", "yyyy-MM-dd HH:mm"))
+        self._fc_hour_combo.setCurrentIndex(0)
+
     def get_config(self) -> dict:
         idx        = self._src_combo.currentIndex()
         bdy_source = self._SRC_KEYS[idx] if idx < len(self._SRC_KEYS) else ""

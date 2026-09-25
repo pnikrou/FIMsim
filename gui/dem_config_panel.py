@@ -192,6 +192,21 @@ class DEMConfigPanel(QWidget):
             cfg["buffer_m"] = float(self._buffer_spin.value())
         return cfg
 
+    def reset(self):
+        """Restore every field to its true just-opened default.
+
+        ``set_config`` only touches dem_source/dem_res_m/buffer_m when the
+        passed dict actually names them, so a naive reset call leaves the
+        previous AOI's resolution/product choice on screen.  This clears
+        them for real.
+        """
+        self._rb_download.setChecked(True)
+        self._dem_path_edit.clear()
+        self._dl_combo.setCurrentIndex(0)
+        self._cell_spin.setValue(10)
+        if self._show_buffer:
+            self._buffer_spin.setValue(100.0)
+
     def set_config(self, cfg: dict):
         if not cfg:
             return

@@ -561,14 +561,23 @@ class MainWindow(QMainWindow):
         if not data:
             return
         self._update_context(model, data)
-        confirmed_n = len(data["ctx"].get("aoi_features", []) or [])
+        confirmed = data["ctx"].get("aoi_features", []) or []
+        # Identify each AOI by its folder (falls back to name) rather than
+        # just counting them — comparing lengths alone let a stale widget
+        # keep showing a *different* AOI set of the same size (e.g. 1 AOI
+        # left over from an earlier project matching this project's own
+        # 1 confirmed AOI) without ever refreshing.
+        confirmed_ids = tuple(
+            f.get("folder_path") or f.get("name") for f in confirmed
+        )
         entered = widgets[idx]
-        # Re-push only when the entered step isn't already showing this AOI
-        # set, so we don't reset a step the user has already run.
         cur = getattr(entered, "_aoi_features", None)
         if cur is None:
             cur = getattr(entered, "_features", [])
-        if len(cur or []) != confirmed_n:
+        cur_ids = tuple(
+            f.get("folder_path") or f.get("name") for f in (cur or [])
+        )
+        if cur_ids != confirmed_ids:
             entered.set_context(self._ctx_path[model], self._ctx[model])
 
     def _update_nav(self):
@@ -653,6 +662,23 @@ class MainWindow(QMainWindow):
     def _make_project_done_slot(self, model, tabs, widgets):
         def _slot(data: dict):
             self._update_context(model, data)
+            # Every step past the Project tab (AOI, DEM, Manning, BCI/BC,
+            # BDY/Hydrograph, PAR/Config, ...) is hard-reset here, every
+            # time the Project step completes — whether the user just
+            # created a brand new project or re-opened an existing one.
+            # This is a deliberate, unconditional guarantee: nothing from a
+            # previous case (DEM source/cell size, LULC source/year,
+            # hydrograph start/end dates, manual BC coordinates, confirmed
+            # AOI cards, ...) can survive into a new run, regardless of any
+            # other navigation path (tab click / "Next step ▶") that would
+            # otherwise only refresh a step lazily when its own AOI-count
+            # bookkeeping happened to look stale.
+            for w in widgets[1:]:
+                if hasattr(w, "reset") and callable(w.reset):
+                    try:
+                        w.reset()
+                    except Exception:
+                        pass
             # Tabs are always enabled now — just propagate context to the
             # AOI step (tab 1) so it knows the project_dir.
             widgets[1].set_context(self._ctx_path[model], self._ctx[model])

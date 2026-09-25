@@ -89,7 +89,7 @@ class StepDEMWidget(QWidget):
         # Start clean: drop any DEM file selected for the previous case so the
         # single-AOI panel is back to its default (download, no file picked).
         if self._single_panel is not None:
-            self._single_panel.set_config({"has_dem": False})
+            self._single_panel.reset()
         self._aoi_count_lbl.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(False)
