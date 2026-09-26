@@ -78,6 +78,19 @@ DEFAULT_BATHY_ARGS = {
     "Stream_Slope_Method": "local_average_corrected",
 }
 
+# NenCarta's own built-in defaults for the power-law bankfull regression
+# (nencarta/core/defaults.py, verified against the installed 0.3.0 package —
+# also the exact values Follum Hydrologic Solutions' Joseph Gutenson gave us
+# by email on 2026-09-18 to fix ARC-Curve2Flood's under-prediction, sourced
+# from Table 7 of https://onlinelibrary.wiley.com/doi/abs/10.1111/1752-1688.12540).
+# Used only when use_power_laws_for_bathymetry is True.
+POWER_LAW_BATHY_DEFAULTS = {
+    "coefficient_depth": 0.27,
+    "exponent_depth": 0.21,
+    "coefficient_width": 2.44,
+    "exponent_width": 0.34,
+}
+
 DEFAULT_FLOODMAP_ARGS = {
     "Make_Output_GPKG": "True",
     "FS_ADJUST_FLOW_BY_FRACTION": 1.0,
@@ -136,13 +149,18 @@ def build_watershed(
     specified_bathyflow_field: Optional[str] = None,
     specified_highflow_field: Optional[str] = None,
     mannings_text_file: Optional[str] = None,
-    process_stream_network: bool = True,
     bathy_args: Optional[Dict] = None,
     floodmap_args: Optional[Dict] = None,
     specify_depths_for_bathy_mask: Optional[List[float]] = None,
     dem_filter: str = "*",
     clean_dem: bool = False,
     bathy_use_banks: bool = False,
+    disable_bathymetry: bool = False,
+    use_power_laws_for_bathymetry: bool = False,
+    coefficient_depth: Optional[float] = None,
+    exponent_depth: Optional[float] = None,
+    coefficient_width: Optional[float] = None,
+    exponent_width: Optional[float] = None,
     find_banks_based_on_landcover: bool = True,
     make_depth_maps: bool = True,
     make_velocity_maps: bool = True,
@@ -208,15 +226,11 @@ def build_watershed(
         "dem_filter": dem_filter or "*",
         "clean_dem": bool(clean_dem),
         "bathy_use_banks": bool(bathy_use_banks),
+        "disable_bathymetry": bool(disable_bathymetry),
         "find_banks_based_on_landcover": bool(find_banks_based_on_landcover),
         "make_depth_maps": bool(make_depth_maps),
         "make_velocity_maps": bool(make_velocity_maps),
         "make_wse_maps": bool(make_wse_maps),
-        # NenCarta defaults this to False, which SKIPS building
-        # <output>/<name>/STRM/..._StrmShp.gpkg from the supplied flowline and
-        # then reads it anyway — fine when a previous run made it, fatal on a
-        # first run with "DataSourceError: ... No such file or directory".
-        "process_stream_network": bool(process_stream_network),
         # Start from NenCarta's defaults so every directly-indexed key exists,
         # then let the caller override individual entries.
         "bathy_args": {**DEFAULT_BATHY_ARGS, **(bathy_args or {})},
@@ -266,6 +280,21 @@ def build_watershed(
                     f"forecast hour {hour} is not valid for {src} — "
                     f"allowed: {', '.join(allowed)}.")
             w["forensic_forecast_hour"] = hour
+
+    # Power-law bankfull-regression bathymetry.  NenCarta validates (at run
+    # time, config setup) that ALL FOUR coefficients are present whenever this
+    # is True and raises otherwise — check it here instead so a typo shows up
+    # immediately rather than after NenCarta has already started the run.
+    if use_power_laws_for_bathymetry:
+        coeffs = {
+            "coefficient_depth": coefficient_depth,
+            "exponent_depth":    exponent_depth,
+            "coefficient_width": coefficient_width,
+            "exponent_width":    exponent_width,
+        }
+        w["use_power_laws_for_bathymetry"] = True
+        for key, val in coeffs.items():
+            w[key] = float(val) if val is not None else POWER_LAW_BATHY_DEFAULTS[key]
 
     # NenCarta defaults use_specified_depth_for_bathy_mask to True and then
     # REQUIRES specify_depths_for_bathy_mask — one float when clean_dem is

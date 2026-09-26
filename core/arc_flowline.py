@@ -114,6 +114,18 @@ def prepare_arc_flowline(ctx_path, ctx: dict, source: str = "nhd",
             log_fn("  ⚠ No Hydroseq/DnHydroseq columns — TOCOMID could not be "
                    "derived, so NWM topology will be missing.")
 
+    # NenCarta's power-law bathymetry option (use_power_laws_for_bathymetry)
+    # requires a drainage-area attribute named DSContArea, in square meters
+    # (nencarta/core/defaults.py / nencarta/tasks/make_stream_geometry.py).
+    # NHDPlus already carries the same quantity as TotDASqKM, in square
+    # kilometers — expose it under NenCarta's expected name/units here so
+    # that option works without a separate download step.
+    if source == "nhd":
+        area_col = next((c for c in clipped.columns if c.lower() == "totdasqkm"), None)
+        if area_col and "DSContArea" not in clipped.columns:
+            clipped["DSContArea"] = clipped[area_col] * 1e6
+            log_fn(f"  Derived DSContArea (m²) from '{area_col}' for power-law bathymetry")
+
     out = Path(arc_dir) / "flowline.shp"
     # Remove any stale shapefile sidecars before writing.
     for ext in (".shp", ".shx", ".dbf", ".prj", ".cpg"):

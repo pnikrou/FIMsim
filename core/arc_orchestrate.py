@@ -733,13 +733,7 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
                   if Path(f).exists()]
     if flow_files:
         log_fn(f"  '{name}': duration run — {len(flow_files)} timestep map(s).")
-    # Build the stream network the first time; on a re-run the gpkg is already
-    # there and NenCarta's own default (skip) is the faster, correct choice.
-    strm_done = any(Path(out_dir, name, "STRM").glob("*StrmShp*.gpkg"))
-    if strm_done:
-        log_fn(f"  '{name}': reusing the existing STRM network.")
     return build_watershed(
-        process_stream_network=not strm_done,
         name=name,
         flowline=flowline,
         dem_dir=dem_dir,
@@ -768,6 +762,12 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         mannings_text_file=_arc_manning_or_none(
             feat_ctx.get("arc_mannings_n_path"), log_fn),
         bathy_use_banks=cfg.get("bathy_use_banks", False),
+        disable_bathymetry=cfg.get("disable_bathymetry", False),
+        use_power_laws_for_bathymetry=cfg.get("use_power_laws_for_bathymetry", False),
+        coefficient_depth=cfg.get("coefficient_depth"),
+        exponent_depth=cfg.get("exponent_depth"),
+        coefficient_width=cfg.get("coefficient_width"),
+        exponent_width=cfg.get("exponent_width"),
         find_banks_based_on_landcover=cfg.get("find_banks_based_on_landcover", True),
         clean_dem=cfg.get("clean_dem", False),
         make_depth_maps=cfg.get("make_depth_maps", True),

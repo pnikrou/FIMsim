@@ -25,7 +25,7 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGroupBox, QProgressBar, QScrollArea, QStackedWidget, QMessageBox,
-    QComboBox, QCheckBox,
+    QComboBox, QCheckBox, QDoubleSpinBox,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -90,9 +90,80 @@ class ArcRunConfigPanel(QWidget):
         self._bathy_banks.setChecked(False)
         self._bathy_banks.setToolTip(
             "ARC option: estimate the (unseen) channel bathymetry from the "
-            "bank elevations instead of the water surface.")
-        self._bathy_banks.toggled.connect(lambda *_: self.config_changed.emit())
+            "bank elevations and a channel-forming discharge, instead of "
+            "carving it from the water surface. Follum Hydrologic Solutions' "
+            "Joseph Gutenson (NenCarta author) suggested this by email "
+            "(2026-09-18) as a fix for under-prediction, but a 5-AOI "
+            "benchmark test against real flood-extent imagery (Sep 2026) "
+            "found it raises detection (POD) at the cost of far more false "
+            "alarms, for a net-neutral-to-worse overall skill score (CSI) "
+            "versus the plain default — 'Disable bathymetry entirely' below "
+            "tested better in every one of those 5 cases.")
+        self._bathy_banks.toggled.connect(self._on_bathy_toggled)
         layout.addWidget(self._bathy_banks)
+
+        # ── Power-law bankfull regression (refines bathy_use_banks) ──────────
+        self._power_laws = QCheckBox(
+            "Use bankfull regression coefficients  (use_power_laws_for_bathymetry)")
+        self._power_laws.setChecked(False)
+        self._power_laws.setToolTip(
+            "Estimate the channel-forming (bankfull) depth/width from a "
+            "regionalized hydraulic-geometry power law instead of NenCarta's "
+            "own bank-elevation search. Only used when 'Use bank elevations "
+            "to estimate bathymetry' above is also checked. Defaults are "
+            "Table 7 of Bieger et al. (2015), JAWRA — the same coefficients "
+            "Joseph Gutenson (NenCarta author) recommended by email.\n\n"
+            "NOT CURRENTLY FUNCTIONAL: NenCarta passes these coefficients "
+            "through to the ARC package, but the ARC version FIMsim ships "
+            "(commit 522d591, Aug 2026) predates ARC's own power-law support "
+            "and silently ignores them — verified Sep 2026 by confirming the "
+            "output is pixel-identical to plain bank-elevation bathymetry. "
+            "The ARC commit that adds this (67308c1, Sep 2026) has its own "
+            "regression that breaks 'Disable bathymetry entirely' on some "
+            "AOIs, so it hasn't been adopted. Leave this unchecked until "
+            "that's fixed upstream.")
+        self._power_laws.toggled.connect(self._on_bathy_toggled)
+        layout.addWidget(self._power_laws)
+
+        coef_row = QHBoxLayout()
+        self._coef_spins = {}
+        for key, label, default in (
+            ("coefficient_depth", "Depth coeff.", 0.27),
+            ("exponent_depth",    "Depth exp.",   0.21),
+            ("coefficient_width", "Width coeff.", 2.44),
+            ("exponent_width",    "Width exp.",   0.34),
+        ):
+            coef_row.addWidget(QLabel(label + ":"))
+            spin = QDoubleSpinBox()
+            spin.setDecimals(3)
+            spin.setRange(0.0, 100.0)
+            spin.setSingleStep(0.01)
+            spin.setValue(default)
+            spin.setFixedWidth(80)
+            spin.valueChanged.connect(lambda *_: self.config_changed.emit())
+            self._coef_spins[key] = spin
+            coef_row.addWidget(spin)
+        coef_row.addStretch()
+        self._coef_row_w = QWidget()
+        self._coef_row_w.setLayout(coef_row)
+        layout.addWidget(self._coef_row_w)
+
+        self._disable_bathy = QCheckBox(
+            "Disable bathymetry entirely  (disable_bathymetry)")
+        self._disable_bathy.setChecked(True)
+        self._disable_bathy.setToolTip(
+            "Turn off ARC/Curve2Flood/FloodSpreader bathymetry estimation "
+            "altogether. Recommended default: in a 5-AOI benchmark test "
+            "against real flood-extent imagery (T2_05/08/09/15/17, Sep 2026) "
+            "this scored the best flood-detection skill (CSI) and the best "
+            "hit rate (POD) of every option tried, beating both the plain "
+            "default and 'Use bank elevations to estimate bathymetry' "
+            "(mean CSI 0.35 vs. 0.27 vs. 0.26). Overrides the two options "
+            "above when checked.")
+        self._disable_bathy.toggled.connect(self._on_bathy_toggled)
+        layout.addWidget(self._disable_bathy)
+
+        self._on_bathy_toggled()
 
         self._clean_dem = QCheckBox("Clean the DEM before processing  (clean_dem)")
         self._clean_dem.setChecked(False)
@@ -123,20 +194,35 @@ class ArcRunConfigPanel(QWidget):
         note.setStyleSheet("color:#718096; font-size:11px;")
         layout.addWidget(note)
 
+    def _on_bathy_toggled(self, *_):
+        disabled = self._disable_bathy.isChecked()
+        self._bathy_banks.setEnabled(not disabled)
+        self._power_laws.setEnabled(not disabled and self._bathy_banks.isChecked())
+        self._coef_row_w.setVisible(
+            (not disabled) and self._bathy_banks.isChecked()
+            and self._power_laws.isChecked())
+        self.config_changed.emit()
+
     def is_ready(self) -> bool:
         return True
 
     def get_config(self) -> dict:
         """Keys here are NenCarta watershed keys, passed straight through."""
-        return {
+        cfg = {
             "mapper":  self._mapper.currentText(),
             "find_banks_based_on_landcover": self._banks_lc.isChecked(),
             "bathy_use_banks":   self._bathy_banks.isChecked(),
+            "disable_bathymetry": self._disable_bathy.isChecked(),
+            "use_power_laws_for_bathymetry": self._power_laws.isChecked(),
             "clean_dem":         self._clean_dem.isChecked(),
             "make_depth_maps":   self._depth.isChecked(),
             "make_wse_maps":     self._wse.isChecked(),
             "make_velocity_maps": self._vel.isChecked(),
         }
+        if self._power_laws.isChecked():
+            for key, spin in self._coef_spins.items():
+                cfg[key] = float(spin.value())
+        return cfg
 
     def set_config(self, cfg: dict):
         cfg = cfg or {}
@@ -147,12 +233,40 @@ class ArcRunConfigPanel(QWidget):
         for key, w in (("find_banks_based_on_landcover", self._banks_lc),
                        ("use_land_cover_to_find_banks", self._banks_lc),
                        ("bathy_use_banks",    self._bathy_banks),
+                       ("disable_bathymetry", self._disable_bathy),
+                       ("use_power_laws_for_bathymetry", self._power_laws),
                        ("clean_dem",          self._clean_dem),
                        ("make_depth_maps",    self._depth),
                        ("make_wse_maps",      self._wse),
                        ("make_velocity_maps", self._vel)):
             if key in cfg:
                 w.setChecked(bool(cfg[key]))
+        for key, spin in self._coef_spins.items():
+            if key in cfg and cfg[key] is not None:
+                spin.setValue(float(cfg[key]))
+        self._on_bathy_toggled()
+
+    def reset(self):
+        """Restore every field to its true just-opened default (see the
+        LISFLOOD/TRITON config panels' reset() for why a dedicated method is
+        needed instead of set_config() with a sparse dict)."""
+        self._mapper.setCurrentIndex(0)
+        self._banks_lc.setChecked(True)
+        self._bathy_banks.setChecked(False)
+        self._disable_bathy.setChecked(True)
+        self._power_laws.setChecked(False)
+        # Same values Follum Hydrologic Solutions ships as nencarta's own
+        # defaults (nencarta/core/defaults.py) — see _setup_ui above.
+        for key, default in (
+            ("coefficient_depth", 0.27), ("exponent_depth", 0.21),
+            ("coefficient_width", 2.44), ("exponent_width", 0.34),
+        ):
+            self._coef_spins[key].setValue(default)
+        self._clean_dem.setChecked(False)
+        self._depth.setChecked(True)
+        self._wse.setChecked(False)
+        self._vel.setChecked(False)
+        self._on_bathy_toggled()
 
 
 # ── Per-AOI card (mirrors AOIDEMCard chrome) ──────────────────────────────────
@@ -326,6 +440,8 @@ class StepArcConfigWidget(QWidget):
         self._aoi_features = []
         self._clear_cards()
         self._clear_results()
+        if self._single_panel is not None:
+            self._single_panel.reset()
         self._error_lbl.setVisible(False)
         self._progress.setValue(0)
         self._progress.setVisible(False)
