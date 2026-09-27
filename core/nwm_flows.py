@@ -193,21 +193,83 @@ def fetch_forecast(comids: Sequence[int], valid_times: Sequence[_dt.datetime],
     return out
 
 
+def _ana_url(date: _dt.date, hour: int, tm: str = "tm00") -> str:
+    return (f"{FORECAST_BASE}/nwm.{date:%Y%m%d}/analysis_assim/"
+            f"nwm.t{hour:02d}z.analysis_assim.channel_rt.{tm}.conus.nc")
+
+
+def fetch_analysis_assim(comids: Sequence[int], timestamps: Sequence[_dt.datetime],
+                         tm: str = "tm00",
+                         log_fn=print) -> Dict[_dt.datetime, Dict[int, float]]:
+    """NWM Analysis & Assimilation discharge at the requested (on-the-hour) UTC times.
+
+    Each hourly cycle's ``tm00`` member is the assimilated analysis valid AT that
+    same hour — the "current best estimate" product FIMserv/HAND-FIM uses for a
+    past event, distinct from both the retrospective reanalysis (which stops at
+    2023-02-01) and the forward-looking forecast (which predicts an hour rather
+    than reanalysing it).  Same public GCS mirror as ``fetch_forecast``, so no
+    credentials are needed; verified present back to at least 2018-09-17.
+    """
+    import numpy as np
+    import requests
+    import tempfile
+    import xarray as xr
+
+    if not comids or not timestamps:
+        return {}
+    ids = np.array([int(c) for c in comids])
+    want = sorted(set(t.replace(minute=0, second=0, microsecond=0)
+                      for t in timestamps))
+
+    out: Dict[_dt.datetime, Dict[int, float]] = {}
+    for t in want:
+        url = _ana_url(t.date(), t.hour, tm)
+        try:
+            r = requests.get(url, timeout=120)
+            if r.status_code != 200:
+                log_fn(f"  ⚠ {Path(url).name}: HTTP {r.status_code} — skipping.")
+                continue
+            with tempfile.NamedTemporaryFile(suffix=".nc", delete=False) as fh:
+                fh.write(r.content)
+                tmp = fh.name
+            with xr.open_dataset(tmp) as nc:
+                fid = nc["feature_id"].values
+                q = nc["streamflow"].values
+                idx = np.isin(fid, ids)
+                out[t] = {int(f): float(v) for f, v in zip(fid[idx], q[idx])
+                          if not np.isnan(v)}
+            Path(tmp).unlink(missing_ok=True)
+            log_fn(f"  {t:%Y-%m-%d %H:%M} UTC ({tm}): {len(out[t])} reach(es)")
+        except Exception as exc:
+            log_fn(f"  ⚠ {t:%Y-%m-%d %H:%M}: {type(exc).__name__}: {exc}")
+    return out
+
+
 def fetch_nwm(comids: Sequence[int], timestamps: Sequence[_dt.datetime],
               frange: str = "short_range", cycle_date=None, cycle_hour=None,
               record: str = "auto",
               log_fn=print) -> Dict[_dt.datetime, Dict[int, float]]:
     """NWM discharge from the record the caller asks for.
 
-    ``record`` is "retrospective", "forecast", or "auto".  The two overlap
-    between 2018-09-17 and 2023-02-01, and they are NOT the same quantity — the
-    retrospective is a reanalysis of what the model says happened, a forecast is
-    what it predicted beforehand — so in that window the choice belongs to the
+    ``record`` is "retrospective", "analysis_assim", "forecast", or "auto".
+    Retrospective and analysis_assim overlap between 2018-09-17 and 2023-02-01,
+    and they are NOT the same quantity — the retrospective is a reanalysis of
+    what the model says happened, analysis_assim is the assimilated nowcast
+    that was live at the time — so in that window the choice belongs to the
     caller rather than to a silent default.
     """
     if not timestamps:
         return {}
     want = str(record or "auto").lower()
+
+    if want in ("analysis_assim", "ana"):
+        early = [t for t in timestamps if t < FORECAST_START]
+        if early:
+            raise ValueError(
+                f"{early[0]:%Y-%m-%d %H:%M} predates the NWM analysis_assim "
+                f"archive (starts {FORECAST_START:%Y-%m-%d}). "
+                "Choose Retrospective for this date.")
+        return fetch_analysis_assim(comids, timestamps, log_fn=log_fn)
 
     if want == "retrospective":
         bad = [t for t in timestamps if not covers_retrospective(t)]

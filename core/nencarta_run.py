@@ -382,9 +382,19 @@ def validate_with_nencarta(watersheds: List[Dict], log_fn=print) -> None:
         log_fn(f"NenCarta accepted all {len(watersheds)} watershed entry(s).")
         return
     detail = (r.stderr or r.stdout or "").strip().splitlines()
+    last = detail[-1] if detail else "unknown error"
+    if "ImportError" in (r.stderr or "") or "ModuleNotFoundError" in (r.stderr or ""):
+        # The validator snippet itself failed to load (the installed nencarta
+        # package's API moved on — e.g. verify_required_keys/
+        # validate_user_floodmaps/normalize_mapper_name no longer live in
+        # nencarta.main as of nencarta 0.3.0). That is a broken PRE-check, not
+        # a rejected watershed, so honour the docstring's stated contract
+        # ("a failure to validate is never fatal here") instead of aborting a
+        # run that the real CLI might accept just fine.
+        log_fn(f"(Skipping NenCarta pre-validation — validator import failed: {last})")
+        return
     raise NenCartaError(
-        "NenCarta rejected the watershed configuration: "
-        + (detail[-1] if detail else "unknown error"))
+        "NenCarta rejected the watershed configuration: " + last)
 
 
 def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
