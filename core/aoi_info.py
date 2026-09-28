@@ -410,17 +410,14 @@ def lookup_nhd_flowlines_clipped(
         )
 
         log_fn(f"Loading NHD flowlines for AOI feature {feature_index} …")
-        try:
-            flowlines = NHD("flowline_mr").bygeom(geom)
-        except Exception as ex:
-            msg = str(ex)
-            # NHD's bygeom rejects MultiPolygon — retry with the bbox
-            # tuple, which it does accept.
-            if "should be of type" in msg or "MultiPolygon" in msg:
-                bbox = tuple(geom.bounds)
-                flowlines = NHD("flowline_mr").bygeom(bbox)
-            else:
-                raise
+        # Same hardened call river_lookup.py and bci.py/triton_bc.py already
+        # use — retries transient 5xx/timeout errors instead of failing the
+        # whole lookup on the first hiccup.  This path used to call
+        # NHD(...).bygeom() directly with no retry at all, which is why the
+        # map's river line could silently come up empty on a request the
+        # name lookup (already going through _nhd_bygeom) survived fine.
+        from core.nhd_utils import _nhd_bygeom
+        flowlines = _nhd_bygeom(NHD("flowline_mr"), geom)
         if flowlines is None or flowlines.empty:
             _RIVER_GDF_CACHE[key] = (None, None)
             return None, None
