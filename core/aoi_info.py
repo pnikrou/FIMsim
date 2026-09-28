@@ -326,6 +326,57 @@ def lookup_usgs_gages(aoi_path: str, feature_index: int, log_fn=print) -> List[d
 
 # ── NHD flowlines clipped to AOI (for the 3-panel map overlay) ────────────────
 
+def _lenient_main_river(clipped: gpd.GeoDataFrame, log_fn=print):
+    """Best-effort main-river line for the preview map, with no minimum-span
+    requirement — mirrors core/river_lookup.py's own name pick (highest
+    StreamOrde, then longest total length by GNIS name) so the drawn line
+    always matches the name the text panel shows.  Returns None if even this
+    can't produce anything (e.g. no StreamOrde column at all)."""
+    if "StreamOrde" not in clipped.columns:
+        return None
+    try:
+        from core.bci import _safe_name, _to_single_linestring
+        from shapely.ops import linemerge
+        from shapely.geometry import LineString
+
+        gdf = clipped.copy()
+        gdf["geom_len"] = gdf.geometry.length
+        gdf["river_name"] = (
+            gdf["GNIS_NAME"].apply(_safe_name)
+            if "GNIS_NAME" in gdf.columns else "Unnamed"
+        )
+        max_order = gdf["StreamOrde"].max()
+        top = gdf[gdf["StreamOrde"] == max_order]
+        summary = (
+            top.groupby("river_name", dropna=False)
+               .agg(total_len=("geom_len", "sum"))
+               .reset_index()
+               .sort_values("total_len", ascending=False)
+        )
+        if summary.empty:
+            return None
+        river_name = str(summary.iloc[0]["river_name"])
+        segments = gdf[(gdf["StreamOrde"] == max_order)
+                       & (gdf["river_name"] == river_name)]
+        unioned = (segments.geometry.union_all()
+                  if hasattr(segments.geometry, "union_all")
+                  else segments.geometry.unary_union)
+        merged = unioned if isinstance(unioned, LineString) else linemerge(unioned)
+        main_line = _to_single_linestring(merged)
+        if main_line is None:
+            lines = [g for g in segments.geometry if g is not None and not g.is_empty]
+            if not lines:
+                return None
+            main_line = max(lines, key=lambda g: g.length)
+        return gpd.GeoDataFrame(
+            [{"river_name": river_name, "stream_order": int(max_order)}],
+            geometry=[main_line], crs=clipped.crs,
+        )
+    except Exception as ex:
+        log_fn(f"  Lenient main-river pick also failed ({ex}).")
+        return None
+
+
 def lookup_nhd_flowlines_clipped(
     aoi_path: str, feature_index: int, log_fn=print
 ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[gpd.GeoDataFrame]]:
@@ -385,7 +436,17 @@ def lookup_nhd_flowlines_clipped(
             _RIVER_GDF_CACHE[key] = (None, None)
             return None, None
 
-        # Best-effort main river extraction
+        # Main river extraction for the preview map.  _build_main_river()
+        # (core/bci.py) is BCI's own strict picker — it requires the winning
+        # river's segments to span ≥30% of the AOI diagonal as one connected
+        # run, because BCI needs a real upstream/downstream end to place a
+        # boundary on.  That strictness is right for BCI but too strict for a
+        # preview: an AOI can have a real, named river NHD returns fine that
+        # just doesn't clear that bar (e.g. it only clips a short reach), and
+        # _build_main_river then raises — which used to be swallowed silently
+        # here, so the text panel (core/river_lookup.py, a simpler "highest
+        # stream order, longest total length by name" pick with no span
+        # requirement) would show a name while the map showed no line at all.
         main_gdf = None
         try:
             ms, _, main_line, river_name, order, _ = _build_main_river(clipped)
@@ -394,8 +455,10 @@ def lookup_nhd_flowlines_clipped(
                     [{"river_name": river_name, "stream_order": int(order)}],
                     geometry=[main_line], crs=clipped.crs,
                 )
-        except Exception:
-            pass
+        except Exception as ex:
+            log_fn(f"  Strict main-river pick failed ({ex}) — "
+                   f"falling back to a lenient pick for the preview.")
+            main_gdf = _lenient_main_river(clipped, log_fn)
 
         _RIVER_GDF_CACHE[key] = (clipped, main_gdf)
         return clipped, main_gdf
