@@ -1118,7 +1118,7 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
         # 1/9 arc-second and 1 m exist only where lidar was flown, so their
         # tiles are found by asking the USGS index rather than derived from
         # coordinates.  Both are read straight over the network (the 1/9
-        # archives through /vsizip/), so there is nothing to cache locally.
+        # archives through /vsizip/) into dem_tiles_dir, which persists.
         from core.dem_sources import tile_selection as _tnm_tiles, label_for
         from core.export import next_free_path
         log_fn(f"Downloading DEM — {label_for(_dem_src)} …")
@@ -1142,18 +1142,14 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
             _clip_and_reproject(local_tiles, aoi_gdf, dem_res_m, dem_path, log_fn,
                                 working_crs_epsg=working_epsg)
         finally:
-            # The windowed tiles and any archive pulled down for them are
-            # per-run scratch — the DEM is the product.
-            for _tp in list(local_tiles) + list(dem_tiles_dir.glob("*.zip")) \
-                    + list(dem_tiles_dir.glob("*.zip.part")):
+            # Raw tiles stay in dem_tiles_dir (DEM_raw_<aoi>/) as a persistent
+            # record of what was downloaded — only a truly incomplete archive
+            # (an interrupted download) is junk worth clearing.
+            for _tp in dem_tiles_dir.glob("*.zip.part"):
                 try:
                     _tp.unlink()
                 except Exception:
                     pass
-            try:
-                dem_tiles_dir.rmdir()
-            except OSError:
-                pass
 
     else:   # 3dep 1/3 arc-second (default)
         from core.export import next_free_path
@@ -1209,18 +1205,9 @@ def prepare_dem(ctx_path, ctx: dict, dem_res_m: float,
                     continue   # retry
                 raise           # non-tile error or retries exhausted
 
-        # AOI-window tifs are per-run intermediates — remove them once the
-        # clip succeeds (full tiles from the fallback stay cached).
-        for _tp in tile_paths:
-            if _tp.name.endswith("_aoi.tif"):
-                try:
-                    _tp.unlink()
-                except Exception:
-                    pass
-        try:
-            dem_tiles_dir.rmdir()
-        except OSError:
-            pass
+        # Raw tiles (windowed AOI clips or full fallback tiles, whichever ran)
+        # stay in dem_tiles_dir (DEM_raw_<aoi>/) as a persistent record of
+        # what was downloaded, alongside DEM_<aoi>.tif — the clipped product.
 
     if skip_ascii:
         log_fn("Skipping ASCII export (standalone mode — only GeoTIFF needed).")
