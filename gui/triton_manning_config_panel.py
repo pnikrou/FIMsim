@@ -341,7 +341,7 @@ class ManningConfigPanel(QWidget):
         instead of calling set_config() with a near-empty dict."""
         self.set_mode_radios(fixed=False, varying=False)
         self._fixed_spin.setValue(0.06)
-        self._lulc_src_combo.setCurrentIndex(0)
+        self._lulc_src_combo.setCurrentIndex(1)      # Sentinel-2 (ESRI, 10 m) — matches __init__'s default
         self._raster_edit.clear()
         self._user_table_data = None
         self._on_source_changed()
