@@ -69,11 +69,17 @@ def prepare_arc_flowline(ctx_path, ctx: dict, source: str = "nhd",
         clipped, geoglows_vpu = read_geoglows_streams(aoi_path, log_fn=log_fn)
     else:
         log_fn("Downloading NHD flowlines for the AOI …")
+        # A service outage raises with its own explanation; let that through
+        # rather than replacing it with a guess about the AOI.
         clipped, _main = lookup_nhd_flowlines_clipped(aoi_path, fidx, log_fn=log_fn)
     if clipped is None or clipped.empty:
         raise RuntimeError(
-            "No flowlines were found for this AOI (check the AOI extent / "
-            "internet connection).")
+            f"The {source.upper()} service returned no flowlines for this AOI. "
+            "If the AOI is in the United States and has a river in it, this is "
+            "usually the service being briefly unavailable rather than the AOI "
+            "— wait a minute and run the step again."
+            + ("  You can also switch the source to GEOGLOWS, which does not "
+               "use NHD." if source not in ("geoglows", "user") else ""))
 
     # Fail loudly here rather than at run time if the reach-id column is
     # missing.  Which id NenCarta reads depends on the streamflow source:

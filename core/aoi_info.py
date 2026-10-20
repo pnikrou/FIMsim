@@ -377,6 +377,17 @@ def _lenient_main_river(clipped: gpd.GeoDataFrame, log_fn=print):
         return None
 
 
+class _ServiceDown(RuntimeError):
+    """The upstream service failed — distinct from "this AOI has no rivers"."""
+
+
+# A FAILED lookup is never cached — only a successful one.
+#
+# This cache used to store (None, None) on failure too, so a transient USGS
+# outage became permanent for the life of the session: the user pressed
+# "Prepare Flowline" four times in eleven seconds and every attempt returned
+# instantly from the cache without touching the network, while the service was
+# already recovering.  A failure is a fact about this moment, not about the AOI.
 def lookup_nhd_flowlines_clipped(
     aoi_path: str, feature_index: int, log_fn=print
 ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[gpd.GeoDataFrame]]:
@@ -397,7 +408,6 @@ def lookup_nhd_flowlines_clipped(
         from pynhd import NHD
         from core.bci import _build_main_river, _to_single_linestring
     except Exception:
-        _RIVER_GDF_CACHE[key] = (None, None)
         return None, None
 
     try:
@@ -417,9 +427,23 @@ def lookup_nhd_flowlines_clipped(
         # map's river line could silently come up empty on a request the
         # name lookup (already going through _nhd_bygeom) survived fine.
         from core.nhd_utils import _nhd_bygeom
-        flowlines = _nhd_bygeom(NHD("flowline_mr"), geom)
+        try:
+            flowlines = _nhd_bygeom(NHD("flowline_mr"), geom)
+        except Exception as ex:
+            # Distinguish "the service is down" from "this AOI has no rivers".
+            # They need opposite responses from the user and used to produce
+            # the identical message.
+            msg = str(ex)
+            if any(k in msg for k in ("502", "503", "504", "Gateway",
+                                      "timeout", "timed out", "Connection")):
+                raise _ServiceDown(
+                    "The USGS NHD service is not responding right now "
+                    f"({msg.strip().splitlines()[0][:120]}). This is an outage "
+                    "at USGS, not a problem with your AOI — try again in a few "
+                    "minutes, or use the GEOGLOWS flowline source, which does "
+                    "not go through NHD.") from ex
+            raise
         if flowlines is None or flowlines.empty:
-            _RIVER_GDF_CACHE[key] = (None, None)
             return None, None
 
         flowlines = flowlines.to_crs(feature_gdf.crs)
@@ -430,7 +454,6 @@ def lookup_nhd_flowlines_clipped(
             clipped.geometry.type.isin(["LineString", "MultiLineString"])
         ].copy()
         if clipped.empty:
-            _RIVER_GDF_CACHE[key] = (None, None)
             return None, None
 
         # Main river extraction for the preview map.  _build_main_river()
@@ -459,7 +482,11 @@ def lookup_nhd_flowlines_clipped(
 
         _RIVER_GDF_CACHE[key] = (clipped, main_gdf)
         return clipped, main_gdf
+    except _ServiceDown:
+        # An outage already carries its own explanation — let it reach the
+        # user.  Swallowing it here is what turned "USGS is returning 504"
+        # into "no flowlines were found for this AOI".
+        raise
     except Exception as ex:
         log_fn(f"NHD flowline lookup failed: {ex}")
-        _RIVER_GDF_CACHE[key] = (None, None)
         return None, None
