@@ -29,6 +29,89 @@ FORECAST_BUCKET = "noaa-nwm-pds"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+# Column names that hold a reach id, in the order we prefer them.
+_ID_COLUMNS = ("feature_id", "featureid", "comid", "nhdplusid", "station_id",
+               "reach_id", "linkno", "id")
+
+# An NWM feature_id is a large integer.  Row numbers are not, and a column of
+# them is the classic way a CSV goes wrong silently.
+_MIN_PLAUSIBLE_ID = 1000
+
+
+def _looks_like_row_numbers(values) -> bool:
+    """True when the values are just an index: 0,1,2… or 1,2,3…"""
+    if len(values) < 2:
+        return False
+    return values == list(range(len(values))) or values == list(range(1, len(values) + 1))
+
+
+def _ids_from_csv(path: Path) -> List[int]:
+    """Read reach ids from a CSV, choosing the column by NAME where possible.
+
+    This used to read column 0 unconditionally, which is right for the
+    feature_ids CSV the Flowline step writes and wrong for two files people
+    actually have: a frame saved with its pandas index (column 0 is 0,1,2…) and
+    a GIS export where OBJECTID comes first.  Both parse cleanly as integers,
+    so the download ran against ids that do not exist and came back empty with
+    nothing to say for itself.
+    """
+    try:
+        df = pd.read_csv(path)
+    except Exception as exc:
+        raise ValueError(f"Could not read {path.name}: {exc}") from exc
+    if df.empty:
+        raise ValueError(f"{path.name} has no rows.")
+
+    # 1. A column named like a reach id wins, wherever it sits.
+    lower = {str(c).strip().lower(): c for c in df.columns}
+    col = next((lower[n] for n in _ID_COLUMNS if n in lower), None)
+
+    # 2. Otherwise a single-column file is unambiguous — including the
+    #    headerless case, where the first id was read AS the header.
+    if col is None and df.shape[1] == 1:
+        ids = []
+        head = str(df.columns[0]).strip()
+        try:
+            ids.append(int(float(head)))        # headerless: row 1 is data
+        except (TypeError, ValueError):
+            pass
+        col = df.columns[0]
+        ids += [int(float(str(v).strip())) for v in df[col].dropna()
+                if str(v).strip().lstrip("-").replace(".", "", 1).isdigit()]
+        return _checked(ids, path)
+
+    # 3. Several unnamed columns: take the first that actually looks like ids.
+    if col is None:
+        for c in df.columns:
+            vals = pd.to_numeric(df[c], errors="coerce").dropna()
+            if len(vals) and not _looks_like_row_numbers([int(v) for v in vals]) \
+                    and float(vals.median()) >= _MIN_PLAUSIBLE_ID:
+                col = c
+                break
+    if col is None:
+        raise ValueError(
+            f"{path.name} has no column holding reach ids. Columns found: "
+            f"{', '.join(str(c) for c in df.columns)}. Name the column "
+            f"'feature_id' (or COMID), or give a file with one id per line.")
+
+    vals = pd.to_numeric(df[col], errors="coerce").dropna()
+    return _checked([int(v) for v in vals], path, str(col))
+
+
+def _checked(ids: List[int], path: Path, col: str = None) -> List[int]:
+    """Reject ids that are plainly not reach ids rather than querying for them."""
+    where = f"column '{col}' of " if col else ""
+    if not ids:
+        raise ValueError(f"No numeric reach ids found in {where}{path.name}.")
+    if _looks_like_row_numbers(ids) or max(ids) < _MIN_PLAUSIBLE_ID:
+        raise ValueError(
+            f"{where}{path.name} looks like row numbers, not reach ids "
+            f"(values {ids[0]}…{ids[-1]}). This usually means the file was "
+            f"saved with its index, or the id column is not the first one — "
+            f"name it 'feature_id' and FIMsim will find it wherever it sits.")
+    return list(dict.fromkeys(ids))
+
+
 def _coerce_feature_ids(feature_ids) -> List[int]:
     """Accept a single int/str, list of int/str, or a path to a 1-column CSV
     (no header) and return a list of unique int IDs."""
@@ -40,17 +123,7 @@ def _coerce_feature_ids(feature_ids) -> List[int]:
         s = feature_ids.strip()
         # If it looks like a file path → load it
         if any(s.lower().endswith(ext) for ext in (".csv", ".txt")) and Path(s).exists():
-            df = pd.read_csv(s, header=None)
-            result = []
-            for v in df.iloc[:, 0].dropna().tolist():
-                try:
-                    result.append(int(float(str(v).strip())))
-                except (ValueError, TypeError):
-                    # Skip non-numeric values (e.g. column headers like
-                    # "OBJECTID" or "feature_id" if the user points to a
-                    # flowlines CSV rather than the feature-IDs-only CSV).
-                    continue
-            return result
+            return _ids_from_csv(Path(s))
         # Otherwise, comma- or whitespace-separated single line of IDs
         parts = [p for p in s.replace(",", " ").split() if p]
         return [int(p) for p in parts]
