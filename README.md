@@ -109,8 +109,12 @@ prints `Environment OK` when the environment is complete.
 > conda activate FIMsim
 > ```
 >
-> The environment is named **`FIMsim`** (capital F-I-M-S-I-M); conda names are
-> case-sensitive, so `conda activate fimsim` will not find it.
+> The environment is named **`FIMsim`**. On macOS and Windows the filesystem is
+> case-insensitive, so `conda activate fimsim` finds the same environment; on
+> Linux it will not. If `conda activate` succeeds but FIMsim still reports
+> missing packages, you are in a *different* environment that happens to have a
+> similar name — check with `python -m core.deps`, which prints the full path of
+> the interpreter it checked.
 
 ---
 
