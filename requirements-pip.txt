@@ -1,0 +1,88 @@
+# Step 2 of the FIMsim install:  python -m core.deps --fix
+# (which runs:  pip install --no-deps -r requirements-pip.txt)
+#
+# These are the OWP HAND-FIM (fimserve) and ARC-Curve2Flood backends and
+# everything they import at run time.  They are installed WITHOUT dependency
+# resolution on purpose - see the docstring of core/deps.py.  In short: fimserve
+# requires teehr==0.5.0, TEEHR pins zarr<3 / s3fs<2026 / fsspec<2026, and FIMsim
+# runs on zarr 3 / s3fs 2026, so no resolver can satisfy both.  --no-deps leaves
+# the conda-installed stack alone, which is the combination that was verified.
+#
+# Every line is pinned and nothing is resolved, so pip installs exactly these
+# versions and pulls in nothing else.  Do NOT list a package here that conda
+# already provides in environment.yml: an explicit pin replaces the conda copy
+# (this file once pinned pytz and quietly downgraded the one pandas uses).
+# Run `python -m core.deps` after any change.
+#
+# Needs: git on PATH (three packages install from GitHub), and about 400 MB of
+# download for pyspark, which has no wheel and installs from source.
+
+# ── HAND-FIM backend ──────────────────────────────────────────────────────────
+fimserve==0.1.99
+teehr==0.5.0
+fimeval==0.1.64
+
+# ── ARC-Curve2Flood backend (GitHub-only; pinned to the commits the release
+#    builds in .github/workflows/build.yml use) ───────────────────────────────
+git+https://github.com/MikeFHS/automated-rating-curve.git@522d591d675a92af7454883a7ea82aa68953defc
+git+https://github.com/MikeFHS/curve2flood.git@a3b2f9263f81e4b00751b6787c84a6ef5179608b
+git+https://github.com/jlgutenson/nencarta.git@d3b5a52cf3c1d72719c8b223185e92bb849c85d1
+geoglows==2.2.0
+hydrostats==1.0.0
+HydroErr==2.0.0
+pipefunc==0.93.2
+polars==1.44.2
+dask==2025.12.0
+tqdm==4.68.3
+importlib_metadata==9.0.0
+
+# NenCarta's pipeline engine (pipefunc) needs rich for its progress display, and
+# polars ships its compiled core as a separate package.  Without
+# polars-runtime-32 `import polars` only WARNS ("Polars binary is missing!") and
+# every DataFrame operation later dies with "NameError: PyDataFrame", in the
+# middle of an ARC run.
+rich==14.3.4
+markdown-it-py==4.2.0
+mdurl==0.1.2
+Pygments==2.20.0
+polars-runtime-32==1.44.2
+
+# NenCarta imports PyQt5 at module load (nencarta/gui_app.py).  FIMsim itself is
+# PyQt6 and shells out to `flood-mapping`; main.py pins QT_API=pyqt6 so
+# matplotlib can never bind to PyQt5.  Ranges, not pins: the Qt5 runtime wheel
+# differs per OS (5.15.19 on macOS, 5.15.2 on Windows/Linux).
+PyQt5==5.15.11
+PyQt5-Qt5>=5.15.2,<5.16
+PyQt5-sip>=12.15,<13
+
+# ── used by OWP's inundation-mapping scripts, which fimserve clones and runs as
+#    a SUBPROCESS - no import check on fimserve itself can see these.  Missing,
+#    the environment looked fine and failed at the last step, "No module named
+#    'geocube'", after the HAND data and discharge had already downloaded.
+geocube==0.7.1
+odc-geo==0.5.1
+cachetools==6.2.6
+appdirs==1.4.4
+
+# ── imported by teehr / fimserve / fimeval ────────────────────────────────────
+psutil==7.2.2
+dataretrieval==1.2.0
+httpx==0.28.1
+anyio==4.14.1
+kerchunk==0.2.10
+bokeh==3.9.1
+beautifulsoup4==4.15.0
+tabulate==0.10.0
+python-dotenv==1.2.2
+pyspark==4.1.2
+py4j==0.10.9.9
+pandera==0.32.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+annotated-types==0.7.0
+typing-inspect==0.9.0
+typing-inspection==0.4.2
+mypy_extensions==1.1.0
+typeguard==4.5.2
+seaborn==0.13.2
+plotly==6.8.0

@@ -211,15 +211,15 @@ class MainWindow(QMainWindow):
         """
         try:
             from core.deps import check
-            req, opt = check(log_fn=self._append_log)
+            req, opt, s3 = check(log_fn=self._append_log)
         except Exception:
             return                      # never block startup over this check
-        if not req and not opt:
+        if not req and not opt and not s3:
             return
         from PyQt6.QtWidgets import QMessageBox
         from core.deps import report
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Critical if req
+        box.setIcon(QMessageBox.Icon.Critical if (req or s3)
                     else QMessageBox.Icon.Warning)
         box.setWindowTitle("FIMsim environment is incomplete")
         box.setText("Some packages FIMsim needs are not installed.")

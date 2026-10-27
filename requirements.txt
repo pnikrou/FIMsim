@@ -1,64 +1,19 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  NOT the recommended way to install FIMsim.
+# FIMsim is NOT installed with `pip install -r requirements.txt`.
 #
-#  Use environment.yml instead:
-#       conda env create -f environment.yml
-#       conda activate FIMsim
+# It needs two steps, and pip alone cannot do either of them:
 #
-#  pip cannot install a matched GDAL/PROJ stack, and installing these packages
-#  by hand produces an environment that opens FIMsim and then fails in the
-#  middle of a workflow.  This file exists for the installer build and for
-#  environments where conda is not available.  Check any environment with:
-#       python -m core.deps
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ── Core GUI framework ─────────────────────────────────────────────────────────
-PyQt6==6.7.1
-
-# ── Plotting (maps, raster previews, hydrographs) ──────────────────────────────
-matplotlib
-
-# ── Scientific / numerical ─────────────────────────────────────────────────────
-numpy
-scipy          # DEM nodata fill (distance_transform_edt), TRITON Manning
-
-# ── Data wrangling ─────────────────────────────────────────────────────────────
-pandas
-openpyxl       # .xlsx discharge files (bdy.py, triton_hydro.py read_excel)
-
-# ── Geospatial — vector ────────────────────────────────────────────────────────
-geopandas
-shapely
-pyproj         # CRS transforms (DEM, BCI, orchestrate)
-pyogrio        # GEOGLOWS stream network reader (geoglows_streams.py)
-
-# ── Geospatial — raster ────────────────────────────────────────────────────────
-rasterio
-
-# ── Hydrology data access ──────────────────────────────────────────────────────
-requests       # General HTTP
-pynhd          # NHD flowlines + USGS gage lookup (USA)
-pygeoogc       # WMS client — NLCD download (also a pynhd dependency)
-
-# ── NWM discharge ──────────────────────────────────────────────────────────────
-xarray
-zarr>=3.0.1    # retrospective zarr on S3; 3.x required by fimserve's kerchunk
-s3fs>=2026.2.0 # anonymous S3; keep in step with aiobotocore (see environment.yml)
-aiobotocore>=3.9.0
-numcodecs
-netCDF4        # short-range forecast files (nwm_forecast.py)
-
-# ── OWP HAND-FIM mode ──────────────────────────────────────────────────────────
-fimserve==0.1.99   # AOI -> HUC8 -> NWM discharge -> OWP HAND inundation map
-
-# ── ARC-Curve2Flood mode (GitHub-only, not on PyPI) ───────────────────────────
-# NenCarta provides the `flood-mapping` CLI that FIMsim shells out to.
-geoglows
-progress
-PyQt5>=5.15                                                      # NenCarta imports PyQt5 at module load
-git+https://github.com/MikeFHS/automated-rating-curve.git        # ARC  (import arc)
-git+https://github.com/MikeFHS/Curve2Flood.git                   # Curve2Flood
-git+https://github.com/jlgutenson/nencarta.git                   # flood-mapping CLI
-
-# ── Build tool (only to create standalone executables, not to run) ────────────
-# pyinstaller  # Uncomment and install separately when building an installer
+#     conda env create -f environment.yml
+#     conda activate FIMsim
+#     python -m core.deps --fix
+#     python -m core.deps
+#
+# Why: fimserve requires teehr==0.5.0, and TEEHR pins zarr<3 / s3fs<2026, while
+# FIMsim runs on zarr 3 / s3fs 2026.  No pip resolver can satisfy both.  It
+# either deadlocks (pip backtracks through dozens of old fimserve releases and
+# downloads a 450 MB pyspark tarball first) or "succeeds" by downgrading zarr
+# and s3fs, which breaks every NWM download.  Also, the geospatial stack
+# (GDAL, PROJ, rasterio, geopandas) needs conda to share one GDAL build.
+#
+# The line below is deliberately not a valid requirement, so that pip stops here
+# and prints this instruction instead of building a broken environment.
+USE-environment.yml-AND-core.deps---SEE-README-INSTALL-SECTION-NOT-PIP

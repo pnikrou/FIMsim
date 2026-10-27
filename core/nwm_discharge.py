@@ -173,9 +173,10 @@ def download_nwm_retrospective(
         import zarr   # noqa
         import s3fs   # noqa
     except ImportError:
+        from core.deps import FIX_HINT
         raise ImportError(
             "zarr and s3fs are required for NWM retrospective download.\n"
-            "Install with:  pip install zarr s3fs"
+            + FIX_HINT
         )
 
     fids = _coerce_feature_ids(feature_ids)
@@ -269,8 +270,9 @@ def download_nwm_forecast(
     try:
         import s3fs
     except ImportError:
+        from core.deps import FIX_HINT
         raise ImportError(
-            "s3fs is required for NWM forecast download.  pip install s3fs"
+            "s3fs is required for NWM forecast download.\n" + FIX_HINT
         )
 
     fids = _coerce_feature_ids(feature_ids)

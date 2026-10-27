@@ -113,6 +113,8 @@ If you have access to a Windows machine:
 :: In Anaconda Prompt on Windows:
 conda env create -f environment.yml
 conda activate FIMsim
+python -m core.deps --fix     :: HAND-FIM + ARC backends (see README, Install)
+python -m core.deps           :: must print "Environment OK"
 pip install pyinstaller
 
 :: Build the app

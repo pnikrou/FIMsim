@@ -474,7 +474,8 @@ class ModeFIMservWidget(QWidget):
             banner = QLabel(
                 "⚠  The <b>fimserve</b> package is not installed — "
                 "Streamflow and Generate FIM steps will not work.  "
-                "Install it first:  <code>pip install fimserve</code>"
+                "Run <code>python -m core.deps</code> for the exact repair "
+                "command - do not <code>pip install fimserve</code> by hand."
             )
             banner.setWordWrap(True)
             banner.setStyleSheet(
@@ -1776,7 +1777,9 @@ class ModeFIMservWidget(QWidget):
             QMessageBox.critical(
                 self, "fimserve not installed",
                 "The fimserve package is required for this step.\n\n"
-                "Install it with:\n    pip install fimserve\n\n"
+                "Run  python -m core.deps  for the exact repair command.\n"
+                "(Do not 'pip install fimserve' by hand - it replaces the S3 "
+                "libraries FIMsim needs.)\n\n"
                 "Then restart the app."
             )
             return

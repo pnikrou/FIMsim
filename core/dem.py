@@ -790,9 +790,9 @@ def _fill_dem_nodata(tif_path, log_fn):
     try:
         from scipy.ndimage import distance_transform_edt  # noqa – imported in helper
     except ImportError:
+        from core.deps import FIX_HINT
         raise ImportError(
-            "scipy is required to fill DEM nodata.\n"
-            "Install it with:  pip install scipy"
+            "scipy is required to fill DEM nodata.\n" + FIX_HINT
         )
 
     with rasterio.open(tif_path) as src:

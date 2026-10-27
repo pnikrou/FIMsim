@@ -406,9 +406,9 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
     """
     cli = flood_mapping_cli()
     if not cli:
+        from core.deps import FIX_HINT
         raise NenCartaError(
-            "The 'flood-mapping' command was not found.  Install NenCarta:\n"
-            "  pip install git+https://github.com/jlgutenson/nencarta.git")
+            "The 'flood-mapping' command (NenCarta) was not found.\n" + FIX_HINT)
 
     cmd = [cli, "json", str(json_path), "--serial" if serial else "--parallel"]
     if not serial and num_workers:

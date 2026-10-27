@@ -351,9 +351,10 @@ def _write_headerless_ascii(tif_path, out_path):
 
     if n_invalid > 0:
         if not have_scipy:
+            from core.deps import FIX_HINT
             raise ImportError(
                 "scipy is required to fill nodata cells in the friction file.\n"
-                "Install it with:  pip install scipy"
+                + FIX_HINT
             )
         if invalid.all():
             raise RuntimeError(

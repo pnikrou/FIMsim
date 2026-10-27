@@ -1,90 +1,97 @@
+# FIMsim environment.  Install in TWO steps - the second is not optional if you
+# want the OWP HAND-FIM or ARC-Curve2Flood modes:
+#
+#     conda env create -f environment.yml
+#     conda activate FIMsim
+#     python -m core.deps --fix      # HAND-FIM + ARC-Curve2Flood backends
+#     python -m core.deps            # must print "Environment OK"
+#
+# Step 1 (this file) is everything LISFLOOD-FP and TRITON need.  Step 2 installs
+# requirements-pip.txt with --no-deps.  It cannot be one resolver run:
+# fimserve hard-requires teehr==0.5.0, and TEEHR pins zarr<3 / s3fs<2026 /
+# fsspec<2026 while FIMsim runs on zarr 3 / s3fs 2026.  pip cannot satisfy both,
+# so a plain `pip install fimserve` backtracks through dozens of old fimserve
+# releases (downloading a 450 MB pyspark tarball on the way) and then fails, or
+# "succeeds" by downgrading zarr and s3fs and breaking every NWM download.
+#
+# Do not install packages into this environment one at a time.
+
 name: FIMsim
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python=3.11
+  # Every package below is pinned to the version this release was verified
+  # with.  pandas in particular must stay 2.x: pyspark (needed by fimserve/
+  # teehr) fails to import under pandas 3 ("cannot import name '_builtin_table'").
 
-  # Geospatial stack via conda-forge — all share the same GDAL, no DLL conflicts
-  - rasterio
-  - pyproj
-  - pyogrio
-  - shapely
-  - fiona
-  - geopandas
-  - rioxarray
+  # Geospatial stack via conda-forge - all share the same GDAL, no DLL conflicts
+  - rasterio=1.4.4
+  - pyproj=3.7.2
+  - pyogrio=0.12.1
+  - shapely=2.1.2
+  - fiona=1.10.1
+  - geopandas=1.1.3
+  - rioxarray=0.19.0
 
   # Scientific / numerical
-  - numpy
-  - scipy
-  - pandas
-  - openpyxl
-  - matplotlib-base   # NOT matplotlib — avoids pulling in Qt/PySide6 from conda
+  - numpy=2.0.2
+  - scipy=1.17.1
+  - pandas=2.3.3
+  - pyarrow=24.0.0
+  - openpyxl=3.1.5
+  - matplotlib-base=3.11.0   # NOT matplotlib - avoids pulling in Qt/PySide6 from conda
 
   # NetCDF / HDF / cloud storage (NWM retrospective)
-  - xarray
-  - zarr
-  # s3fs/aiobotocore must stay compatible with the botocore that boto3 and
-  # awscli pin, or anonymous S3 breaks and FIMserv (OWP HAND-FIM) silently
-  # downloads no NWM discharge — see the pip section below.
-  - s3fs
-  - fsspec
-  - numcodecs
-  - netcdf4
-  - h5netcdf
-  - h5py
-  - aiofiles
-  - aiobotocore
+  - xarray=2026.4.0
+  - zarr=3.1.6        # fimserve's kerchunk dependency requires zarr 3.x
+  - numcodecs=0.16.5
+  - netcdf4=1.7.4
+  - h5netcdf=1.8.1
+  - h5py=3.16.0
+  - aiofiles=25.1.0
+
+  # Anonymous-S3 stack.  FIMserv reads the NWM retrospective zarr from S3, and
+  # `aws s3 sync --no-sign-request` downloads the HUC8 HAND data.  aiobotocore,
+  # boto3 and awscli all pin botocore, and when the pins disagree every
+  # anonymous S3 read dies with
+  #   TypeError: ClientArgsCreator.compute_endpoint_resolver_builtin_defaults()
+  #   missing 1 required positional argument: 's3_disable_express_session_auth'
+  # and FIMserv then generates FIM with no discharge - i.e. no flood map.
+  # These seven are pinned as a set and were verified together; change one and
+  # you must change them all.  `python -m core.deps` checks they still agree.
+  - fsspec=2026.7.0
+  - s3fs=2026.7.0
+  - aiobotocore=3.9.0
+  - botocore=1.43.36
+  - boto3=1.43.36
+  - awscli=1.45.36
+  - s3transfer=0.19.0
 
   # Hydrology data download (NHD flowlines, LULC, NWM)
-  - pynhd
-  - pygeoogc
-  - pygeoutils
-  - async-retriever
+  - pynhd=0.20.0
+  - pygeoogc=0.19.4
+  - pygeoutils=0.19.5
+  - async-retriever=0.19.3
 
-  # ARC-Curve2Flood backend — NenCarta drives ARC + Curve2Flood.
-  # gdal gives the osgeo Python bindings these tools import; conda-forge keeps it
-  # matched to the same GDAL as rasterio (no C-library conflict).
-  - gdal
-  - numba=0.60.0   # pinned: fimserve requires exactly this
-  - fastparquet
-  - geojson
-  - cython
-  - whitebox
+  # ARC-Curve2Flood backend.  gdal gives the osgeo Python bindings these tools
+  # import; conda-forge keeps it matched to the same GDAL as rasterio.
+  - gdal=3.12.3
+  - numba=0.60.0      # pinned: fimserve requires exactly this
+  - fastparquet=2026.5.0
+  - geojson=3.3.0
+  - cython=3.2.9
+  - whitebox=2.3.6
 
   # HTTP / networking
-  - requests
-  - certifi
-  - urllib3
-  - aiohttp
+  - requests=2.34.2
+  - certifi=2026.6.17
+  - urllib3=2.7.0
+  - aiohttp=3.14.1
 
   - pip
   - pip:
-      - pyqt6==6.7.1   # pip-only — conda's Qt6 would conflict with this
-      - fimserve        # OWP HAND-FIM backend (HAND-FIM mode)
-      - "zarr>=3.0.1"  # fimserve's kerchunk dep requires zarr 3.x; pin to prevent legacy-resolver downgrade
-      # ARC-Curve2Flood — GitHub-only (not on PyPI). --no-deps not needed here
-      # because the conda block above already provides gdal/numba/etc.
-      - "git+https://github.com/MikeFHS/automated-rating-curve.git"   # ARC (import arc)
-      - "git+https://github.com/MikeFHS/Curve2Flood.git"             # Curve2Flood (import curve2flood)
-      # NenCarta orchestrates ARC + Curve2Flood and provides the `flood-mapping`
-      # CLI that FIMsim's ARC-Curve2Flood mode drives (see its README).
-      - geoglows
-      - progress
-      # NenCarta imports PyQt5 at module load (nencarta/gui_app.py).  FIMsim
-      # itself is PyQt6 and never imports nencarta in-process — it shells out to
-      # `flood-mapping` — and main.py pins QT_API=pyqt6 so matplotlib cannot
-      # bind to PyQt5.
-      - "PyQt5>=5.15"
-      - "git+https://github.com/jlgutenson/nencarta.git"             # flood-mapping CLI
-      # ── Anonymous-S3 stack (FIMserv reads the NWM retrospective zarr from
-      # S3 via s3fs).  aiobotocore pins botocore VERY tightly, and boto3/awscli
-      # pin it too; when the two pins disagree every anonymous S3 read dies with
-      #   TypeError: ClientArgsCreator.compute_endpoint_resolver_builtin_defaults()
-      #   missing 1 required positional argument: 's3_disable_express_session_auth'
-      # and FIMserv then generates FIM with no discharge — i.e. no flood map.
-      # aiobotocore 3.9 accepts botocore 1.43.3–1.43.56 (boto3 1.43.36 pins
-      # 1.43.36), and s3fs >= 2026.1 allows aiobotocore 3.x.  Keep these three
-      # consistent if you ever upgrade one.
-      - "aiobotocore>=3.9.0"
-      - "s3fs>=2026.2.0"
+      # pip-only.  conda's Qt6 would conflict with this build.
+      - pyqt6==6.7.1
+      - pyqt6-qt6==6.7.3
+      - pyqt6-sip==13.11.1

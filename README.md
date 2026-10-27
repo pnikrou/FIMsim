@@ -82,39 +82,77 @@ For users who prefer a local installation, standalone installers are available o
 | Windows | `FIMsim-setup-windows.exe` — run installer wizard |
 
 ### Run from source (contributors)
+
+**Requirements:** [Anaconda or Miniconda](https://docs.conda.io/en/latest/miniconda.html),
+`git`, and about 8 GB of free disk space. The environment is named **`FIMsim`**.
+
 ```bash
 git clone https://github.com/pnikrou/FIMsim.git
 cd FIMsim
+
+# Step 1 - the core: geospatial stack, NWM/S3 libraries, GUI
+# (everything LISFLOOD-FP and TRITON need)
 conda env create -f environment.yml
 conda activate FIMsim
-python -m core.deps      # verify the environment before you start
+
+# Step 2 - the OWP HAND-FIM and ARC-Curve2Flood backends
+python -m core.deps --fix
+
+# Check it: must print "Environment OK"
+python -m core.deps
+
 python main.py
 ```
 
-`python -m core.deps` lists any missing package and the step it breaks. It
-prints `Environment OK` when the environment is complete.
+Step 2 downloads about 400 MB (`pyspark`, which fimserve needs, installs from
+source) and clones three small GitHub repositories, so allow ten minutes and keep
+`git` on your PATH. It is safe to run again.
 
-> **Install from `environment.yml` — do not install the packages one by one.**
-> FIMsim needs a geospatial stack (GDAL, PROJ, rasterio, geopandas) whose
-> components must share one GDAL build, plus `zarr`/`s3fs` for NWM discharge.
-> A hand-assembled environment *opens FIMsim normally* and then fails partway
-> through a workflow — typically `zarr and s3fs are required for NWM
-> retrospective download` after an AOI and date range have already been
-> chosen. FIMsim now checks at startup and names what is missing, but the only
-> supported fix is to recreate the environment:
->
-> ```bash
-> conda env remove -n FIMsim
-> conda env create -f environment.yml
-> conda activate FIMsim
-> ```
->
-> The environment is named **`FIMsim`**. On macOS and Windows the filesystem is
-> case-insensitive, so `conda activate fimsim` finds the same environment; on
-> Linux it will not. If `conda activate` succeeds but FIMsim still reports
-> missing packages, you are in a *different* environment that happens to have a
-> similar name — check with `python -m core.deps`, which prints the full path of
-> the interpreter it checked.
+**Why two steps, and why not just `pip install`?** `fimserve` requires
+`teehr==0.5.0`, and TEEHR pins `zarr<3`, `s3fs<2026` and `fsspec<2026`, while FIMsim
+runs on `zarr 3` and `s3fs 2026`. No pip resolver can satisfy both: it either
+deadlocks (backtracking through dozens of old fimserve releases and downloading the
+450 MB pyspark tarball on the way) or "succeeds" by *downgrading* zarr and s3fs,
+which breaks every NWM download. Step 2 therefore installs a fully pinned list
+(`requirements-pip.txt`) with `--no-deps`, which leaves the verified conda stack
+untouched. TEEHR is only used for its NWM fetch helpers and works on the newer
+libraries.
+
+> **Do not install packages into this environment one at a time.** An environment
+> assembled by hand *opens FIMsim normally* and then fails partway through a
+> workflow - typically `zarr and s3fs are required for NWM retrospective download`
+> after an AOI and date range have already been chosen. `pip install -r
+> requirements.txt` is deliberately blocked for the same reason.
+
+**If something is wrong,** `python -m core.deps` lists exactly what is missing and
+the command that fixes it, and FIMsim runs a quick version of the same check every
+time it starts. To start over:
+
+```bash
+conda deactivate
+conda env remove -n FIMsim
+conda env create -f environment.yml
+conda activate FIMsim
+python -m core.deps --fix
+```
+
+**ARC-Curve2Flood: the first run after an install differs slightly.** ARC's
+numba-compiled code gives different bathymetry, and therefore different flood maps,
+on its first run in an environment (whenever numba's compile cache is empty) than
+on every later run. On one small test case that was 1.1% of the bathymetry cells
+(590 of 54,780) and about the same share of the flood-depth raster; every later
+run matched the project's original results to the last cell. It happens in any
+environment, including a long-lived one, and again after reinstalling `arc`,
+`curve2flood` or `nencarta`. So after installing, **run one throwaway ARC case
+before producing results you intend to keep.** Which of the two results is
+numerically correct has not been determined; it should be reported to the ARC
+authors.
+
+Versions are pinned to the ones this release was verified with (for example
+`pandas 2.3.3`: pandas 3 breaks pyspark, which HAND-FIM needs). Upgrade one at your
+own risk and re-run `python -m core.deps`. `ARC` is pinned to a specific commit; it
+is a few commits behind the authors' latest, which is the version the results in
+this project were produced with.
 
 ---
 

@@ -288,8 +288,9 @@ def _get_nwm_timeseries(feature_id, start_dt, end_dt, interval_hours, log_fn):
     try:
         import s3fs  # noqa
     except ImportError:
+        from core.deps import FIX_HINT
         raise ImportError(
-            "s3fs is required for NWM download.  pip install s3fs"
+            "s3fs is required for NWM download.\n" + FIX_HINT
         )
 
     start_ts = pd.Timestamp(start_dt)
@@ -310,9 +311,9 @@ def _get_nwm_timeseries(feature_id, start_dt, end_dt, interval_hours, log_fn):
         try:
             import zarr  # noqa
         except ImportError:
+            from core.deps import FIX_HINT
             raise ImportError(
-                "zarr is required for NWM retrospective download. "
-                "pip install zarr s3fs"
+                "zarr is required for NWM retrospective download.\n" + FIX_HINT
             )
         return _get_nwm_retrospective(
             feature_id, start_ts, end_ts, interval_hours, log_fn,

@@ -87,8 +87,9 @@ def _get_nwm_timeseries(feature_id, start_dt, end_dt, interval_hours, log_fn):
         import zarr   # noqa
         import s3fs   # noqa
     except ImportError:
+        from core.deps import FIX_HINT
         raise ImportError(
-            "zarr and s3fs are required for NWM download.  pip install zarr s3fs"
+            "zarr and s3fs are required for NWM download.\n" + FIX_HINT
         )
 
     url = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"

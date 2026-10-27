@@ -174,9 +174,8 @@ def _import_fimserve():
     try:
         import fimserve as fm
     except ImportError:
-        raise ImportError(
-            "fimserve is not installed.  Install it with: uv pip install fimserve"
-        )
+        from core.deps import FIX_HINT
+        raise ImportError("fimserve is not installed.\n" + FIX_HINT)
     return fm
 
 

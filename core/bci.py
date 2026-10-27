@@ -301,7 +301,8 @@ def create_bci(
         try:
             from pynhd import NHD
         except ImportError:
-            raise ImportError("pynhd is required. Install it: pip install pynhd")
+            from core.deps import FIX_HINT
+            raise ImportError("pynhd is required.\n" + FIX_HINT)
 
         from core.aoi import read_aoi
         aoi_gdf = read_aoi(ctx)
