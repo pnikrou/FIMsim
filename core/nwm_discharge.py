@@ -45,6 +45,26 @@ def _looks_like_row_numbers(values) -> bool:
     return values == list(range(len(values))) or values == list(range(1, len(values) + 1))
 
 
+def _read_csv_maybe_headerless(path, known, as_str=False):
+    """Read a CSV, re-reading without a header when it plainly has none.
+
+    pandas assumes row 1 is a header, which silently eats the first record of
+    a headerless file.  A real header never names a column with a bare number,
+    so one numeric column name means row 1 was data — but only when no column
+    carries a name we recognise, so a proper header that happens to include a
+    year column ("site_no,2024") is still read as a header.
+    """
+    kw = {"dtype": str} if as_str else {}
+    df = pd.read_csv(path, **kw)
+    names = [str(c).strip() for c in df.columns]
+    numeric = any(n.replace(".", "", 1).lstrip("-").isdigit()
+                  or (n.startswith("Unnamed:") and len(names) == 1)
+                  for n in names)
+    if numeric and not any(n.lower() in known for n in names):
+        df = pd.read_csv(path, header=None, **kw)
+    return df
+
+
 def _ids_from_csv(path: Path) -> List[int]:
     """Read reach ids from a CSV, choosing the column by NAME where possible.
 
@@ -56,7 +76,7 @@ def _ids_from_csv(path: Path) -> List[int]:
     nothing to say for itself.
     """
     try:
-        df = pd.read_csv(path)
+        df = _read_csv_maybe_headerless(path, _ID_COLUMNS)
     except Exception as exc:
         raise ValueError(f"Could not read {path.name}: {exc}") from exc
     if df.empty:
@@ -66,17 +86,11 @@ def _ids_from_csv(path: Path) -> List[int]:
     lower = {str(c).strip().lower(): c for c in df.columns}
     col = next((lower[n] for n in _ID_COLUMNS if n in lower), None)
 
-    # 2. Otherwise a single-column file is unambiguous — including the
-    #    headerless case, where the first id was read AS the header.
+    # 2. Otherwise a single-column file is unambiguous (a headerless one
+    #    has already been re-read, so row 1 is a value here, not a name).
     if col is None and df.shape[1] == 1:
-        ids = []
-        head = str(df.columns[0]).strip()
-        try:
-            ids.append(int(float(head)))        # headerless: row 1 is data
-        except (TypeError, ValueError):
-            pass
         col = df.columns[0]
-        ids += [int(float(str(v).strip())) for v in df[col].dropna()
+        ids = [int(float(str(v).strip())) for v in df[col].dropna()
                 if str(v).strip().lstrip("-").replace(".", "", 1).isdigit()]
         return _checked(ids, path)
 

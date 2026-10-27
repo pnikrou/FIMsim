@@ -23,6 +23,100 @@ from core.export import next_free_path
 
 # ── small helpers ─────────────────────────────────────────────────────────────
 
+# Column names that hold a USGS site number, in preference order.
+_GAGE_COLUMNS = ("site_no", "site_number", "siteno", "gage_id", "gageid",
+                 "gage", "station_id", "station_no", "usgs_id", "id")
+
+
+def _read_csv_maybe_headerless(path, known, as_str=False):
+    """Read a CSV, re-reading without a header when it plainly has none.
+
+    pandas assumes row 1 is a header, which silently eats the first record of
+    a headerless file.  A real header never names a column with a bare number,
+    so one numeric column name means row 1 was data — but only when no column
+    carries a name we recognise, so a proper header that happens to include a
+    year column ("site_no,2024") is still read as a header.
+    """
+    kw = {"dtype": str} if as_str else {}
+    df = pd.read_csv(path, **kw)
+    names = [str(c).strip() for c in df.columns]
+    numeric = any(n.replace(".", "", 1).lstrip("-").isdigit()
+                  or (n.startswith("Unnamed:") and len(names) == 1)
+                  for n in names)
+    if numeric and not any(n.lower() in known for n in names):
+        df = pd.read_csv(path, header=None, **kw)
+    return df
+
+
+def _gage_ids_from_csv(path, pad) -> List[str]:
+    """Read USGS site numbers from a CSV, choosing the column by NAME.
+
+    This used to read column 0 with header=None, which worked only for a bare
+    one-column file.  Anything else went wrong silently and in a way the API
+    could not refuse usefully: a 'site_no' header was passed along AS a gage, a
+    frame saved with its index became 00000000, 00000001, and a GIS export
+    returned OBJECTID values zero-padded into plausible-looking site numbers.
+
+    dtype=str throughout — USGS site numbers are strings with meaningful
+    leading zeros, and reading them as numbers destroys the identifier.
+    """
+    df = _read_csv_maybe_headerless(path, _GAGE_COLUMNS, as_str=True)
+    if df.empty and not len(df.columns):
+        raise ValueError(f"{path.name} is empty.")
+
+    lower = {str(c).strip().lower(): c for c in df.columns}
+    col = next((lower[n] for n in _GAGE_COLUMNS if n in lower), None)
+
+    if col is None and df.shape[1] == 1:
+        # One column: unambiguous (a headerless file was re-read above).
+        vals = [str(v).strip() for v in df[df.columns[0]].dropna()
+                if str(v).strip()]
+        return _checked_gages(vals, path, pad)
+
+    if col is None:
+        # Several columns, none named: take the first that looks like site
+        # numbers — all digits, and not a 0/1-based row counter.
+        for c in df.columns:
+            vals = [str(v).strip() for v in df[c].dropna() if str(v).strip()]
+            if (vals and all(v.isdigit() for v in vals)
+                    and not _is_row_counter(vals)
+                    and min(len(v) for v in vals) >= 7):
+                col = c
+                break
+    if col is None:
+        raise ValueError(
+            f"{path.name} has no column of USGS site numbers. Columns found: "
+            f"{', '.join(str(c) for c in df.columns)}. Name the column "
+            f"'site_no', or give a file with one site number per line.")
+
+    return _checked_gages([str(v).strip() for v in df[col].dropna()
+                           if str(v).strip()], path, pad)
+
+
+def _is_row_counter(vals) -> bool:
+    try:
+        nums = [int(v) for v in vals]
+    except (TypeError, ValueError):
+        return False
+    return len(nums) > 1 and (nums == list(range(len(nums)))
+                              or nums == list(range(1, len(nums) + 1)))
+
+
+def _checked_gages(vals, path, pad) -> List[str]:
+    """Refuse row numbers rather than zero-padding them into real site numbers."""
+    vals = [v for v in vals if v]
+    if not vals:
+        raise ValueError(f"No site numbers found in {path.name}.")
+    digits = [len(v) for v in vals if v.isdigit()]
+    if _is_row_counter(vals) or not digits or max(digits) < 7:
+        raise ValueError(
+            f"{path.name} looks like row numbers, not USGS site numbers "
+            f"({vals[0]}…{vals[-1]}). This usually means the file was saved "
+            f"with its index, or the site column is not the first one — name "
+            f"it 'site_no' and FIMsim will find it wherever it sits.")
+    return [pad(v) for v in vals]
+
+
 def _coerce_gage_ids(gage_ids) -> List[str]:
     """Accept single gage string, comma-separated list, or path to a CSV
     (one gage per line, no header) and return a list of zero-padded USGS
@@ -46,10 +140,7 @@ def _coerce_gage_ids(gage_ids) -> List[str]:
         if not s:
             return []
         if s.lower().endswith((".csv", ".txt")) and Path(s).exists():
-            df = pd.read_csv(s, header=None, dtype=str)   # dtype=str preserves leading zeros
-            return [_pad(str(v).strip())
-                    for v in df.iloc[:, 0].dropna().tolist()
-                    if str(v).strip()]
+            return _gage_ids_from_csv(Path(s), _pad)
         return [_pad(p) for p in s.replace(",", " ").split() if p.strip()]
     try:
         return [_pad(str(x).strip()) for x in gage_ids if str(x).strip()]
