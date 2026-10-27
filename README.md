@@ -87,8 +87,30 @@ git clone https://github.com/pnikrou/FIMsim.git
 cd FIMsim
 conda env create -f environment.yml
 conda activate FIMsim
+python -m core.deps      # verify the environment before you start
 python main.py
 ```
+
+`python -m core.deps` lists any missing package and the step it breaks. It
+prints `Environment OK` when the environment is complete.
+
+> **Install from `environment.yml` — do not install the packages one by one.**
+> FIMsim needs a geospatial stack (GDAL, PROJ, rasterio, geopandas) whose
+> components must share one GDAL build, plus `zarr`/`s3fs` for NWM discharge.
+> A hand-assembled environment *opens FIMsim normally* and then fails partway
+> through a workflow — typically `zarr and s3fs are required for NWM
+> retrospective download` after an AOI and date range have already been
+> chosen. FIMsim now checks at startup and names what is missing, but the only
+> supported fix is to recreate the environment:
+>
+> ```bash
+> conda env remove -n FIMsim
+> conda env create -f environment.yml
+> conda activate FIMsim
+> ```
+>
+> The environment is named **`FIMsim`** (capital F-I-M-S-I-M); conda names are
+> case-sensitive, so `conda activate fimsim` will not find it.
 
 ---
 

@@ -199,6 +199,32 @@ class MainWindow(QMainWindow):
             "Welcome to FIMsim  |  Flood Inundation Model Simulation Tool  v1.0"
         )
         self._append_log("Select a category on the home screen to begin.")
+        self._warn_if_env_incomplete()
+
+    def _warn_if_env_incomplete(self):
+        """Report a half-built environment at startup, not mid-download.
+
+        An environment assembled package by package instead of from
+        environment.yml opens the app fine and then fails inside a workflow —
+        "zarr and s3fs are required" after the AOI and dates were already
+        chosen.  Say it once here, with the command that fixes it.
+        """
+        try:
+            from core.deps import check
+            req, opt = check(log_fn=self._append_log)
+        except Exception:
+            return                      # never block startup over this check
+        if not req and not opt:
+            return
+        from PyQt6.QtWidgets import QMessageBox
+        from core.deps import report
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical if req
+                    else QMessageBox.Icon.Warning)
+        box.setWindowTitle("FIMsim environment is incomplete")
+        box.setText("Some packages FIMsim needs are not installed.")
+        box.setInformativeText(report())
+        box.exec()
 
     # ── Build LISFLOOD-FP tab widget ─────────────────────────────────────────
 
