@@ -456,6 +456,7 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
         raise NenCartaError(f"Could not start flood-mapping: {exc}") from exc
 
     reported = None
+    etype = ""
     for line in proc.stdout:
         line = line.rstrip()
         if line:
@@ -464,8 +465,11 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
             # and exits 0.  Trusting the exit code alone reported such a run as
             # "finished successfully" and went on to collect whatever maps were
             # already in the folder.  Keep the first message it printed.
+            if "Exception type:" in line:
+                etype = line.split("Exception type:", 1)[1].strip()
             if reported is None and "Exception message:" in line:
-                reported = line.split("Exception message:", 1)[1].strip()
+                msg = line.split("Exception message:", 1)[1].strip()
+                reported = f"{etype}: {msg}" if etype else msg
     code = proc.wait()
     if code != 0:
         raise NenCartaError(
