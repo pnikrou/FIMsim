@@ -168,6 +168,7 @@ def build_watershed(
     make_curvefile: bool = True,
     make_fist_inputs: bool = False,
     overwrite_floodmaps: bool = True,
+    overwrite: bool = True,
     quiet: bool = False,
     extra: Optional[Dict] = None,
 ) -> Dict:
@@ -247,6 +248,13 @@ def build_watershed(
         # not ask for it.
         "make_fist_inputs": bool(make_fist_inputs),
         "overwrite_floodmaps": bool(overwrite_floodmaps),
+        # NenCarta defaults this to False, which makes it SKIP any step whose
+        # product already exists in the output folder.  Re-running after changing
+        # an option (say, turning bathymetry on) then reused the previous run's
+        # leftovers, ARC was skipped (0.002 s), and a later step died looking for
+        # a file that was never made - while the exit code stayed 0.  True makes
+        # every run a function of its inputs, not of the folder's history.
+        "overwrite": bool(overwrite),
         "quiet": bool(quiet),
     }
     if src == "GEOGLOWS" and geoglows_vpu not in (None, ""):
@@ -397,6 +405,18 @@ def validate_with_nencarta(watersheds: List[Dict], log_fn=print) -> None:
         "NenCarta rejected the watershed configuration: " + last)
 
 
+def _uses_thalweg_step(json_path) -> bool:
+    """True when any watershed in the JSON turns on NenCarta's thalweg mover."""
+    try:
+        with open(json_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return False
+    ws = data.get("watersheds", data) if isinstance(data, dict) else data
+    return any(bool(w.get("move_stream_network_to_thalweg"))
+               for w in (ws if isinstance(ws, list) else [ws]) if isinstance(w, dict))
+
+
 def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
                       log_fn=print, cwd=None) -> int:
     """Run ``flood-mapping json <file>`` and stream its output to the log.
@@ -420,6 +440,14 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
     # separate process keeps them apart, and this makes matplotlib inside that
     # process bind to PyQt5 rather than fighting FIMsim's binding.
     env.pop("QT_API", None)
+    if _uses_thalweg_step(json_path) and "PYTHONHASHSEED" not in env:
+        # "Move stream network to thalweg" iterates sets whose order follows
+        # Python's per-process string-hash seed.  Measured on one case: six runs
+        # of identical inputs gave six different flood maps (and three crashed);
+        # with the seed fixed, every run was identical.  Fixing it makes the run
+        # repeatable without touching NenCarta's code.
+        env["PYTHONHASHSEED"] = "0"
+        log_fn("  (thalweg step on: PYTHONHASHSEED=0 so the run is repeatable)")
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -427,14 +455,26 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
     except OSError as exc:
         raise NenCartaError(f"Could not start flood-mapping: {exc}") from exc
 
+    reported = None
     for line in proc.stdout:
         line = line.rstrip()
         if line:
             log_fn(f"  [nencarta] {line}")
+            # NenCarta catches its own pipeline errors, prints an "ErrorSnapshot"
+            # and exits 0.  Trusting the exit code alone reported such a run as
+            # "finished successfully" and went on to collect whatever maps were
+            # already in the folder.  Keep the first message it printed.
+            if reported is None and "Exception message:" in line:
+                reported = line.split("Exception message:", 1)[1].strip()
     code = proc.wait()
     if code != 0:
         raise NenCartaError(
             f"NenCarta exited with code {code} — see the [nencarta] lines above.")
+    if reported is not None:
+        raise NenCartaError(
+            f"NenCarta reported an error and did not finish: {reported}\n"
+            "(It exits with code 0 even then, so FIMsim reads the error from its "
+            "output — see the [nencarta] lines above.)")
     log_fn("NenCarta finished successfully.")
     return code
 

@@ -773,6 +773,9 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
         make_depth_maps=cfg.get("make_depth_maps", True),
         make_velocity_maps=cfg.get("make_velocity_maps", False),
         make_wse_maps=cfg.get("make_wse_maps", False),
+        # Any further NenCarta key (e.g. the thalweg / burn-streams / FLDPLN
+        # settings from its GUI) passes straight into the watershed entry.
+        extra=cfg.get("extra"),
     )
 
 
