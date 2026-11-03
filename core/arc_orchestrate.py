@@ -4,6 +4,8 @@ Kept fully separate from orchestrate.py and triton_orchestrate.py so the
 three models never share workflow code.  Blocking — call from a Worker thread.
 """
 import json
+import os
+import time
 from pathlib import Path
 
 from core.dem import prepare_dem
@@ -779,6 +781,73 @@ def _nencarta_entry(name: str, folder: str, feat_ctx: dict, cfg: dict,
     )
 
 
+def _fresh_maps(out_dir, name: str, since: float) -> list:
+    """Flood rasters NenCarta wrote for ``name`` during this run (not leftovers)."""
+    from core.nencarta_run import find_flood_maps
+    return [m for m in find_flood_maps(str(out_dir), name)
+            if os.path.getmtime(m) >= since - 1]
+
+
+def _run_fallbacks(targets, cfgs, started, first_error, log_fn=print) -> None:
+    """Give every AOI that got no flood map its fallback settings, in order.
+
+    A Run-panel preset may carry ``fallbacks``: override dicts tried one after
+    another when NenCarta cannot finish with the preferred settings.  Each try
+    starts from a clean output folder, so it gives exactly what a first try with
+    those settings gives.  The settings that produced the map are logged and
+    kept in the AOI's context (``arc_settings_used``).  An AOI that no setting
+    could map raises, so a failure is never passed off as success.
+    """
+    from core.nencarta_run import (write_nencarta_json, run_flood_mapping,
+                                   clear_watershed_outputs, NenCartaError)
+    failed = []
+    for (cp, fc, name, folder), cfg in zip(targets, cfgs):
+        out_dir = Path(folder) / "nencarta-output"
+        if _fresh_maps(out_dir, name, started):
+            fc["arc_settings_used"] = (cfg or {}).get("settings_label", "as chosen")
+            continue
+        failed.append(((cp, fc, name, folder), cfg or {}))
+    if not failed:
+        if first_error is not None:      # an error with every map written: still not success
+            raise first_error
+        return
+    last_error = first_error
+    for (cp, fc, name, folder), cfg in failed:
+        out_dir = Path(folder) / "nencarta-output"
+        mapped = False
+        for n, fb in enumerate(cfg.get("fallbacks") or [], 1):
+            label = fb.get("label", f"fallback {n}")
+            why = f"{last_error}".splitlines()[0] if last_error else "no flood map was produced"
+            log_fn(f"  WARNING '{name}': NenCarta could not finish with the chosen "
+                   f"settings ({why}).")
+            log_fn(f"  Running '{name}' again with: {label}")
+            fb_cfg = {**cfg, **{k: v for k, v in fb.items() if k != "label"},
+                      "fallbacks": None}
+            try:
+                entry = _nencarta_entry(name, folder, fc, fb_cfg, log_fn)
+            except Exception as exc:
+                last_error = exc
+                continue
+            fb_json = str(Path(folder) / f"nencarta_fallback{n}.json")
+            write_nencarta_json(fb_json, [entry], log_fn=log_fn)
+            clear_watershed_outputs(fb_json, log_fn)      # drop the failed try's leftovers
+            t1 = time.time()
+            try:
+                run_flood_mapping(fb_json, serial=True, log_fn=log_fn)
+            except NenCartaError as exc:
+                last_error = exc
+                continue
+            if _fresh_maps(out_dir, name, t1):
+                fc["arc_settings_used"] = label
+                log_fn(f"  '{name}': mapped with the fallback settings ({label}).")
+                mapped = True
+                break
+        if not mapped:
+            raise last_error or NenCartaError(
+                f"NenCarta produced no flood map for '{name}' and no fallback settings "
+                "were available.")
+
+
 def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
                                      per_aoi_configs: list = None,
                                      run_cfg: dict = None, log_fn=print) -> dict:
@@ -794,7 +863,7 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
                                    NenCartaError)
 
     aoi_features = ctx.get("aoi_features", [])
-    entries, targets = [], []
+    entries, targets, cfgs = [], [], []
 
     if not aoi_features:
         cfg = (per_aoi_configs or [run_cfg or {}])[0] or {}
@@ -802,6 +871,7 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
         name = ctx.get("aoi_name") or Path(folder).name
         entries.append(_nencarta_entry(name, folder, ctx, cfg, log_fn))
         targets.append((ctx_path, ctx, name, folder))
+        cfgs.append(cfg)
     else:
         n = len(aoi_features)
         if per_aoi_configs is not None and len(per_aoi_configs) != n:
@@ -816,6 +886,7 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
             try:
                 entries.append(_nencarta_entry(name, folder, feat_ctx, cfg, log_fn))
                 targets.append((feat_ctx_path, feat_ctx, name, folder))
+                cfgs.append(cfg)
             except Exception as exc:
                 log_fn(f"✗ Skipping '{name}': {exc}")
 
@@ -831,7 +902,13 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
     ctx["nencarta_json"] = json_path
 
     log_fn(f"▶ NenCarta: {len(entries)} watershed(s) …")
-    run_flood_mapping(json_path, serial=True, log_fn=log_fn)
+    started = time.time()
+    first_error = None
+    try:
+        run_flood_mapping(json_path, serial=True, log_fn=log_fn)
+    except NenCartaError as exc:
+        first_error = exc
+    _run_fallbacks(targets, cfgs, started, first_error, log_fn)
 
     summary = []
     cfg_all = ((per_aoi_configs[0] if per_aoi_configs else run_cfg) or {})
@@ -873,8 +950,11 @@ def run_arc_curve2flood_for_all_aois(ctx_path: str, ctx: dict,
         summary.append({"name": name, "folder": folder,
                         "flood_map": maps[0] if maps else None,
                         "flood_maps": maps,
-                        "output_dir": out_dir})
+                        "output_dir": out_dir,
+                        "settings_used": feat_ctx.get("arc_settings_used")})
         log_fn(f"  '{name}': {len(maps)} flood map(s) in {out_dir}"
+               + (f" - settings: {feat_ctx['arc_settings_used']}"
+                  if feat_ctx.get("arc_settings_used") else "")
                if maps else
                f"  ⚠ '{name}': NenCarta produced no flood raster in {out_dir}")
 

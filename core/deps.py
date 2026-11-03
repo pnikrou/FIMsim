@@ -257,6 +257,20 @@ def _failed_smoke() -> List[Tuple[str, str, str]]:
     return out
 
 
+def _old_arc() -> List[Tuple[str, str, str]]:
+    """ARC installed, but older than the commit FIMsim's recommended settings need.
+
+    Before 67308c1 ARC never reads the bankfull power-law coefficients, so those
+    settings silently do something else (see core.nencarta_run).
+    """
+    from core.nencarta_run import arc_supports_power_laws
+    if arc_supports_power_laws() is False:
+        return [("arc", "automated-rating-curve",
+                 "ARC-Curve2Flood mode (installed ARC is older than 67308c1, "
+                 "which the recommended settings need)")]
+    return []
+
+
 def check(log_fn=None, deep: bool = False):
     """Return (missing_required, missing_optional, s3_problems).
 
@@ -265,7 +279,7 @@ def check(log_fn=None, deep: bool = False):
     the fast check; the FIMserv tab imports fimserve for real.
     """
     req = _missing(_REQUIRED)
-    opt = _missing(_PER_FEATURE) + _missing_binaries()
+    opt = _missing(_PER_FEATURE) + _missing_binaries() + _old_arc()
     if deep:
         opt = opt + _broken_imports(opt) + _failed_smoke()
     s3 = s3_stack_problems()
@@ -337,6 +351,17 @@ def fix() -> int:
               "installed; fix that one (for the GitHub packages check that git "
               "is on PATH) and run  python -m core.deps --fix  again.")
         return rc
+    from core.nencarta_run import arc_supports_power_laws
+    arc_line = next((ln.strip() for ln in _PIP_REQS.read_text().splitlines()
+                     if "automated-rating-curve" in ln and not ln.lstrip().startswith("#")), None)
+    if arc_line and arc_supports_power_laws() is False:
+        # pip may treat the old ARC as already satisfied (same version number), so replace it.
+        cmd = [sys.executable, "-m", "pip", "install", "--no-deps", "--force-reinstall",
+               "--disable-pip-version-check", arc_line]
+        print("\nReplacing the older ARC:\n  " + " ".join(cmd) + "\n")
+        rc = subprocess.call(cmd)
+        if rc != 0:
+            return rc
     print("\nDone.  Re-checking the environment ...\n")
     rc = cli(show_header=False)
     if rc == 0:

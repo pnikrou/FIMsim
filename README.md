@@ -150,9 +150,27 @@ authors.
 
 Versions are pinned to the ones this release was verified with (for example
 `pandas 2.3.3`: pandas 3 breaks pyspark, which HAND-FIM needs). Upgrade one at your
-own risk and re-run `python -m core.deps`. `ARC` is pinned to a specific commit; it
-is a few commits behind the authors' latest, which is the version the results in
-this project were produced with.
+own risk and re-run `python -m core.deps`. `ARC`, `curve2flood` and `nencarta` are
+each pinned to a specific commit (the authors' latest as of Nov 2026). If an older
+ARC is installed, `python -m core.deps` says so and `python -m core.deps --fix`
+replaces it.
+
+**ARC-Curve2Flood settings (Run step).** The default is *Recommended*: the NenCarta
+settings Joseph Gutenson (NenCarta's author) used in his own run - bank-based
+bathymetry with the bankfull power laws, the stream network moved to the thalweg,
+streams burned into the DEM, a 5 km² stream threshold - with the Kernel Weighted
+mapper (his FLDPLNpy mapper gave empty flood maps on some sites). If NenCarta cannot
+finish an AOI with them, FIMsim reruns that AOI with the *classic* settings (the
+previous default, bathymetry off) and says so in the log. Two other things happen
+automatically: a WhiteboxTools crash (an intermittent fault NenCarta itself
+documents) is retried up to three times, and the thalweg step runs with
+`PYTHONHASHSEED=0` because its result otherwise changes from run to run.
+
+On the 8 sites with benchmark flood extents (T2_02/04/05/06/08/09/15/17), measured
+with the critical success index (CSI, 1 = perfect): the recommended settings score
+0.51 on average against 0.41 for the classic ones, are better on 6 sites (by 0.06 to
+0.23), and fall back to the classic result on the other 2. Re-running gives
+identical rasters. These are 8 sites; check it on yours.
 
 ---
 

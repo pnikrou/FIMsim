@@ -131,6 +131,28 @@ def flood_mapping_cli() -> Optional[str]:
     return shutil.which("flood-mapping")
 
 
+def arc_supports_power_laws() -> Optional[bool]:
+    """Whether the installed ARC reads the bankfull power-law coefficients.
+
+    NenCarta hands ``coefficient_depth`` etc. to ARC, but ARC releases before
+    commit 67308c1 (Sep 2026) never look at them: the run silently falls back to
+    plain bank-elevation bathymetry (checked: pixel-identical output).  None
+    when ARC cannot be located.
+    """
+    import importlib.util
+    spec = importlib.util.find_spec("arc")
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    for folder in spec.submodule_search_locations:
+        for src in Path(folder).glob("*.py"):
+            try:
+                if "coefficient_depth" in src.read_text(encoding="utf-8", errors="ignore"):
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def build_watershed(
     *,
     name: str,
@@ -405,21 +427,32 @@ def validate_with_nencarta(watersheds: List[Dict], log_fn=print) -> None:
         "NenCarta rejected the watershed configuration: " + last)
 
 
-def _uses_thalweg_step(json_path) -> bool:
-    """True when any watershed in the JSON turns on NenCarta's thalweg mover."""
+def _json_watersheds(json_path) -> List[Dict]:
     try:
         with open(json_path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except Exception:
-        return False
+        return []
     ws = data.get("watersheds", data) if isinstance(data, dict) else data
+    return [w for w in (ws if isinstance(ws, list) else [ws]) if isinstance(w, dict)]
+
+
+def _uses_thalweg_step(json_path) -> bool:
+    """True when any watershed in the JSON turns on NenCarta's thalweg mover."""
     return any(bool(w.get("move_stream_network_to_thalweg"))
-               for w in (ws if isinstance(ws, list) else [ws]) if isinstance(w, dict))
+               for w in _json_watersheds(json_path))
 
 
-def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
-                      log_fn=print, cwd=None) -> int:
-    """Run ``flood-mapping json <file>`` and stream its output to the log.
+def _wants_power_laws(json_path) -> bool:
+    """True when any watershed asks ARC to size the channel from the power laws."""
+    return any(bool(w.get("use_power_laws_for_bathymetry"))
+               and not w.get("disable_bathymetry")
+               for w in _json_watersheds(json_path))
+
+
+def _run_flood_mapping_once(json_path, serial: bool = True, num_workers=None,
+                            log_fn=print, cwd=None) -> int:
+    """Run ``flood-mapping json <file>`` once and stream its output to the log.
 
     Returns the exit code; raises NenCartaError when the CLI is missing or the
     run fails, so a failure cannot be reported as success.
@@ -448,6 +481,11 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
         # repeatable without touching NenCarta's code.
         env["PYTHONHASHSEED"] = "0"
         log_fn("  (thalweg step on: PYTHONHASHSEED=0 so the run is repeatable)")
+    if _wants_power_laws(json_path) and arc_supports_power_laws() is False:
+        log_fn("  WARNING: the installed ARC predates power-law bathymetry "
+               "(needs automated-rating-curve 67308c1 or newer), so the "
+               "bankfull coefficients are ignored and results will differ from "
+               "a NenCarta run on a current ARC.")
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -475,12 +513,66 @@ def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
         raise NenCartaError(
             f"NenCarta exited with code {code} — see the [nencarta] lines above.")
     if reported is not None:
+        hint = ""
+        if reported.startswith("KeyError: ''"):
+            hint = ("(A known fault of ARC 67308c1 and newer with 'Disable "
+                    "bathymetry' on some sites; the recommended settings avoid it.)\n")
         raise NenCartaError(
-            f"NenCarta reported an error and did not finish: {reported}\n"
+            f"NenCarta reported an error and did not finish: {reported}\n{hint}"
             "(It exits with code 0 even then, so FIMsim reads the error from its "
             "output — see the [nencarta] lines above.)")
     log_fn("NenCarta finished successfully.")
     return code
+
+
+_TRANSIENT_ATTEMPTS = 3
+
+
+def _is_transient(message: str) -> bool:
+    """WhiteboxTools panics (exit code 101) on a minority of runs.
+
+    NenCarta documents this itself (tasks/move_streams.py :: _run_whitebox):
+    the identical inputs succeed on the next attempt.  Measured here: a site that
+    crashed on its first two tries then finished on five of five.
+    """
+    return "whitebox_tools exited with" in message and "101" in message
+
+
+def clear_watershed_outputs(json_path, log_fn=print) -> None:
+    """Delete ``<output_dir>/<name>`` of every watershed in the JSON.
+
+    Used after a failed attempt so the next one starts from the inputs alone and
+    cannot pick up half-written products (the next attempt must give exactly what
+    a first attempt would have).
+    """
+    for w in _json_watersheds(json_path):
+        out, name = w.get("output_dir"), w.get("name")
+        if not out or not name:
+            continue
+        target = (Path(out) / name).resolve()
+        # only ever inside the watershed's own output folder
+        if Path(out).resolve() in target.parents and target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+            log_fn(f"  (cleared the unfinished products in {target})")
+
+
+def run_flood_mapping(json_path, serial: bool = True, num_workers=None,
+                      log_fn=print, cwd=None) -> int:
+    """Run ``flood-mapping json <file>``; run it again if WhiteboxTools crashed.
+
+    Returns the exit code; raises NenCartaError when the CLI is missing or the
+    run fails, so a failure cannot be reported as success.
+    """
+    for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
+        try:
+            return _run_flood_mapping_once(json_path, serial, num_workers, log_fn, cwd)
+        except NenCartaError as exc:
+            if attempt == _TRANSIENT_ATTEMPTS or not _is_transient(str(exc)):
+                raise
+            log_fn(f"  WARNING: WhiteboxTools crashed (a known intermittent fault, "
+                   f"exit code 101) - running NenCarta again "
+                   f"({attempt + 1}/{_TRANSIENT_ATTEMPTS}).")
+            clear_watershed_outputs(json_path, log_fn)
 
 
 def find_flood_maps(output_dir, watershed_name: str) -> List[str]:

@@ -24,7 +24,7 @@ fimeval==0.1.64
 
 # ── ARC-Curve2Flood backend (GitHub-only; pinned to the commits the release
 #    builds in .github/workflows/build.yml use) ───────────────────────────────
-git+https://github.com/MikeFHS/automated-rating-curve.git@522d591d675a92af7454883a7ea82aa68953defc
+git+https://github.com/MikeFHS/automated-rating-curve.git@67308c177082a27431898d8bf5956f82a1b1e98c
 git+https://github.com/MikeFHS/curve2flood.git@a3b2f9263f81e4b00751b6787c84a6ef5179608b
 git+https://github.com/jlgutenson/nencarta.git@d3b5a52cf3c1d72719c8b223185e92bb849c85d1
 geoglows==2.2.0

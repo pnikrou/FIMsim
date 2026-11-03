@@ -47,6 +47,60 @@ _MAPPERS = [
 ]
 
 
+# Settings Joseph Gutenson (NenCarta author) used in his own NenCarta-GUI run,
+# read off the 2026-10-20 screen-share and written as NenCarta watershed keys.
+# "bathy_args" and "extra" have no widget here: they travel with the preset.
+_JOSEPH_SETTINGS = {
+    "find_banks_based_on_landcover": False,
+    "bathy_use_banks": True,
+    "disable_bathymetry": False,
+    "use_power_laws_for_bathymetry": True,
+    "coefficient_depth": 0.27, "exponent_depth": 0.21,
+    "coefficient_width": 2.44, "exponent_width": 0.34,
+    "clean_dem": False,
+    "make_depth_maps": True, "make_wse_maps": False, "make_velocity_maps": False,
+    "bathy_args": {"Degree_Manip": 90, "Gen_Slope_Dist": 100},
+    "extra": {
+        "move_stream_network_to_thalweg": True, "burn_streams": True,
+        "new_strm_threshold_km2": 5.0, "area_km2_field": "TotDASqKM",
+        "StrmOrder_Field": "StreamOrde", "use_specified_depth_for_bathy_mask": False,
+        "make_vdt": True, "make_ap_database": False,
+        "make_cross_section_file": False, "estimate_consequences": False,
+    },
+}
+
+# What FIMsim ran until Nov 2026 (benchmarked Sep 2026): bathymetry switched off.
+_CLASSIC_SETTINGS = {
+    "mapper": "Curve2Flood-Kernel Weighted",
+    "find_banks_based_on_landcover": True,
+    "bathy_use_banks": False,
+    "disable_bathymetry": True,
+    "use_power_laws_for_bathymetry": False,
+    "coefficient_depth": 0.27, "exponent_depth": 0.21,
+    "coefficient_width": 2.44, "exponent_width": 0.34,
+    "clean_dem": False,
+    "make_depth_maps": True, "make_wse_maps": False, "make_velocity_maps": False,
+    "bathy_args": None, "extra": None,
+}
+
+# The first entry is the default.  Custom is only ever a state (a preset the user
+# then edited), never something to apply.
+_PRESET_RECOMMENDED = "Recommended: Joseph's settings, Kernel Weighted mapper"
+_PRESET_CLASSIC = "FIMsim classic settings (bathymetry off)"
+_PRESET_JOSEPH_EXACT = "Joseph's settings exactly as he ran them (FLDPLNpy mapper)"
+_PRESET_CUSTOM = "Custom (edited)"
+_PRESETS = {
+    # "fallbacks": override dicts tried in order when NenCarta cannot finish with
+    # these settings (see core.arc_orchestrate._run_fallbacks).
+    _PRESET_RECOMMENDED: {
+        **_JOSEPH_SETTINGS, "mapper": "Curve2Flood-Kernel Weighted",
+        "fallbacks": [{"label": "the FIMsim classic settings", **_CLASSIC_SETTINGS}],
+    },
+    _PRESET_CLASSIC: dict(_CLASSIC_SETTINGS),
+    _PRESET_JOSEPH_EXACT: {**_JOSEPH_SETTINGS, "mapper": "Curve2Flood-FLDPLNpy"},
+}
+
+
 # ── Config panel (shared by single-AOI page and each card) ────────────────────
 
 class ArcRunConfigPanel(QWidget):
@@ -56,9 +110,42 @@ class ArcRunConfigPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._extra = {}          # NenCarta keys with no widget (set by a preset)
+        self._bathy_args = {}
+        self._fallbacks = []      # settings to retry with if NenCarta cannot finish
+        self._baselines = {}      # what each preset's config looks like once applied
+        self._applying = True     # no edits until construction is done
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(8)
+
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Settings:"))
+        self._preset = QComboBox()
+        self._preset.addItems([*_PRESETS, _PRESET_CUSTOM])
+        self._preset.setFixedWidth(440)
+        self._preset.setToolTip(
+            "Recommended = the settings Joseph Gutenson (NenCarta author) used "
+            "in his own NenCarta-GUI run (screen-share, 2026-10-20): bank-based "
+            "bathymetry with the bankfull power laws, the stream network moved "
+            "to the thalweg, streams burned into the DEM and a 5 km² stream "
+            "threshold - with the Kernel Weighted mapper, because his FLDPLNpy "
+            "mapper gave empty flood maps on some sites. If NenCarta cannot "
+            "finish with them, FIMsim reruns the AOI with the classic settings "
+            "and says so in the log.\n\n"
+            "Classic = what FIMsim used before (bathymetry switched off).\n\n"
+            "Needs ARC 67308c1 or newer (the power laws).")
+        self._preset.activated.connect(self._on_preset_chosen)
+        preset_row.addWidget(self._preset)
+        preset_row.addStretch()
+        layout.addLayout(preset_row)
+
+        self._preset_note = QLabel("")
+        self._preset_note.setWordWrap(True)
+        self._preset_note.setStyleSheet("color:#718096; font-size:11px;")
+        self._preset_note.setVisible(False)
+        layout.addWidget(self._preset_note)
+        self.config_changed.connect(self._on_edited)
 
         mp_row = QHBoxLayout()
         mp_row.addWidget(QLabel("Flood mapper:"))
@@ -91,14 +178,15 @@ class ArcRunConfigPanel(QWidget):
         self._bathy_banks.setToolTip(
             "ARC option: estimate the (unseen) channel bathymetry from the "
             "bank elevations and a channel-forming discharge, instead of "
-            "carving it from the water surface. Follum Hydrologic Solutions' "
-            "Joseph Gutenson (NenCarta author) suggested this by email "
-            "(2026-09-18) as a fix for under-prediction, but a 5-AOI "
-            "benchmark test against real flood-extent imagery (Sep 2026) "
-            "found it raises detection (POD) at the cost of far more false "
-            "alarms, for a net-neutral-to-worse overall skill score (CSI) "
-            "versus the plain default — 'Disable bathymetry entirely' below "
-            "tested better in every one of those 5 cases.")
+            "carving it from the water surface. Joseph Gutenson (NenCarta "
+            "author) suggested this by email (2026-09-18) as a fix for "
+            "under-prediction.\n\n"
+            "Benchmarks against real flood-extent imagery: on its own (ARC "
+            "522d591, Sep 2026, 5 AOIs) it raised detection (POD) at the cost "
+            "of far more false alarms. Combined with the power laws, the "
+            "thalweg step and the Kernel Weighted mapper (the recommended "
+            "settings, ARC 67308c1, Nov 2026, 8 AOIs) it was the best "
+            "option - the thalweg step is what makes the difference.")
         self._bathy_banks.toggled.connect(self._on_bathy_toggled)
         layout.addWidget(self._bathy_banks)
 
@@ -113,15 +201,10 @@ class ArcRunConfigPanel(QWidget):
             "to estimate bathymetry' above is also checked. Defaults are "
             "Table 7 of Bieger et al. (2015), JAWRA — the same coefficients "
             "Joseph Gutenson (NenCarta author) recommended by email.\n\n"
-            "NOT CURRENTLY FUNCTIONAL: NenCarta passes these coefficients "
-            "through to the ARC package, but the ARC version FIMsim ships "
-            "(commit 522d591, Aug 2026) predates ARC's own power-law support "
-            "and silently ignores them — verified Sep 2026 by confirming the "
-            "output is pixel-identical to plain bank-elevation bathymetry. "
-            "The ARC commit that adds this (67308c1, Sep 2026) has its own "
-            "regression that breaks 'Disable bathymetry entirely' on some "
-            "AOIs, so it hasn't been adopted. Leave this unchecked until "
-            "that's fixed upstream.")
+            "Needs ARC 67308c1 (Sep 2026) or newer: earlier ARC versions "
+            "(FIMsim's pin until Nov 2026 was 522d591) never read these "
+            "coefficients and silently ignored them - the output was "
+            "pixel-identical to plain bank-elevation bathymetry.")
         self._power_laws.toggled.connect(self._on_bathy_toggled)
         layout.addWidget(self._power_laws)
 
@@ -153,13 +236,14 @@ class ArcRunConfigPanel(QWidget):
         self._disable_bathy.setChecked(True)
         self._disable_bathy.setToolTip(
             "Turn off ARC/Curve2Flood/FloodSpreader bathymetry estimation "
-            "altogether. Recommended default: in a 5-AOI benchmark test "
+            "altogether (the classic FIMsim setting). In a 5-AOI benchmark "
             "against real flood-extent imagery (T2_05/08/09/15/17, Sep 2026) "
-            "this scored the best flood-detection skill (CSI) and the best "
-            "hit rate (POD) of every option tried, beating both the plain "
-            "default and 'Use bank elevations to estimate bathymetry' "
-            "(mean CSI 0.35 vs. 0.27 vs. 0.26). Overrides the two options "
-            "above when checked.")
+            "it beat both the plain default and bank-only bathymetry (mean CSI "
+            "0.35 vs. 0.27 vs. 0.26). Overrides the two options above when "
+            "checked.\n\n"
+            "Known fault of ARC 67308c1 and newer: with this on, ARC stops "
+            "with KeyError: '' on some sites (T2_06, T2_09, T2_17 of the "
+            "8 tested) - which is why the recommended settings do not use it.")
         self._disable_bathy.toggled.connect(self._on_bathy_toggled)
         layout.addWidget(self._disable_bathy)
 
@@ -194,6 +278,14 @@ class ArcRunConfigPanel(QWidget):
         note.setStyleSheet("color:#718096; font-size:11px;")
         layout.addWidget(note)
 
+        # Record what each preset looks like applied, so a later edit (or a loaded
+        # project) can be matched back to it; then start on the recommended one.
+        for name in _PRESETS:
+            self._apply_named(name)
+            self._baselines[name] = self._plain(self.get_config())
+        self._apply_named(_PRESET_RECOMMENDED)
+        self._applying = False
+
     def _on_bathy_toggled(self, *_):
         disabled = self._disable_bathy.isChecked()
         self._bathy_banks.setEnabled(not disabled)
@@ -202,6 +294,53 @@ class ArcRunConfigPanel(QWidget):
             (not disabled) and self._bathy_banks.isChecked()
             and self._power_laws.isChecked())
         self.config_changed.emit()
+
+    def _on_preset_chosen(self, index: int):
+        name = self._preset.itemText(index)
+        if name in _PRESETS:
+            self._apply_named(name)
+
+    def _apply_named(self, name: str):
+        was, self._applying = self._applying, True   # our own edits are not the user's
+        try:
+            self.set_config(_PRESETS[name])
+            self._preset.setCurrentText(name)
+            self._refresh_preset_note()
+            self.config_changed.emit()
+        finally:
+            self._applying = was
+
+    def _on_edited(self):
+        """Show the preset the settings match, or Custom once they were edited."""
+        if self._applying or not self._baselines:
+            return
+        now = self._plain(self.get_config())
+        for name, base in self._baselines.items():
+            if now == base:
+                self._preset.setCurrentText(name)
+                return
+        self._preset.setCurrentText(_PRESET_CUSTOM)
+
+    @staticmethod
+    def _plain(cfg: dict) -> dict:
+        return {k: v for k, v in cfg.items() if k != "settings_label"}
+
+    def _refresh_preset_note(self):
+        if not (self._extra or self._bathy_args or self._fallbacks):
+            self._preset_note.setVisible(False)
+            return
+        parts = [f"{k}={v}" for k, v in {**self._bathy_args, **self._extra}.items()]
+        text = "Also sent to NenCarta: " + ", ".join(parts) + "."
+        if self._fallbacks:
+            text += ("  If NenCarta cannot finish, the AOI is rerun with: "
+                     + ", ".join(f["label"] for f in self._fallbacks) + ".")
+        from core.nencarta_run import arc_supports_power_laws
+        if arc_supports_power_laws() is False:
+            text += ("  <b>The installed ARC predates the power laws "
+                     "(needs automated-rating-curve 67308c1 or newer), so these "
+                     "settings will not give the intended results.</b>")
+        self._preset_note.setText(text)
+        self._preset_note.setVisible(True)
 
     def is_ready(self) -> bool:
         return True
@@ -222,10 +361,21 @@ class ArcRunConfigPanel(QWidget):
         if self._power_laws.isChecked():
             for key, spin in self._coef_spins.items():
                 cfg[key] = float(spin.value())
+        if self._bathy_args:
+            cfg["bathy_args"] = dict(self._bathy_args)
+        if self._extra:
+            cfg["extra"] = dict(self._extra)
+        if self._fallbacks:
+            cfg["fallbacks"] = [dict(f) for f in self._fallbacks]
+        if self._extra or self._fallbacks:
+            cfg["settings_label"] = self._preset.currentText()
         return cfg
 
     def set_config(self, cfg: dict):
         cfg = cfg or {}
+        self._bathy_args = dict(cfg.get("bathy_args") or {})
+        self._extra = dict(cfg.get("extra") or {})
+        self._fallbacks = [dict(f) for f in (cfg.get("fallbacks") or [])]
         if cfg.get("mapper") in _MAPPERS:
             self._mapper.setCurrentText(cfg["mapper"])
         # "use_land_cover_to_find_banks" is the old ARC-era key; NenCarta calls
@@ -244,29 +394,14 @@ class ArcRunConfigPanel(QWidget):
         for key, spin in self._coef_spins.items():
             if key in cfg and cfg[key] is not None:
                 spin.setValue(float(cfg[key]))
+        self._refresh_preset_note()
         self._on_bathy_toggled()
 
     def reset(self):
-        """Restore every field to its true just-opened default (see the
-        LISFLOOD/TRITON config panels' reset() for why a dedicated method is
-        needed instead of set_config() with a sparse dict)."""
-        self._mapper.setCurrentIndex(0)
-        self._banks_lc.setChecked(True)
-        self._bathy_banks.setChecked(False)
-        self._disable_bathy.setChecked(True)
-        self._power_laws.setChecked(False)
-        # Same values Follum Hydrologic Solutions ships as nencarta's own
-        # defaults (nencarta/core/defaults.py) — see _setup_ui above.
-        for key, default in (
-            ("coefficient_depth", 0.27), ("exponent_depth", 0.21),
-            ("coefficient_width", 2.44), ("exponent_width", 0.34),
-        ):
-            self._coef_spins[key].setValue(default)
-        self._clean_dem.setChecked(False)
-        self._depth.setChecked(True)
-        self._wse.setChecked(False)
-        self._vel.setChecked(False)
-        self._on_bathy_toggled()
+        """Back to the just-opened state: the recommended settings.  (A dedicated
+        method rather than set_config() with a sparse dict - see the LISFLOOD/
+        TRITON config panels' reset() for why.)"""
+        self._apply_named(_PRESET_RECOMMENDED)
 
 
 # ── Per-AOI card (mirrors AOIDEMCard chrome) ──────────────────────────────────
