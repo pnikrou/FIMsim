@@ -1187,12 +1187,23 @@
           pipeline inside FIMsim and delivers the flood map directly.
         </p>
 
+        <div class="note">
+          <p>
+            <strong>Try it:</strong> the repository ships a ready-to-use example
+            &mdash; Test Case 3, the Big Sioux River in Iowa
+            (<code>test_case/AOI_3_BigSioux/T2_04.shp</code>, flood of
+            2019-09-19 17:00 UTC). The step-by-step guide and screenshots below
+            follow it.
+          </p>
+        </div>
+
         <h3 id="arc-layout">Application Layout</h3>
         <p>
-          The workflow is organized into seven tabs. Steps 1&ndash;4 mirror the
-          other flood models (project, AOI, terrain, roughness); steps 5&ndash;7
-          are ARC-specific: the stream network, the per-reach flow file, and
-          the run itself.
+          The workflow is organized into six tabs. Steps 1&ndash;3 mirror the
+          other flood models (project, AOI, terrain); steps 4&ndash;6 are
+          ARC-specific: the stream network, the per-reach flow, and the run
+          itself. NenCarta downloads the land cover (ESA WorldCover) and builds
+          the Manning's n table by itself, so there is no Land Cover tab.
         </p>
         <table>
           <thead>
@@ -1205,7 +1216,7 @@
           <tbody>
             <tr>
               <td>Project</td>
-              <td>Create or open an ARC-Curve2Flood preparation project.</td>
+              <td>Create or open an ARC-Curve2Flood project.</td>
               <td>Project workspace</td>
             </tr>
             <tr>
@@ -1216,27 +1227,22 @@
             <tr>
               <td>DEM</td>
               <td>Download USGS 3DEP terrain or import a local DEM (GeoTIFF).</td>
-              <td>dem.tif</td>
-            </tr>
-            <tr>
-              <td>Land Cover</td>
-              <td>Download NLCD / Sentinel-2 land cover and set Manning's n per class.</td>
-              <td>lulc.tif + mannings_n.txt</td>
+              <td>DEM_&lt;AOI&gt;.tif</td>
             </tr>
             <tr>
               <td>Flowline</td>
-              <td>Download the NHD stream network clipped to the AOI (every reach, with its COMID).</td>
-              <td>flowline.shp</td>
+              <td>Download the stream network clipped to the AOI (NHDPlus for NWM, or GEOGLOWS v2), or use your own stream shapefile.</td>
+              <td>arc-files/flowline.shp</td>
             </tr>
             <tr>
               <td>Streamflow</td>
-              <td>Build the per-reach flow file from NWM discharge (baseflow + peak per COMID).</td>
-              <td>flow.csv</td>
+              <td>Choose the streamflow source, the data record and the time to map; build the per-reach flow file.</td>
+              <td>Per-reach flow file (CSV)</td>
             </tr>
             <tr>
               <td>Run</td>
-              <td>Assemble the inputs and run ARC + Curve2Flood.</td>
-              <td>Flood inundation raster</td>
+              <td>Choose the settings and run ARC + Curve2Flood through NenCarta.</td>
+              <td>Flood depth and extent rasters</td>
             </tr>
           </tbody>
         </table>
@@ -1253,46 +1259,74 @@
           <tbody>
             <tr>
               <td>1. Project</td>
-              <td>Select a base directory and project name, or open an existing project.</td>
-              <td>Each AOI gets its own folder with an <code>arc-files</code> subfolder.</td>
+              <td>Select a base directory and project name, or open an existing project, then click Run.</td>
+              <td>Each AOI gets its own folder inside the project.</td>
             </tr>
             <tr>
               <td>2. AOI</td>
-              <td>Load the AOI shapefile, select the polygons to process, and confirm the AOIs.</td>
+              <td>Load the AOI shapefile (<code>T2_04.shp</code> in the example), select the polygons to process, and confirm the AOIs.</td>
               <td>One AOI or many &mdash; every later step loops over each confirmed AOI.</td>
             </tr>
             <tr>
               <td>3. DEM</td>
-              <td>Download terrain data or use a local DEM, choosing the cell size.</td>
-              <td>The DEM stays a GeoTIFF &mdash; ARC works on rasters directly.</td>
+              <td>Keep Download from 3DEP (USGS) with a 10 m cell size and click Run, or use a local GeoTIFF.</td>
+              <td>The DEM stays a GeoTIFF and is written in EPSG:4326 &mdash; ARC works on rasters in geographic coordinates.</td>
             </tr>
             <tr>
-              <td>4. Land Cover</td>
-              <td>Download NLCD or Sentinel-2 land cover; edit the Manning's n table if needed.</td>
-              <td>ARC uses the land-cover raster plus the Manning table to assign channel and floodplain roughness.</td>
+              <td>4. Flowline</td>
+              <td>Pick the flowline source that matches the streamflow source &mdash; Download from NHDPlus (for NWM) in the example &mdash; and click Prepare Flowline.</td>
+              <td>The whole clipped network is saved, not just the main river: ARC builds a rating curve for <em>every</em> reach. NWM needs the NHDPlus flowline (COMID); GEOGLOWS needs the GEOGLOWS one (LINKNO).</td>
             </tr>
             <tr>
-              <td>5. Flowline</td>
-              <td>Click Download flowlines. The whole clipped NHD network is saved, not just the main river.</td>
-              <td>ARC builds a rating curve for <em>every</em> reach; each reach's COMID links it to NWM streamflow.</td>
+              <td>5. Streamflow</td>
+              <td>Choose NWM or GEOGLOWS and the data record: Retrospective (NWM 1979&ndash;2023-02-01), or &mdash; for later dates &mdash; Analysis &amp; Assimilation (NWM, 2018-09-17&ndash;today) or Forecast. Then pick Specific time (one flood map) or Duration (one map per timestep), set the date and hour (UTC) &mdash; 2019-09-19 17:00 in the example &mdash; and click Build flow file.</td>
+              <td>NWM needs a free CIROH API key, asked for once. FIMsim warns when the date is outside the selected record, and tells you when the step has finished &mdash; then click Next step. GEOGLOWS has no Analysis &amp; Assimilation record.</td>
             </tr>
             <tr>
-              <td>6. Streamflow</td>
-              <td>Choose NWM Retrospective (1979&ndash;2023) with an event window, or NWM Forecast (2019&ndash;now), then click Build flow file.</td>
-              <td>For each reach, the discharge series is reduced to a baseflow (low percentile) and a peak flow &mdash; the flood that will be mapped.</td>
-            </tr>
-            <tr>
-              <td>7. Run</td>
-              <td>Pick a flood mapper and click Run ARC-Curve2Flood.</td>
-              <td>Mappers: Kernel Weighted (default), FLDPLNpy, or Multi-Point Interpolation. The run can take several minutes per AOI.</td>
+              <td>6. Run</td>
+              <td>Keep the default settings and click Run ARC-Curve2Flood.</td>
+              <td>Settings: Recommended (Joseph Gutenson's NenCarta settings with the Kernel Weighted mapper; if NenCarta cannot finish an AOI, FIMsim reruns it with the classic settings and says so in the log), FIMsim classic settings, or Joseph's settings exactly as he ran them (FLDPLNpy mapper). The run can take several minutes per AOI.</td>
             </tr>
           </tbody>
         </table>
 
+<figure class="shot">
+  <img src="assets/shots/arc_aoi.png" alt="Step 2 — AOI selection with the domain overview (area, CRS, HUC codes, Big Sioux River map)." loading="lazy">
+  <figcaption>Step 2 — AOI selection with the domain overview (area, CRS, HUC codes, Big Sioux River map).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_dem.png" alt="Step 3 — DEM downloaded and previewed with its information table (EPSG:4326)." loading="lazy">
+  <figcaption>Step 3 — DEM downloaded and previewed with its information table (EPSG:4326).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_flowline_source.png" alt="Step 4 — flowline source options: GEOGLOWS v2, NHDPlus (for NWM), or your own stream shapefile." loading="lazy">
+  <figcaption>Step 4 — flowline source options: GEOGLOWS v2, NHDPlus (for NWM), or your own stream shapefile.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_flowline_result.png" alt="Step 4 — the 24 NHDPlus reaches clipped to the AOI." loading="lazy">
+  <figcaption>Step 4 — the 24 NHDPlus reaches clipped to the AOI.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_streamflow_source.png" alt="Step 5 — streamflow source (NWM) and data record (Retrospective)." loading="lazy">
+  <figcaption>Step 5 — streamflow source (NWM) and data record (Retrospective).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_streamflow_period.png" alt="Step 5 — simulation period: Specific time (one flood map) or Duration (one map per timestep)." loading="lazy">
+  <figcaption>Step 5 — simulation period: Specific time (one flood map) or Duration (one map per timestep).</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_streamflow_date.png" alt="Step 5 — the event date and hour (UTC), then Build flow file." loading="lazy">
+  <figcaption>Step 5 — the event date and hour (UTC), then Build flow file.</figcaption>
+</figure>
+<figure class="shot">
+  <img src="assets/shots/arc_run_result.png" alt="Step 6 — the flood depth map for 2019-09-19 17:00 UTC, with the path of the output raster." loading="lazy">
+  <figcaption>Step 6 — the flood depth map for 2019-09-19 17:00 UTC, with the path of the output raster.</figcaption>
+</figure>
+
         <h3 id="arc-outputs">Output Files</h3>
         <p>
-          For each AOI, everything is written inside
-          <code>&lt;AOI&gt;/arc-files/</code>. The key products:
+          For each AOI, everything is written inside the AOI's folder in the
+          project (<code>&lt;AOI&gt;/</code>). The key products:
         </p>
         <table>
           <thead>
@@ -1303,23 +1337,35 @@
           </thead>
           <tbody>
             <tr>
-              <td>FloodMap/Curve2Flood_FIM.tif</td>
-              <td>The flood inundation raster &mdash; the final product. Open it in QGIS / ArcGIS.</td>
+              <td>nencarta-output/&lt;AOI&gt;/FloodMap/&hellip;_ARC_FloodDepth_flow_&lt;date&gt;_&lt;hour&gt;.tif</td>
+              <td>The flood depth raster (m), as NenCarta writes it (EPSG:4326). Open it in QGIS / ArcGIS.</td>
             </tr>
             <tr>
-              <td>VDT/CurveFile.csv</td>
-              <td>ARC's synthetic rating curves (depth / top-width / velocity vs discharge per reach).</td>
+              <td>nencarta-output/&lt;AOI&gt;/FloodMap/&hellip;_ARC_Flood_flow_&lt;date&gt;_&lt;hour&gt;.tif</td>
+              <td>The flood extent raster.</td>
             </tr>
             <tr>
-              <td>flow.csv</td>
-              <td>Per-reach flow file (COMID, baseflow, peak) built from NWM.</td>
+              <td>FloodMaps/depth_&lt;date&gt;_&lt;hour&gt;.tif, FIM_&lt;date&gt;_&lt;hour&gt;.tif</td>
+              <td>The same maps re-projected to the AOI's UTM zone on a 10 m grid &mdash; ready to compare with LISFLOOD-FP, TRITON or HAND-FIM results.</td>
             </tr>
             <tr>
-              <td>StrmShp/StreamShapefile.shp</td>
-              <td>The stream network used by both tools, with reach IDs and stream order.</td>
+              <td>nencarta-output/&lt;AOI&gt;/VDT/</td>
+              <td>ARC's synthetic rating curves and VDT database (depth / top-width / velocity vs discharge per reach).</td>
             </tr>
             <tr>
-              <td>ARC_InputFiles/</td>
+              <td>arc-files/flow_series/flow_&lt;date&gt;_&lt;hour&gt;.csv</td>
+              <td>The per-reach flow file (COMID, flow) built from NWM or GEOGLOWS.</td>
+            </tr>
+            <tr>
+              <td>arc-files/flowline.shp</td>
+              <td>The stream network used by both tools, with reach IDs.</td>
+            </tr>
+            <tr>
+              <td>nencarta.json</td>
+              <td>The NenCarta configuration FIMsim wrote and ran (plus <code>nencarta_fallback1.json</code> if an AOI was rerun with the classic settings).</td>
+            </tr>
+            <tr>
+              <td>nencarta-output/&lt;AOI&gt;/ARC_InputFiles/</td>
               <td>The generated ARC and Curve2Flood input files (for reproducing runs outside FIMsim).</td>
             </tr>
           </tbody>

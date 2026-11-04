@@ -176,7 +176,7 @@ identical rasters. These are 8 sites; check it on yours.
 
 ## 🧪 Try it — no input data needed
 
-Don't have a study area of your own? The [**`test_case/`**](test_case) folder ships two
+Don't have a study area of your own? The [**`test_case/`**](test_case) folder ships four
 ready-to-use AOI shapefiles with complete step-by-step walkthroughs — you provide the
 AOI polygon and the event start/end dates; FIMsim downloads everything else
 automatically.
@@ -185,7 +185,8 @@ automatically.
 |---|---|---|---|
 | [AOI 1](test_case) | Neuse River, North Carolina | LISFLOOD-FP | Hurricane Matthew (Oct 2016) |
 | [AOI 2](test_case) | Village Creek, Texas | TRITON | Hurricane Harvey (Aug 2017) |
-| [AOI 3](test_case) | Lumber River, North Carolina | Standalone input tools | Hurricane Matthew (Oct 2016) |
+| [AOI 3](test_case) | Big Sioux River, Iowa | ARC-Curve2Flood | September 2019 flood (2019-09-19 17:00 UTC) |
+| [AOI 4](test_case) | Lumber River, North Carolina | Standalone input tools | Hurricane Matthew (Oct 2016) |
 
 Each walkthrough includes a screenshot of every step and states the expected result
 (detected river, USGS gage, generated files) so you can verify your installation is

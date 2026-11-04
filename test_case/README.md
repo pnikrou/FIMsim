@@ -1,7 +1,7 @@
 # FIMsim Test Cases
 
-Three ready-to-use test cases so you can try FIMsim end to end without any input data
-of your own — two complete flood-model setups and one tour of the standalone input
+Four ready-to-use test cases so you can try FIMsim end to end without any input data
+of your own — three complete flood-model setups and one tour of the standalone input
 tools. **Click a test case below to unfold its step-by-step walkthrough**, follow it,
 then open the next one.
 
@@ -15,7 +15,8 @@ automatically.
 |---|---|---|
 | **1 — LISFLOOD-FP** · Neuse River, NC | [`AOI_1_Neuse/AOI_1.shp`](AOI_1_Neuse) | Hurricane Matthew (Oct 2016) |
 | **2 — TRITON** · Village Creek, TX | [`AOI_2_Texas/AOI_2.shp`](AOI_2_Texas) | Hurricane Harvey (Aug 2017) |
-| **3 — Standalone input tools** · Lumber River, NC | [`AOI_3_Lumber/AOI_03.shp`](AOI_3_Lumber) | Hurricane Matthew (Oct 2016) |
+| **3 — ARC-Curve2Flood** · Big Sioux River, IA | [`AOI_3_BigSioux/T2_04.shp`](AOI_3_BigSioux) | September 2019 flood (2019-09-19 17:00 UTC) |
+| **4 — Standalone input tools** · Lumber River, NC | [`AOI_4_Lumber/AOI_03.shp`](AOI_4_Lumber) | Hurricane Matthew (Oct 2016) |
 
 ---
 
@@ -282,10 +283,138 @@ complete TRITON input package — `dem.asc`, `friction.asc`, `<AOI>.src`,
 </details>
 
 <details>
-<summary><h2>Test Case 3 — Standalone Input Data Tools · Lumber River, North Carolina</h2></summary>
+<summary><h2>Test Case 3 — ARC-Curve2Flood · Big Sioux River, Iowa (September 2019 flood)</h2></summary>
 
 
-*AOI: `AOI_3_Lumber/AOI_03.shp` · 118.3 km² · CRS EPSG:26917 (NAD83 / UTM 17N)*
+*AOI: `AOI_3_BigSioux/T2_04.shp` · 134.9 km² · CRS EPSG:26914 (NAD83 / UTM 14N) ·
+Event: September 2019 flood, **2019-09-19 17:00 UTC***
+
+In September 2019 the Big Sioux River in northwest Iowa was in flood. This walkthrough
+maps that flood with ARC-Curve2Flood for one moment — 17:00 UTC on September 19 — using
+the NWM Retrospective discharge. Unlike Test Cases 1 and 2, which build an input package
+to run elsewhere, ARC-Curve2Flood is run inside FIMsim: ARC builds a rating curve for
+every stream reach, Curve2Flood spreads that hour's discharge over the terrain, and you
+get the flood map directly. The model is steady-state — one discharge per reach gives
+one flood map for the chosen time.
+
+*Before you start:* NWM streamflow needs a free CIROH API key (Step 5 asks for it once).
+
+### Step 1 — Project
+
+On the FIMsim main page, open the **Flood Mapping** category and click **Start** on the
+**ARC-Curve2Flood** card:
+
+![FIMsim main page — ARC-Curve2Flood](images/arc_00_mainpage.png)
+
+Create a new project — pick any project name and an empty output folder, then click
+**Run**.
+
+![Step 1 — Project setup](images/arc_01_project.png)
+
+### Step 2 — AOI
+
+Click **Browse** and select `T2_04.shp`, tick the single feature, and click
+**Add to confirmed AOIs**.
+
+**Expected:**
+- Area **134.85 km²**, State **Iowa (IA)**, CRS **EPSG:26914**
+- HUC6 **101702** | HUC8 10170203
+- Main river: none listed — the map preview shows the **Big Sioux River** crossing the
+  domain from north to south
+- USGS gages: none inside the AOI
+
+![Step 2 — AOI selection and overview](images/arc_02_aoi.png)
+
+### Step 3 — DEM
+
+Keep **Download from 3DEP (USGS)** with a **10 m** cell size and click **Run**.
+
+**Expected:** a 1243 × 1578 px DEM (`DEM_T2_04.tif`) with elevations of roughly
+333–455 m and the Big Sioux valley as the low (blue) corridor. ARC-Curve2Flood works in
+geographic coordinates, so — unlike the LISFLOOD-FP and TRITON test cases — the DEM is
+written in **EPSG:4326** (the preview's *Resolution* row reads 0.00 × 0.00 m because a
+10 m cell is only 0.00009° there).
+
+![Step 3 — DEM download and preview](images/arc_03_dem.png)
+
+### Step 4 — Flowline
+
+ARC builds a rating curve for **every** reach, so this step downloads the whole stream
+network, not just the main river. Pick the source that matches the streamflow you will
+use in Step 5. NWM discharge is keyed on NHDPlus reach IDs (COMID), so select
+**Download from NHDPlus (for NWM)** — the alternatives are **Download GEOGLOWS v2 (for
+NenCarta)** and **I have a stream shapefile**:
+
+![Step 4 — Flowline source options](images/arc_04_flowline_source.png)
+
+Click **Prepare Flowline**.
+
+**Expected:** **24 NHDPlus reaches** clipped to the AOI and previewed on the map
+(`arc-files/flowline.shp`).
+
+![Step 4 — Flowline result](images/arc_05_flowline_result.png)
+
+### Step 5 — Streamflow
+
+Choose the streamflow source — **GEOGLOWS** or **NWM** — and the data record. Select
+**NWM** and **Retrospective** (1979-02-01 → 2023-02-01):
+
+![Step 5 — Streamflow source and data record](images/arc_06_streamflow_source.png)
+
+For events after the retrospective ends (2023-02-01) choose **Analysis & Assimilation**
+(NOAA's hourly assimilated estimate, 2018-09-17 → today) or **Forecast** (short, medium
+or long range) instead — FIMsim warns you when the date is outside the selected record:
+
+![Step 5 — Forecast options](images/arc_07_streamflow_forecast.png)
+
+Next choose the simulation period: **Specific time** gives one flood map, **Duration**
+gives one flood map per timestep. Select **Specific time**:
+
+![Step 5 — Simulation period options](images/arc_08_streamflow_period.png)
+
+Set **Date & hour (UTC)** to `2019-09-19 17:00` and click **Build flow file**:
+
+![Step 5 — Event date and Build flow file](images/arc_09_streamflow_date.png)
+
+The first time you use NWM, FIMsim asks for a free **CIROH API key** (request one at
+hub.ciroh.org → NWM BigQuery API). It is saved once and used for the return-period
+data; the discharge itself is read from public NOAA sources.
+
+**Expected:** the flow file for the 24 reaches at 17:00 UTC
+(`arc-files/flow_series/flow_20190919_1700.csv`) and a green message, *Streamflow step
+finished*, telling you to click **Next step ▶**.
+
+### Step 6 — Run
+
+Keep the default settings (**Recommended** in the *Settings* box at the top of the step)
+and click **Run ARC-Curve2Flood**. FIMsim writes the NenCarta configuration and runs ARC
+and Curve2Flood; this takes several minutes.
+
+**Expected:** the preview shows the flood inundation along the Big Sioux River, with
+depths up to about **6.2 m** (colour bar) and roughly **32 km²** flooded on the 10 m
+output grid. The maps are written to `nencarta-output/T2_04/FloodMap/` —
+`…_ARC_FloodDepth_flow_20190919_1700.tif` (depth) and
+`…_ARC_Flood_flow_20190919_1700.tif` (extent) — and re-projected to the AOI's UTM zone
+as `FloodMaps/depth_2019-09-19_1700.tif` and `FloodMaps/FIM_2019-09-19_1700.tif`.
+
+For this AOI the log reports that NenCarta could not finish with the recommended
+settings (*No stream geometries remain after conflation*) and that FIMsim reran it with
+the **FIMsim classic settings**. This is expected; the map shown is the result of that
+rerun.
+
+![Step 6 — Flood map](images/arc_10_run_result.png)
+
+The project folder now holds the complete run — `DEM_T2_04.tif`, `arc-files/` (flowline
+and flow file), `nencarta.json`, `nencarta-output/` (ARC rating curves and flood maps)
+and `FloodMaps/` — ready to open in QGIS or ArcGIS.
+
+</details>
+
+<details>
+<summary><h2>Test Case 4 — Standalone Input Data Tools · Lumber River, North Carolina</h2></summary>
+
+
+*AOI: `AOI_4_Lumber/AOI_03.shp` · 118.3 km² · CRS EPSG:26917 (NAD83 / UTM 17N)*
 
 Besides the complete model pipelines, FIMsim's **Preparing Input Data** category
 offers four standalone tools that each produce one type of input, usable in any model

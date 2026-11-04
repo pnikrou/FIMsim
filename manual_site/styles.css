@@ -268,6 +268,7 @@ td {
   vertical-align: middle;
   border: 1px solid #1c1c1c;
   text-align: left;
+  overflow-wrap: anywhere;   /* long file paths wrap instead of spilling out of the cell */
 }
 
 th {
