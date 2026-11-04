@@ -61,6 +61,7 @@ class ArcFlowConfigPanel(QWidget):
         "GEOGLOWS": {"retro": ("1940-01-01", "2026-09-03"),
                      "fore":  ("2024-07-01", "today")},
         "NWM":      {"retro": ("1979-02-01", "2023-02-01"),
+                     "ana":   ("2018-09-17", "today"),
                      "fore":  ("2018-09-17", "today")},
     }
 
@@ -87,14 +88,25 @@ class ArcFlowConfigPanel(QWidget):
         r_row.addWidget(QLabel("Data record:"))
         self._rec_grp = QButtonGroup(self)
         self._rb_retro = QRadioButton("Retrospective")
+        # NWM only: the hourly assimilated nowcast, which carries on where the
+        # retrospective ends (2023-02-01) and reaches back to 2018-09-17.
+        self._rb_ana   = QRadioButton("Analysis && Assimilation")
         self._rb_fore  = QRadioButton("Forecast")
         self._rb_retro.setChecked(True)
-        for rb in (self._rb_retro, self._rb_fore):
+        for rb in (self._rb_retro, self._rb_ana, self._rb_fore):
             self._rec_grp.addButton(rb)
             rb.toggled.connect(self._on_changed)
             r_row.addWidget(rb)
         r_row.addStretch()
         layout.addLayout(r_row)
+
+        # Says which record the chosen date belongs to, and warns when the date
+        # is outside the record that is selected.
+        self._rec_note = QLabel("")
+        self._rec_note.setWordWrap(True)
+        self._rec_note.setStyleSheet("color:#975a16; font-size:11px;")
+        self._rec_note.setVisible(False)
+        layout.addWidget(self._rec_note)
 
         # ── 3a. retrospective: period ────────────────────────────────────────
         self._retro_box = QWidget()
@@ -254,8 +266,25 @@ class ArcFlowConfigPanel(QWidget):
             f"Retrospective  ({w['retro'][0]} → {w['retro'][1]})")
         self._rb_fore.setText(
             f"Forecast  ({w['fore'][0]} → {w['fore'][1]})")
+        # Analysis & Assimilation exists for NWM only.  A project that had it
+        # selected and then switched to GEOGLOWS goes back to Retrospective
+        # rather than keeping a choice the source cannot serve.
+        has_ana = "ana" in w
+        self._rb_ana.setVisible(has_ana)
+        if has_ana:
+            self._rb_ana.setText(
+                f"Analysis && Assimilation  ({w['ana'][0]} → {w['ana'][1]})")
+        elif self._rb_ana.isChecked():
+            for rb in (self._rb_ana, self._rb_retro):
+                rb.blockSignals(True)
+            self._rb_retro.setChecked(True)
+            for rb in (self._rb_ana, self._rb_retro):
+                rb.blockSignals(False)
 
         is_fore = self._rb_fore.isChecked()
+        is_ana = self._rb_ana.isChecked() and has_ana
+        # The period pickers serve Retrospective and Analysis & Assimilation
+        # alike: both are hourly records read for a past time or period.
         self._retro_box.setVisible(not is_fore)
         self._fore_box.setVisible(is_fore)
         # Once a key is stored FIMsim just uses it, so the row disappears —
@@ -300,7 +329,70 @@ class ArcFlowConfigPanel(QWidget):
             self._note.setText(
                 "★ GEOGLOWS needs the <b>GEOGLOWS</b> flowline (LINKNO). No key "
                 "required. Its retrospective is read hourly.")
+        self._update_record_note(src, is_fore, is_ana)
         self.config_changed.emit()
+
+    def _selected_times(self, is_fore: bool) -> list:
+        """The date(s) the current settings will ask the record for."""
+        if is_fore:
+            if self._fc_latest.isChecked():
+                return []
+            return [self._fc_dt.dateTime().toPyDateTime()]
+        if self._period.currentData() == "duration":
+            return [self._start.dateTime().toPyDateTime(),
+                    self._end.dateTime().toPyDateTime()]
+        return [self._spec_dt.dateTime().toPyDateTime()]
+
+    def _update_record_note(self, src: str, is_fore: bool, is_ana: bool):
+        """Warn when the date is outside the chosen record; describe the new one.
+
+        The backend refuses such a date at run time (core.nwm_flows.fetch_nwm).
+        Saying so here — and saying which record to pick instead — is what lets
+        a date past the end of the retrospective be handled without a failed run.
+        """
+        text, warn = "", False
+        if src == "NWM":
+            import datetime as _dt
+            from core.nwm_flows import RETRO_START, RETRO_END, FORECAST_START
+            times = self._selected_times(is_fore)
+            first, last = (min(times), max(times)) if times else (None, None)
+            fmt = "%Y-%m-%d"
+            if is_fore:
+                if first and first < FORECAST_START:
+                    text, warn = (
+                        f"{first:{fmt}} predates the NWM forecast archive "
+                        f"(starts {FORECAST_START:{fmt}}). Choose Retrospective "
+                        "for this date.", True)
+            elif is_ana:
+                if first and first < FORECAST_START:
+                    text, warn = (
+                        f"{first:{fmt}} predates the Analysis & Assimilation "
+                        f"archive (starts {FORECAST_START:{fmt}}). Choose "
+                        "Retrospective for this date.", True)
+                elif last and last > _dt.datetime.now():
+                    text, warn = (
+                        f"{last:{fmt} %H:%M} is in the future — NWM has no "
+                        "analysis for it yet.", True)
+                else:
+                    text = ("Analysis & Assimilation is NOAA's hourly "
+                            "assimilated estimate of the flow at each hour. It "
+                            "continues after the retrospective ends "
+                            f"({RETRO_END:{fmt}}). Public NOAA mirror; no key "
+                            "needed for the discharge.")
+            else:
+                bad = [t for t in times if not RETRO_START <= t <= RETRO_END]
+                if bad:
+                    text, warn = (
+                        f"{bad[0]:{fmt} %H:%M} is outside the NWM retrospective "
+                        f"({RETRO_START:{fmt}} → {RETRO_END:{fmt}}). For dates "
+                        "after it choose Analysis & Assimilation (hourly, from "
+                        f"{FORECAST_START:{fmt}}) or Forecast.", True)
+        self._rec_note.setTextFormat(Qt.TextFormat.PlainText)
+        self._rec_note.setText(text)
+        self._rec_note.setStyleSheet(
+            "color:#975a16; font-size:11px;" if warn
+            else "color:#718096; font-size:11px;")
+        self._rec_note.setVisible(bool(text))
 
     # ── config ───────────────────────────────────────────────────────────────
 
@@ -318,7 +410,9 @@ class ArcFlowConfigPanel(QWidget):
     def get_config(self) -> dict:
         src = self._src_key()
         is_fore = self._rb_fore.isChecked()
-        cfg = {"record": "forecast" if is_fore else "retrospective"}
+        is_ana = self._rb_ana.isChecked() and src == "NWM"
+        cfg = {"record": ("forecast" if is_fore
+                          else "analysis_assim" if is_ana else "retrospective")}
 
         if is_fore:
             rng = self._fc_range.currentText()
@@ -333,6 +427,8 @@ class ArcFlowConfigPanel(QWidget):
             if rng != "shortrange":
                 cfg["sort_by"] = self._fc_agg.currentText()
         else:
+            # Retrospective and Analysis & Assimilation are read the same way
+            # (hourly, for a time or a period); only "record" differs.
             cfg["streamflow_source"] = (
                 "NWM_short_range" if src == "NWM" else "GEOGLOWS")
             cfg["period_mode"] = self._period.currentData()
@@ -356,7 +452,9 @@ class ArcFlowConfigPanel(QWidget):
                .startswith("NWM") else "GEOGLOWS")
         i = self._src_combo.findData(src)
         self._src_combo.setCurrentIndex(max(i, 0))
-        (self._rb_fore if cfg.get("record") == "forecast"
+        rec = cfg.get("record")
+        (self._rb_fore if rec == "forecast"
+         else self._rb_ana if rec == "analysis_assim" and src == "NWM"
          else self._rb_retro).setChecked(True)
         pi = self._period.findData(cfg.get("period_mode", "snapshot"))
         self._period.setCurrentIndex(max(pi, 0))
@@ -487,9 +585,13 @@ class AOIArcFlowCard(QFrame):
     def _refresh_status(self):
         cfg = self._panel.get_config()
         src = cfg.get("streamflow_source", "GEOGLOWS")
+        rec = {"retrospective": "Retrospective", "forecast": "Forecast",
+               "analysis_assim": "Analysis &amp; Assimilation"
+               }.get(cfg.get("record"), "")
+        head = f"<i>{src}</i>" + (f" &nbsp;·&nbsp; {rec}" if rec else "")
         if cfg.get("period_mode") == "duration":
             self._status_lbl.setText(
-                f"<i>{src}</i> &nbsp;·&nbsp; {cfg.get('start_date')} → "
+                f"{head} &nbsp;·&nbsp; {cfg.get('start_date')} → "
                 f"{cfg.get('end_date')} &nbsp;·&nbsp; every "
                 f"{cfg.get('step_hours', 24)} h")
             return
@@ -502,7 +604,7 @@ class AOIArcFlowCard(QFrame):
         else:
             when = "latest forecast"
         self._status_lbl.setText(
-            f"<i>{src}</i> &nbsp;·&nbsp; {when} &nbsp;·&nbsp; "
+            f"{head} &nbsp;·&nbsp; {when} &nbsp;·&nbsp; "
             f"back to {cfg.get('age_of_forecast_days', 7)}d")
 
     def _forward_config_changed(self):
@@ -916,8 +1018,15 @@ class StepArcStreamflowWidget(QWidget):
         self._ctx = ctx
         self._progress.setValue(100)
         n = max(len(self._aoi_features), 1)
-        self._status_lbl.setText(f"All {n} AOI(s) processed.")
+        # Say plainly that this step is finished and what comes next: the
+        # bottom bar's "Next step ▶" (or the 6. Run tab) is where the user goes.
+        self._status_lbl.setText(
+            f"✓ Streamflow step finished — flow data is ready for {n} AOI(s).\n"
+            "Next: click “Next step ▶” at the bottom to go to step 6, "
+            "Run ARC-Curve2Flood.")
         self._status_lbl.setVisible(True)
+        self._log("✓ Streamflow step finished. Click “Next step ▶” to continue "
+                  "to step 6 (Run ARC-Curve2Flood).")
         set_ready(self._run_btn)
         self._build_results(ctx)
         self.step_completed.emit({"ctx_path": self._ctx_path, "ctx": ctx})

@@ -324,6 +324,10 @@ def build_flow_series(flowline_path: str, start, end, step_hours: int,
             raise ValueError(
                 f"{bad[0]:%Y-%m-%d} predates the GEOGLOWS forecast archive "
                 "(starts 2024-07-01). Choose Retrospective for this date.")
+    if not is_nwm and str(record).lower() == "analysis_assim":
+        raise ValueError(
+            "Analysis & Assimilation is an NWM product; GEOGLOWS has none. "
+            "Choose Retrospective or Forecast, or switch the source to NWM.")
     if is_nwm:
         from core.nwm_flows import fetch_nwm
         series = fetch_nwm(ids, steps, frange=frange, cycle_date=cycle_date,

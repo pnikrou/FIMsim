@@ -604,6 +604,9 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                 log_fn(f"  '{name}': mapping NWM at {when} — "
                        + ("retrospective (NOAA reanalysis zarr)."
                           if rec == "retrospective" else
+                          "analysis & assimilation (hourly nowcast, public "
+                          "NOAA mirror)."
+                          if rec == "analysis_assim" else
                           "forecast from the public mirror; the cycle is "
                           "chosen to reach that hour."))
 
