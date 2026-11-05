@@ -348,7 +348,7 @@ class ArcFlowConfigPanel(QWidget):
         return [self._spec_dt.dateTime().toPyDateTime()]
 
     def _update_record_note(self, src: str, is_fore: bool, is_ana: bool):
-        """Warn when the date is outside the chosen record; describe the new one.
+        """Describe the chosen record, or warn when the date is outside it.
 
         The backend refuses such a date at run time (core.nwm_flows.fetch_nwm).
         Saying so here — and saying which record to pick instead — is what lets
@@ -367,6 +367,11 @@ class ArcFlowConfigPanel(QWidget):
                         f"{first:{fmt}} predates the NWM forecast archive "
                         f"(starts {FORECAST_START:{fmt}}). Choose Retrospective "
                         "for this date.", True)
+                else:
+                    text = ("Forecast is NOAA's prediction issued at the run "
+                            "time you pick, not observed flow. For a past "
+                            "event, Analysis & Assimilation is closer to what "
+                            "happened.")
             elif is_ana:
                 if first and first < FORECAST_START:
                     text, warn = (
@@ -391,6 +396,9 @@ class ArcFlowConfigPanel(QWidget):
                         f"({RETRO_START:{fmt}} → {RETRO_END:{fmt}}). For dates "
                         "after it choose Analysis & Assimilation (hourly, from "
                         f"{FORECAST_START:{fmt}}) or Forecast.", True)
+                else:
+                    text = ("Retrospective is NOAA's hourly simulation of past "
+                            f"flow. Use it for events up to {RETRO_END:{fmt}}.")
         self._rec_note.setTextFormat(Qt.TextFormat.PlainText)
         self._rec_note.setText(text)
         self._rec_note.setStyleSheet(
