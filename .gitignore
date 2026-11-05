@@ -43,3 +43,6 @@ ARC-Curve2Flood_input_formats/DEM_projected/DEM.tif.aux.xml
 
 # Local AOI shapefiles — user data, not app code
 AOIs/
+
+# State file the app writes when run from this folder
+/workflow_context.json
