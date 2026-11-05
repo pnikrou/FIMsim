@@ -77,6 +77,11 @@ class ArcFlowConfigPanel(QWidget):
         self._src_combo = QComboBox()
         self._src_combo.addItem("GEOGLOWS", "GEOGLOWS")
         self._src_combo.addItem("NWM", "NWM")
+        # NWM is the default (it offers the Analysis & Assimilation record too).
+        # Set before the signal is connected; _on_changed() runs once at the
+        # end of __init__.  A project whose Flowline step used GEOGLOWS still
+        # switches over, see default_from_flowline().
+        self._src_combo.setCurrentIndex(self._src_combo.findData("NWM"))
         self._src_combo.setFixedWidth(160)
         self._src_combo.currentIndexChanged.connect(self._on_changed)
         s_row.addWidget(self._src_combo)
@@ -323,8 +328,7 @@ class ArcFlowConfigPanel(QWidget):
         if src == "NWM":
             self._note.setText(
                 "★ NWM needs the <b>NHDPlus</b> flowline (COMID) — the GEOGLOWS "
-                "network will not match. FIMsim fetches NWM from the public "
-                "NOAA / Google sources; the key is only used for return periods.")
+                "network will not match.")
         else:
             self._note.setText(
                 "★ GEOGLOWS needs the <b>GEOGLOWS</b> flowline (LINKNO). No key "
@@ -448,7 +452,9 @@ class ArcFlowConfigPanel(QWidget):
 
     def set_config(self, cfg: dict):
         cfg = cfg or {}
-        src = ("NWM" if str(cfg.get("streamflow_source", "")).upper()
+        # A saved project always carries its source; with nothing saved the
+        # default is NWM.
+        src = ("NWM" if str(cfg.get("streamflow_source") or "NWM").upper()
                .startswith("NWM") else "GEOGLOWS")
         i = self._src_combo.findData(src)
         self._src_combo.setCurrentIndex(max(i, 0))
