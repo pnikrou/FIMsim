@@ -73,7 +73,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{#Powershell}"; \
 Filename: "{#Powershell}"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\launch.ps1"""; \
   WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent; \
-  Description: "Set up and start FIMsim now (the first start downloads about 2-3 GB and takes 10-20 minutes)"
+  Description: "Set up and start FIMsim now (the first start downloads about 1.5 GB and takes about 5-20 minutes)"
 
 [UninstallDelete]
 ; The Python environment, its logs and caches (never the person's projects).
@@ -88,7 +88,7 @@ begin
     'FIMsim prepares model inputs and runs flood models: LISFLOOD-FP, TRITON, ' +
     'ARC-Curve2Flood and OWP HAND-FIM.' + #13#10 + #13#10 +
     'No Python installation is needed. The first time FIMsim starts, it ' +
-    'downloads and installs the scientific packages it needs (about 2-3 GB, ' +
-    '10-20 minutes, internet required). After that it opens immediately.' + #13#10 + #13#10 +
+    'downloads and installs the scientific packages it needs (about 1.5 GB, ' +
+    '5-20 minutes, internet required). After that it opens immediately.' + #13#10 + #13#10 +
     'Click Next to continue.';
 end;

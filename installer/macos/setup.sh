@@ -15,7 +15,7 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 RES="$SELF_DIR"
 . "$RES/common.sh"
 
-NEED_GB=12
+NEED_GB=8
 mkdir -p "$HOME_DIR"
 LOG="$HOME_DIR/setup.log"
 LOCK="$HOME_DIR/setup.lock"
@@ -60,8 +60,8 @@ say "  packages (GDAL, rasterio, ARC, OWP HAND-FIM, ...). They are"
 say "  downloaded and installed ONCE, now. Later launches are instant."
 say ""
 say "  - needs an internet connection"
-say "  - downloads roughly 2-3 GB and uses about 6 GB of disk"
-say "  - takes about 10-20 minutes"
+say "  - downloads about 1.5 GB; needs about 5 GB free while installing (about 3 GB after)"
+say "  - takes about 5-20 minutes, depending on the connection"
 say "  Please keep this window open."
 say ""
 } 2>&1 | tee "$LOG"
@@ -76,11 +76,16 @@ fi
 use_env
 rm -rf "$ENV_DIR" "$STAMP_FILE"
 
+# Build exactly from FIMsim's files: ignore the person's own conda settings
+# (~/.condarc can add other channels or turn off SSL checks) and pip settings.
+MAMBA_ISOLATE=(--no-rc --override-channels -c conda-forge --strict-channel-priority)
+export PIP_CONFIG_FILE=/dev/null
+
 # set -o pipefail so a failing step is not hidden by `tee`.
 set -o pipefail
 
 say "[1/3] Installing the scientific packages (conda-forge) ..." | tee -a "$LOG"
-"$MAMBA" create -y -p "$ENV_DIR" -f "$APP_DIR/environment.yml" git 2>&1 | tee -a "$LOG" \
+"$MAMBA" create -y "${MAMBA_ISOLATE[@]}" -p "$ENV_DIR" -f "$APP_DIR/environment.yml" git 2>&1 | tee -a "$LOG" \
     || fail "Step 1 failed (conda-forge packages). Check the internet connection and try again."
 
 say "" | tee -a "$LOG"
@@ -94,7 +99,7 @@ say "[3/3] Checking the installation ..." | tee -a "$LOG"
     || fail "The final check found a problem (see above)."
 
 # The download cache is only needed during install - free the space.
-"$MAMBA" clean --all -y >/dev/null 2>&1
+"$MAMBA" clean --all -y --no-rc >/dev/null 2>&1
 rm -rf "$HOME_DIR/mamba/pkgs"
 
 want_stamp > "$STAMP_FILE"

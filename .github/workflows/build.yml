@@ -248,7 +248,7 @@ jobs:
             ### First start — one time only
             The first time FIMsim starts, it sets itself up in a window that stays open:
             it downloads and installs the scientific packages it needs (GDAL, rasterio, ARC-Curve2Flood, OWP HAND-FIM, …).
-            It needs an internet connection, downloads about 2–3 GB, uses about 6 GB of disk and takes 10–20 minutes.
+            It needs an internet connection, downloads about 1.5 GB, uses about 3 GB of disk and takes about 5–20 minutes.
             FIMsim then opens by itself, and from then on it opens immediately.
             You do not need Python, conda or a terminal.
 

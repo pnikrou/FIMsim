@@ -55,8 +55,8 @@ FIMsim for macOS
      System Settings > Privacy & Security, scroll down, click
      "Open Anyway" next to FIMsim, and confirm.
 3. FIMsim now sets itself up once. A Terminal window shows the progress.
-   It needs internet, downloads about 2-3 GB, takes 10-20 minutes and uses
-   about 6 GB of disk. FIMsim opens by itself when it is done.
+   It needs internet, downloads about 1.5 GB, takes about 5-20 minutes and
+   uses about 3 GB of disk. FIMsim opens by itself when it is done.
 4. From then on, FIMsim opens straight away.
 
 Help and updates: https://github.com/sdmlua/FIMsim

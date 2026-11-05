@@ -84,8 +84,8 @@ No Python, conda or terminal needed.
 | macOS (Apple Silicon or Intel) | `FIMsim-mac.dmg` | Open it, drag FIMsim into Applications, then open FIMsim |
 
 **First start, once:** FIMsim sets itself up in a window that stays open. It downloads
-and installs the scientific packages it needs (about 2–3 GB download, about 6 GB of disk,
-10–20 minutes, internet required) and then opens. Every later start is immediate.
+and installs the scientific packages it needs (about 1.5 GB download, about 3 GB of disk,
+5–20 minutes, internet required) and then opens. Every later start is immediate.
 The set-up uses the same `environment.yml` and `requirements-pip.txt` as the source
 install below, so the desktop app runs all four flood models.
 

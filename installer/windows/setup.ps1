@@ -12,7 +12,7 @@ param([switch]$Inline)
 $ErrorActionPreference = "Continue"
 . (Join-Path $PSScriptRoot "common.ps1")
 
-$NeedGB = 12
+$NeedGB = 8
 New-Item -ItemType Directory -Force $HomeDir | Out-Null
 $Log = Join-Path $HomeDir "setup.log"
 "" | Set-Content $Log
@@ -65,8 +65,8 @@ Say "  packages (GDAL, rasterio, ARC, OWP HAND-FIM, ...). They are"
 Say "  downloaded and installed ONCE, now. Later starts are instant."
 Say ""
 Say "  - needs an internet connection"
-Say "  - downloads roughly 2-3 GB and uses about 6 GB of disk"
-Say "  - takes about 10-20 minutes"
+Say "  - downloads about 1.5 GB; needs about 5 GB free while installing (about 3 GB after)"
+Say "  - takes about 5-20 minutes, depending on the connection"
 Say "  Please keep this window open."
 Say ""
 
@@ -84,8 +84,14 @@ Set-FimsimEnv
 if (Test-Path $EnvDir)    { Remove-Item -Recurse -Force $EnvDir }
 if (Test-Path $StampFile) { Remove-Item -Force $StampFile }
 
+# Build exactly from FIMsim's files: ignore the person's own conda settings
+# (.condarc can add other channels or turn off SSL checks) and pip settings.
+$env:PIP_CONFIG_FILE = "NUL"
+
 Say "[1/3] Installing the scientific packages (conda-forge) ..."
-$rc = Invoke-Logged $Mamba @("create", "-y", "-p", $EnvDir, "-f", (Join-Path $AppDir "environment.yml"), "git")
+$rc = Invoke-Logged $Mamba @("create", "-y", "--no-rc", "--override-channels", "-c", "conda-forge",
+                             "--strict-channel-priority", "-p", $EnvDir,
+                             "-f", (Join-Path $AppDir "environment.yml"), "git")
 if ($rc -ne 0) { Fail "Step 1 failed (conda-forge packages). Check the internet connection and try again." }
 
 Say ""
@@ -103,7 +109,7 @@ Pop-Location
 if ($rc -ne 0) { Fail "The final check found a problem (see above)." }
 
 # The download cache is only needed during install - free the space.
-& $Mamba clean --all -y *> $null
+& $Mamba clean --all -y --no-rc *> $null
 $pkgs = Join-Path $HomeDir "mamba\pkgs"
 if (Test-Path $pkgs) { Remove-Item -Recurse -Force $pkgs -ErrorAction SilentlyContinue }
 
