@@ -195,8 +195,14 @@ class MainWindow(QMainWindow):
 
         self._stack.setCurrentIndex(_PAGE_SELECTOR)
         self._update_nav()
+        try:
+            from pathlib import Path as _P
+            _ver = (_P(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+        except OSError:
+            _ver = ""
         self._append_log(
-            "Welcome to FIMsim  |  Flood Inundation Model Simulation Tool  v1.0"
+            "Welcome to FIMsim  |  Flood Inundation Model Simulation Tool"
+            + (f"  v{_ver}" if _ver else "")
         )
         self._append_log("Select a category on the home screen to begin.")
         self._warn_if_env_incomplete()

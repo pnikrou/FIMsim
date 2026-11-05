@@ -1,143 +1,201 @@
 name: Build FIMsim Installers
 
-# Trigger: push a tag like "v1.0.0" → builds both Mac and Windows
-# Or run manually from GitHub Actions tab
+# Push a tag like v1.2.0   -> build both installers, check them, publish a Release.
+# Push a branch ci/<name>  -> build and check them, publish nothing (a dry run).
+# Or run it by hand from the Actions tab (also a dry run).
+#
+# What the installers contain and why: see installer/README.md.
+# Every installer is CHECKED before it can be published: it is installed the way
+# a user installs it, started for the first time on an empty machine (which
+# builds the whole Python environment from environment.yml and
+# requirements-pip.txt), and then the self-check installer/smoke_test.py has to
+# pass - dependency check, git / aws / flood-mapping present, main window opens.
 on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch:      # manual trigger button in GitHub UI
+    branches:
+      - "ci/**"
+  workflow_dispatch:
+
+env:
+  MICROMAMBA_VERSION: "2.9.0-0"
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
-  # Windows .exe (via PyInstaller + Inno Setup)
+  # macOS .dmg (Apple Silicon and Intel in one app)
   # ────────────────────────────────────────────────────────────────────────────
-  build-windows:
-    runs-on: windows-latest
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - name: Check the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match the VERSION file ($v)"; exit 1; }
+
+      - name: Get micromamba (Apple Silicon and Intel)
+        run: |
+          base="https://github.com/mamba-org/micromamba-releases/releases/download/$MICROMAMBA_VERSION"
+          mkdir -p mm/arm64 mm/x86_64
+          curl -fsSL -o mm/arm64/micromamba  "$base/micromamba-osx-arm64"
+          curl -fsSL -o mm/x86_64/micromamba "$base/micromamba-osx-64"
+          chmod +x mm/arm64/micromamba mm/x86_64/micromamba
+          mm/arm64/micromamba --version
+
+      - name: Build FIMsim.app and the .dmg
+        run: bash installer/macos/build_app.sh dist mm/arm64/micromamba mm/x86_64/micromamba --dmg
+
+      - name: Install from the .dmg like a user would
+        run: |
+          hdiutil attach dist/FIMsim-mac.dmg -mountpoint "$RUNNER_TEMP/dmg" -nobrowse -quiet
+          mkdir -p "$RUNNER_TEMP/Applications"
+          cp -R "$RUNNER_TEMP/dmg/FIMsim.app" "$RUNNER_TEMP/Applications/"
+          hdiutil detach "$RUNNER_TEMP/dmg" -quiet
+          test -x "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim"
+
+      - name: First launch on an empty machine, then the self-check
+        env:
+          FIMSIM_HOME: ${{ runner.temp }}/fimsim-home
+        run: |
+          "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" --smoke-test
+
+      - name: Report the set-up log if something failed
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/fimsim-home/setup.log"
+          [ -f "$log" ] || exit 0
+          text="$(tail -n 30 "$log" | cut -c1-200 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')"
+          echo "::error title=FIMsim set-up log (last lines)::${text:0:3500}"
+
+      - uses: actions/upload-artifact@v4
         with:
-          python-version: "3.11"
-          activate-environment: fimsim-build
-          auto-activate-base: false
+          name: FIMsim-mac-dmg
+          path: dist/FIMsim-mac.dmg
+          retention-days: 30
 
-      - name: Install Python dependencies
-        shell: bash -el {0}
+  # Same app, started for the first time on an Intel Mac.
+  check-macos-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get micromamba
         run: |
-          conda activate fimsim-build
-          # Geospatial stack via conda (GDAL/PROJ binaries). gdal is REQUIRED:
-          # the arc + curve2flood pip packages declare it as a dependency and
-          # pip cannot build GDAL from source on the runners. numpy pinned to
-          # the dev environment's version so the pip step cannot up/downgrade.
-          conda install -y -c conda-forge \
-            geopandas pyogrio rasterio pyproj shapely \
-            scipy "numpy=2.0.*" pandas openpyxl \
-            h5py requests gdal netcdf4 h5netcdf
-          pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
-                      pynhd pygeoogc gmsh certifi charset-normalizer \
-                      "fimserve==0.1.99" \
-                      "git+https://github.com/MikeFHS/automated-rating-curve.git@67308c177082a27431898d8bf5956f82a1b1e98c" \
-                      "git+https://github.com/MikeFHS/Curve2Flood.git@a3b2f9263f81e4b00751b6787c84a6ef5179608b" \
-                      pyinstaller
-
-      - name: Build with PyInstaller
-        shell: bash -el {0}
+          base="https://github.com/mamba-org/micromamba-releases/releases/download/$MICROMAMBA_VERSION"
+          mkdir -p mm/arm64 mm/x86_64
+          curl -fsSL -o mm/arm64/micromamba  "$base/micromamba-osx-arm64"
+          curl -fsSL -o mm/x86_64/micromamba "$base/micromamba-osx-64"
+          chmod +x mm/arm64/micromamba mm/x86_64/micromamba
+      - name: Build FIMsim.app
+        run: bash installer/macos/build_app.sh dist mm/arm64/micromamba mm/x86_64/micromamba
+      - name: First launch on an empty Intel Mac, then the self-check
+        env:
+          FIMSIM_HOME: ${{ runner.temp }}/fimsim-home
+        run: dist/FIMsim.app/Contents/MacOS/FIMsim --smoke-test
+      - name: Report the set-up log if something failed
+        if: failure()
         run: |
-          conda activate fimsim-build
-          pyinstaller build_app.spec --noconfirm
+          log="$RUNNER_TEMP/fimsim-home/setup.log"
+          [ -f "$log" ] || exit 0
+          text="$(tail -n 30 "$log" | cut -c1-200 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')"
+          echo "::error title=FIMsim set-up log (last lines)::${text:0:3500}"
 
-      - name: Build installer with Inno Setup
+  # ────────────────────────────────────────────────────────────────────────────
+  # Windows .exe (Inno Setup)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match the VERSION file ($v)"; exit 1; }
+
+      - name: Gather the files the installer carries
         shell: pwsh
         run: |
-          # Download and install Inno Setup silently
-          $url = "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe"
-          Invoke-WebRequest -Uri $url -OutFile innosetup.exe
-          Start-Process -Wait -FilePath innosetup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
-          # Compile the installer script
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_windows.iss
+          New-Item -ItemType Directory -Force dist\payload\bin | Out-Null
+          $url = "https://github.com/mamba-org/micromamba-releases/releases/download/$env:MICROMAMBA_VERSION/micromamba-win-64.exe"
+          Invoke-WebRequest -Uri $url -OutFile dist\payload\bin\micromamba.exe
+          & dist\payload\bin\micromamba.exe --version
+          python installer\stage_payload.py dist\payload
+          Copy-Item installer\windows\common.ps1, installer\windows\launch.ps1, installer\windows\setup.ps1 dist\payload\
+          Copy-Item installer\smoke_test.py dist\payload\
 
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe" -OutFile innosetup.exe
+          Start-Process -Wait -FilePath .\innosetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART"
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" installer\windows\FIMsim.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\FIMsim-setup-windows.exe | Select-Object Name, Length
+
+      - name: Install it like a user would
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "FIMsim-installed"
+          Start-Process -Wait -FilePath dist\FIMsim-setup-windows.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir"
+          foreach ($f in "launch.ps1","setup.ps1","common.ps1","smoke_test.py","bin\micromamba.exe","app\main.py","app\environment.yml") {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "Installed folder is missing $f" }
+          }
+          "FIMSIM_INSTALL_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: First start on an empty machine, then the self-check
+        shell: pwsh
+        env:
+          FIMSIM_HOME: ${{ runner.temp }}\fimsim-home
+        run: |
+          # Windows PowerShell 5.1 is what the Start Menu shortcut uses.
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:FIMSIM_INSTALL_DIR\launch.ps1" -SmokeTest
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Report the set-up log if something failed
+        if: failure()
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "fimsim-home\setup.log"
+          if (-not (Test-Path $log)) { exit 0 }
+          $text = ((Get-Content $log -Tail 30) | ForEach-Object { $_.Substring(0, [Math]::Min(200, $_.Length)).Replace('%','%25') }) -join '%0A'
+          if ($text.Length -gt 3500) { $text = $text.Substring(0, 3500) }
+          Write-Host "::error title=FIMsim set-up log (last lines)::$text"
+
+      - uses: actions/upload-artifact@v4
         with:
           name: FIMsim-windows-installer
           path: dist/FIMsim-setup-windows.exe
           retention-days: 30
 
   # ────────────────────────────────────────────────────────────────────────────
-  # macOS .dmg
-  # ────────────────────────────────────────────────────────────────────────────
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          python-version: "3.11"
-          activate-environment: fimsim-build
-          auto-activate-base: false
-
-      - name: Install Python dependencies
-        shell: bash -el {0}
-        run: |
-          conda activate fimsim-build
-          conda install -y -c conda-forge \
-            geopandas pyogrio rasterio pyproj shapely \
-            scipy "numpy=2.0.*" pandas openpyxl \
-            h5py requests gdal netcdf4 h5netcdf
-          pip install PyQt6 matplotlib xarray zarr s3fs fsspec numcodecs \
-                      pynhd pygeoogc gmsh certifi charset-normalizer \
-                      "fimserve==0.1.99" \
-                      "git+https://github.com/MikeFHS/automated-rating-curve.git@67308c177082a27431898d8bf5956f82a1b1e98c" \
-                      "git+https://github.com/MikeFHS/Curve2Flood.git@a3b2f9263f81e4b00751b6787c84a6ef5179608b" \
-                      pyinstaller
-
-      - name: Build with PyInstaller
-        shell: bash -el {0}
-        run: |
-          conda activate fimsim-build
-          pyinstaller build_app.spec --noconfirm
-
-      - name: Install create-dmg and package
-        run: |
-          brew install create-dmg
-          create-dmg \
-            --volname "FIMsim" \
-            --window-size 600 400 \
-            --icon-size 128 \
-            --icon "FIMsim.app" 150 185 \
-            --app-drop-link 450 185 \
-            --no-internet-enable \
-            "dist/FIMsim-mac.dmg" \
-            "dist/FIMsim.app"
-
-      - name: Upload macOS installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: FIMsim-mac-dmg
-          path: dist/FIMsim-mac.dmg
-          retention-days: 30
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # Create GitHub Release with both installers attached
+  # Publish the GitHub Release (version tags only)
   # ────────────────────────────────────────────────────────────────────────────
   release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, check-macos-intel]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     steps:
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: FIMsim-windows-installer
           path: artifacts/
 
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: FIMsim-mac-dmg
           path: artifacts/
@@ -147,17 +205,32 @@ jobs:
         with:
           name: "FIMsim ${{ github.ref_name }}"
           body: |
-            ## FIMsim — Flood Inundation Model Simulation Tool ${{ github.ref_name }}
+            ## FIMsim ${{ github.ref_name }} — Flood Inundation Model Simulation Tool
 
-            ### Downloads
-            | Platform | File | Notes |
-            |----------|------|-------|
-            | Windows 10/11 (64-bit) | `FIMsim-setup-windows.exe` | Run installer, no Python needed |
-            | macOS 12+ | `FIMsim-mac.dmg` | Drag to Applications, no Python needed |
+            ### Download
 
-            ### What's included
-            All Python dependencies (PyQt6, GDAL, rasterio, geopandas, scipy, h5py, gmsh …)
-            are bundled inside. No conda, no terminal, no setup required.
+            | Your computer | Download | Then |
+            |---|---|---|
+            | **Windows 10 / 11** | `FIMsim-setup-windows.exe` | Double-click it and follow the steps. No administrator password needed. |
+            | **Mac** (Apple Silicon or Intel) | `FIMsim-mac.dmg` | Drag FIMsim into Applications, then open it. |
+
+            ### First start — one time only
+            The first time FIMsim starts, it sets itself up in a window that stays open:
+            it downloads and installs the scientific packages it needs (GDAL, rasterio, ARC-Curve2Flood, OWP HAND-FIM, …).
+            It needs an internet connection, downloads about 2–3 GB, uses about 6 GB of disk and takes 10–20 minutes.
+            FIMsim then opens by itself, and from then on it opens immediately.
+            You do not need Python, conda or a terminal.
+
+            ### macOS: the first time you open it
+            FIMsim is not signed with a paid Apple developer account, so macOS asks you to confirm.
+            Right-click FIMsim → **Open** → **Open**. On macOS 15 or newer, if there is no Open button, go to
+            System Settings → Privacy & Security, scroll down and click **Open Anyway**.
+
+            ### Windows: the first time you run it
+            Windows SmartScreen may say "Windows protected your PC". Click **More info** → **Run anyway**.
+
+            ### All four flood models are included
+            LISFLOOD-FP, TRITON, ARC-Curve2Flood and OWP HAND-FIM, plus the DEM, land-cover, flowline and streamflow tools.
           files: |
             artifacts/FIMsim-setup-windows.exe
             artifacts/FIMsim-mac.dmg

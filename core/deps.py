@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib.metadata as _md
 import importlib.util
+import os
 import re
 import shutil
 import subprocess
@@ -353,6 +354,16 @@ def report(deep: bool = False) -> str:
             lines.append("")
         lines.append("The S3 libraries disagree, so NWM downloads will fail:")
         lines += [f"  - {x}" for x in s3]
+    installed_env = os.environ.get("FIMSIM_ENV_DIR")
+    if installed_env:
+        # FIMsim from the installer: the person has no terminal and no conda.
+        # The launcher rebuilds the environment when it is missing.
+        lines += ["",
+                  "FIMsim was installed with its own Python environment.  To rebuild it:",
+                  "  - Windows: Start Menu > Repair FIMsim.",
+                  "  - macOS: close FIMsim, delete this folder, then open FIMsim again:",
+                  f"        {installed_env}"]
+        return "\n".join(lines)
     lines += ["", "To repair, run these from the FIMsim folder:", ""]
     lines += [f"    {c}" for c in repair_steps(req, opt, s3)]
     return "\n".join(lines)

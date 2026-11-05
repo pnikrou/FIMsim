@@ -51,6 +51,10 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
+    from PyQt6.QtGui import QIcon
+    _icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.png")
+    if os.path.isfile(_icon):
+        app.setWindowIcon(QIcon(_icon))      # Dock / taskbar / window icon
     app.setApplicationName("Flood Model Prep Tool")
     app.setOrganizationName("YourLab")
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>            <string>FIMsim</string>
+    <key>CFBundleIdentifier</key>            <string>edu.ua.fimsim</string>
+    <key>CFBundleName</key>                  <string>FIMsim</string>
+    <key>CFBundleDisplayName</key>           <string>FIMsim</string>
+    <key>CFBundleIconFile</key>              <string>FIMsim</string>
+    <key>CFBundlePackageType</key>           <string>APPL</string>
+    <key>CFBundleShortVersionString</key>    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>               <string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key>        <string>12.0</string>
+    <key>LSApplicationCategoryType</key>     <string>public.app-category.education</string>
+    <key>NSHighResolutionCapable</key>       <true/>
+    <key>NSRequiresAquaSystemAppearance</key><false/>
+</dict>
+</plist>

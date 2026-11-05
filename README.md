@@ -1,6 +1,6 @@
 # FIMsim — Flood Inundation Model Simulation Tool
 
-> **v1.0** · Web Application · Desktop installers available for macOS and Windows
+> **v1.2.0** · Web Application · Desktop app for macOS and Windows — [download](../../releases/latest)
 
 FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for four supported flood mapping models (LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically. For users who prefer a local setup, standalone desktop installers for macOS and Windows are also available — no Python installation or technical configuration required.
 
@@ -74,13 +74,30 @@ FIMsim is deployed as a web application — no installation required. Open it in
 
 > 🔗 **Live app:** *(link coming soon)*
 
-### Desktop installers
-For users who prefer a local installation, standalone installers are available on the [Releases](../../releases) page — no Python or conda setup required.
+### Desktop app
+Download the installer for your computer from the **[latest release](../../releases/latest)**.
+No Python, conda or terminal needed.
 
-| Platform | File |
-|---|---|
-| macOS | `FIMsim-mac.dmg` — drag to Applications |
-| Windows | `FIMsim-setup-windows.exe` — run installer wizard |
+| Platform | File | Install |
+|---|---|---|
+| Windows 10 / 11 | `FIMsim-setup-windows.exe` | Double-click it and follow the steps (no administrator password needed), then start FIMsim from the Start Menu |
+| macOS (Apple Silicon or Intel) | `FIMsim-mac.dmg` | Open it, drag FIMsim into Applications, then open FIMsim |
+
+**First start, once:** FIMsim sets itself up in a window that stays open. It downloads
+and installs the scientific packages it needs (about 2–3 GB download, about 6 GB of disk,
+10–20 minutes, internet required) and then opens. Every later start is immediate.
+The set-up uses the same `environment.yml` and `requirements-pip.txt` as the source
+install below, so the desktop app runs all four flood models.
+
+**"Unidentified developer" warnings:** the installers are not signed with a paid
+certificate. On macOS, right-click FIMsim → **Open** → **Open** (on macOS 15 or newer:
+System Settings → Privacy & Security → **Open Anyway**). On Windows, if SmartScreen
+appears, click **More info** → **Run anyway**.
+
+**If the set-up fails** (for example, the connection dropped), just open FIMsim again — it
+starts over. The log is `~/Library/Application Support/FIMsim/setup.log` (macOS) or
+`%LOCALAPPDATA%\FIMsim\setup.log` (Windows). On Windows, **Start Menu → Repair FIMsim**
+rebuilds the environment.
 
 ### Run from source (contributors)
 
