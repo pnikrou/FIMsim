@@ -473,6 +473,15 @@ def _run_flood_mapping_once(json_path, serial: bool = True, num_workers=None,
     # separate process keeps them apart, and this makes matplotlib inside that
     # process bind to PyQt5 rather than fighting FIMsim's binding.
     env.pop("QT_API", None)
+    # FIMsim's DEM and HAND downloads limit GDAL's remote reads to raster files
+    # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS in core/dem.py and core/hand.py).  This
+    # process would inherit that, and GDAL then treats every other remote file as
+    # missing: NenCarta cannot download the ESA WorldCover tile index
+    # (esa_worldcover_grid.geojson) and stops with "Failed to download grid after
+    # 10 attempts".  It only shows on a new install - NenCarta caches the index in
+    # its own package folder after the first successful download.  NenCarta runs
+    # with GDAL's default here, as it does when its authors run it.
+    env.pop("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", None)
     if _uses_thalweg_step(json_path) and "PYTHONHASHSEED" not in env:
         # "Move stream network to thalweg" iterates sets whose order follows
         # Python's per-process string-hash seed.  Measured on one case: six runs
