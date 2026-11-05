@@ -26,8 +26,16 @@ Later starts skip all of this (a stamp file records which two files the
 environment was built from; a release that changes either one rebuilds it).
 
 The environment lives outside the app, in the user's profile
-(`~/Library/Application Support/FIMsim` on macOS, `%LOCALAPPDATA%\FIMsim` on
+(`~/Library/FIMsim` on macOS, `%LOCALAPPDATA%\FIMsim` on
 Windows), so the app itself stays small (about 50-100 MB) and read-only.
+
+**The environment path must not contain a space.** conda writes the path into
+the first line (`#!…/python`) of its scripts, and macOS cuts that line at the
+first space. Version 1.2.0 used `~/Library/Application Support/FIMsim` and every
+such script failed - `aws` included, so OWP HAND-FIM could not download its
+data. 1.2.1 uses `~/Library/FIMsim` (and removes the 1.2.0 folder after setting
+up). `smoke_test.py` now runs `aws`, `git` and `flood-mapping` and checks every
+script's interpreter, and CI uses the real default location.
 
 ## Layout
 

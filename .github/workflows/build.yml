@@ -9,7 +9,10 @@ name: Build FIMsim Installers
 # a user installs it, started for the first time on an empty machine (which
 # builds the whole Python environment from environment.yml and
 # requirements-pip.txt), and then the self-check installer/smoke_test.py has to
-# pass - dependency check, git / aws / flood-mapping present, main window opens.
+# pass - dependency check, git / aws / flood-mapping run, main window opens.
+# The checks use the app's REAL default locations (no FIMSIM_HOME), so a problem
+# that only shows in the place users actually get - such as a space in the
+# path - is caught here (1.2.0 shipped with exactly that bug).
 on:
   push:
     tags:
@@ -58,14 +61,11 @@ jobs:
           test -x "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim"
 
       - name: First launch on an empty machine, then the self-check
-        env:
-          FIMSIM_HOME: ${{ runner.temp }}/fimsim-home
         run: |
           "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" --smoke-test
 
       - name: Start FIMsim the way a double-click does (no screen; must keep running)
         env:
-          FIMSIM_HOME: ${{ runner.temp }}/fimsim-home
           QT_QPA_PLATFORM: offscreen
         run: |
           "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" > "$RUNNER_TEMP/gui.log" 2>&1 &
@@ -79,7 +79,7 @@ jobs:
       - name: Report the set-up log if something failed
         if: failure()
         run: |
-          log="$RUNNER_TEMP/fimsim-home/setup.log"
+          log="$HOME/Library/FIMsim/setup.log"
           [ -f "$log" ] || exit 0
           text="$(tail -n 30 "$log" | cut -c1-200 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')"
           echo "::error title=FIMsim set-up log (last lines)::${text:0:3500}"
@@ -106,13 +106,11 @@ jobs:
       - name: Build FIMsim.app
         run: bash installer/macos/build_app.sh dist mm/arm64/micromamba mm/x86_64/micromamba
       - name: First launch on an empty Intel Mac, then the self-check
-        env:
-          FIMSIM_HOME: ${{ runner.temp }}/fimsim-home
         run: dist/FIMsim.app/Contents/MacOS/FIMsim --smoke-test
       - name: Report the set-up log if something failed
         if: failure()
         run: |
-          log="$RUNNER_TEMP/fimsim-home/setup.log"
+          log="$HOME/Library/FIMsim/setup.log"
           [ -f "$log" ] || exit 0
           text="$(tail -n 30 "$log" | cut -c1-200 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')"
           echo "::error title=FIMsim set-up log (last lines)::${text:0:3500}"
@@ -173,8 +171,6 @@ jobs:
 
       - name: First start on an empty machine, then the self-check
         shell: pwsh
-        env:
-          FIMSIM_HOME: ${{ runner.temp }}\fimsim-home
         run: |
           # Windows PowerShell 5.1 is what the Start Menu shortcut uses.
           powershell -NoProfile -ExecutionPolicy Bypass -File "$env:FIMSIM_INSTALL_DIR\launch.ps1" -SmokeTest
@@ -183,12 +179,11 @@ jobs:
       - name: Start FIMsim the way the Start Menu shortcut does (no screen; must keep running)
         shell: pwsh
         env:
-          FIMSIM_HOME: ${{ runner.temp }}\fimsim-home
           QT_QPA_PLATFORM: offscreen
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$env:FIMSIM_INSTALL_DIR\launch.ps1"
           Start-Sleep -Seconds 40
-          $err = Join-Path $env:FIMSIM_HOME "fimsim-errors.log"
+          $err = Join-Path $env:LOCALAPPDATA "FIMsim\fimsim-errors.log"
           if (Test-Path $err) { Get-Content $err -Tail 40 }
           $py = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object { $_.CommandLine -like '*main.py*' }
           if (-not $py) { throw "FIMsim is not running 40 s after the shortcut started it" }
@@ -199,7 +194,7 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
-          $log = Join-Path $env:RUNNER_TEMP "fimsim-home\setup.log"
+          $log = Join-Path $env:LOCALAPPDATA "FIMsim\setup.log"
           if (-not (Test-Path $log)) { exit 0 }
           $text = ((Get-Content $log -Tail 30) | ForEach-Object { $_.Substring(0, [Math]::Min(200, $_.Length)).Replace('%','%25') }) -join '%0A'
           if ($text.Length -gt 3500) { $text = $text.Substring(0, 3500) }

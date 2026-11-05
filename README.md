@@ -1,6 +1,6 @@
 # FIMsim — Flood Inundation Model Simulation Tool
 
-> **v1.2.0** · Web Application · Desktop app for macOS and Windows — [download](../../releases/latest)
+> **v1.2.1** · Web Application · Desktop app for macOS and Windows — [download](../../releases/latest)
 
 FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for four supported flood mapping models (LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically. For users who prefer a local setup, standalone desktop installers for macOS and Windows are also available — no Python installation or technical configuration required.
 
@@ -95,7 +95,7 @@ System Settings → Privacy & Security → **Open Anyway**). On Windows, if Smar
 appears, click **More info** → **Run anyway**.
 
 **If the set-up fails** (for example, the connection dropped), just open FIMsim again — it
-starts over. The log is `~/Library/Application Support/FIMsim/setup.log` (macOS) or
+starts over. The log is `~/Library/FIMsim/setup.log` (macOS) or
 `%LOCALAPPDATA%\FIMsim\setup.log` (Windows). On Windows, **Start Menu → Repair FIMsim**
 rebuilds the environment.
 

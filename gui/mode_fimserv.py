@@ -1861,6 +1861,7 @@ class ModeFIMservWidget(QWidget):
         self._sf_pending = list(self._sf_cards)
         self._fim_total  = len(self._sf_pending)
         self._fim_done   = 0
+        self._fim_failed = 0
         self._sf_progress.setRange(0, self._fim_total)
         self._sf_progress.setValue(0)
         self._sf_progress.setVisible(True)
@@ -1949,10 +1950,18 @@ class ModeFIMservWidget(QWidget):
         if not self._sf_pending:
             set_ready(self._sf_btn)
             self._sf_progress.setVisible(False)
-            self._sf_status.setText(
-                f"FIM complete for {self._fim_done} / {self._fim_total} AOI(s).")
-            self._sf_status.setStyleSheet(
-                "color:#276749; font-size:12px; font-weight:bold;")
+            failed = getattr(self, "_fim_failed", 0)
+            if failed:
+                self._sf_status.setText(
+                    f"FIM finished: {self._fim_done - failed} of {self._fim_total} "
+                    f"AOI(s) mapped, {failed} failed — see the log.")
+                self._sf_status.setStyleSheet(
+                    "color:#c53030; font-size:12px; font-weight:bold;")
+            else:
+                self._sf_status.setText(
+                    f"FIM complete for {self._fim_done} / {self._fim_total} AOI(s).")
+                self._sf_status.setStyleSheet(
+                    "color:#276749; font-size:12px; font-weight:bold;")
             self._sf_status.setVisible(True)
             return
 
@@ -2075,8 +2084,15 @@ class ModeFIMservWidget(QWidget):
         """HAND rasters are in — now fetch discharge (FIMserv step 2)."""
         card = self._sf_current_card
         idx = self._fim_done + 1
-        ok = (result.get("downloaded") if isinstance(result, dict) else None) \
-            or self._fim_cur_huc8s
+        downloaded = result.get("downloaded") if isinstance(result, dict) else None
+        if downloaded is not None and not downloaded:
+            # Every HUC8 failed (the reason is in the log).  Say so here instead
+            # of reporting "HAND rasters downloaded" and failing one step later.
+            self._fim_card_failed(
+                "The OWP HAND data could not be downloaded for HUC8 "
+                + ", ".join(self._fim_cur_huc8s or []) + " — see the log above.")
+            return
+        ok = downloaded or self._fim_cur_huc8s
         self._fim_cur_huc8s = list(ok)
         if card is not None:
             card["status_lbl"].setText("⏳ discharge …")
@@ -2171,6 +2187,7 @@ class ModeFIMservWidget(QWidget):
 
     def _fim_card_failed(self, msg: str):
         card = self._sf_current_card
+        self._fim_failed = getattr(self, "_fim_failed", 0) + 1
         self._log(f"FIM error: {msg}")
         if card is not None:
             self._fim_stage_finish(

@@ -6,7 +6,14 @@ APP_DIR="$RES/app"
 
 # Where FIMsim keeps its Python environment.  FIMSIM_HOME exists so the build
 # checks can run in a scratch folder instead of the real one.
-HOME_DIR="${FIMSIM_HOME:-$HOME/Library/Application Support/FIMsim}"
+#
+# The path must not contain a space.  conda writes the environment's path into
+# the first line of its scripts ("#!/path/to/python"), and macOS splits that line
+# at a space - in "~/Library/Application Support" every such script, `aws`
+# included, fails with "bad interpreter", and OWP HAND-FIM cannot download.
+HOME_DIR="${FIMSIM_HOME:-$HOME/Library/FIMsim}"
+# Where version 1.2.0 put it (removed after a successful set-up here).
+OLD_HOME_DIR="$HOME/Library/Application Support/FIMsim"
 ENV_DIR="$HOME_DIR/env"
 STAMP_FILE="$HOME_DIR/env.stamp"
 

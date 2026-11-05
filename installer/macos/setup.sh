@@ -105,6 +105,15 @@ rm -rf "$HOME_DIR/mamba/pkgs"
 want_stamp > "$STAMP_FILE"
 rm -rf "$LOCK"
 
+# FIMsim 1.2.0 kept its environment in "~/Library/Application Support/FIMsim"
+# (a path with a space - see common.sh).  Free that space once the new one works.
+# Only a folder FIMsim made is removed: it must hold FIMsim's env.stamp.
+if [ -z "${FIMSIM_HOME:-}" ] && [ "$OLD_HOME_DIR" != "$HOME_DIR" ] \
+   && [ -f "$OLD_HOME_DIR/env.stamp" ] && [ -d "$OLD_HOME_DIR/env" ]; then
+    say "Removing the environment of the previous FIMsim version ($OLD_HOME_DIR) ..." | tee -a "$LOG"
+    rm -rf "${OLD_HOME_DIR:?}"
+fi
+
 say "" | tee -a "$LOG"
 say "============================================================" | tee -a "$LOG"
 say "  Done. FIMsim is ready." | tee -a "$LOG"
