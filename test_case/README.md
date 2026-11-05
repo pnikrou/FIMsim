@@ -365,7 +365,7 @@ For events after the retrospective ends (2023-02-01) choose **Analysis & Assimil
 (NOAA's hourly assimilated estimate, 2018-09-17 → today) or **Forecast** (short, medium
 or long range) instead — FIMsim warns you when the date is outside the selected record:
 
-![Step 5 — Forecast options](images/arc_07_streamflow_forecast.png)
+![Step 5 — Analysis & Assimilation and Forecast records](images/arc_07_streamflow_forecast.png)
 
 Next choose the simulation period: **Specific time** gives one flood map, **Duration**
 gives one flood map per timestep. Select **Specific time**:
