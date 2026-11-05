@@ -26,7 +26,14 @@ env:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
-  # macOS .dmg (Apple Silicon and Intel in one app)
+  # macOS .dmg - one app for Apple Silicon and Intel.  Built, installed and
+  # started for the first time on BOTH kinds of Mac; each job publishes the
+  # same .dmg.  Two jobs instead of one so a release is not stuck when GitHub
+  # cannot hand out one kind of macOS machine: some organisations (sdmlua among
+  # them) sometimes wait 15 min for a Mac and then get "The job was not acquired
+  # by Runner".  The release step below goes ahead when at least one Mac job
+  # passed and none FAILED.  If a Mac job only never started, use
+  # "Re-run failed jobs" on the run page.
   # ────────────────────────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
@@ -47,7 +54,7 @@ jobs:
           curl -fsSL -o mm/arm64/micromamba  "$base/micromamba-osx-arm64"
           curl -fsSL -o mm/x86_64/micromamba "$base/micromamba-osx-64"
           chmod +x mm/arm64/micromamba mm/x86_64/micromamba
-          mm/arm64/micromamba --version
+          echo "this runner: $(uname -m), macOS $(sw_vers -productVersion)"
 
       - name: Build FIMsim.app and the .dmg
         run: bash installer/macos/build_app.sh dist mm/arm64/micromamba mm/x86_64/micromamba --dmg
@@ -60,7 +67,7 @@ jobs:
           hdiutil detach "$RUNNER_TEMP/dmg" -quiet
           test -x "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim"
 
-      - name: First launch on an empty machine, then the self-check
+      - name: First launch on an empty Apple Silicon Mac, then the self-check
         run: |
           "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" --smoke-test
 
@@ -86,27 +93,58 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FIMsim-mac-dmg
+          name: FIMsim-mac-dmg-apple-silicon
           path: dist/FIMsim-mac.dmg
           retention-days: 30
 
-  # Same app, started for the first time on an Intel Mac.
-  check-macos-intel:
+  build-macos-intel:
     runs-on: macos-15-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - name: Get micromamba
+
+      - name: Check the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match the VERSION file ($v)"; exit 1; }
+
+      - name: Get micromamba (Apple Silicon and Intel)
         run: |
           base="https://github.com/mamba-org/micromamba-releases/releases/download/$MICROMAMBA_VERSION"
           mkdir -p mm/arm64 mm/x86_64
           curl -fsSL -o mm/arm64/micromamba  "$base/micromamba-osx-arm64"
           curl -fsSL -o mm/x86_64/micromamba "$base/micromamba-osx-64"
           chmod +x mm/arm64/micromamba mm/x86_64/micromamba
-      - name: Build FIMsim.app
-        run: bash installer/macos/build_app.sh dist mm/arm64/micromamba mm/x86_64/micromamba
+          echo "this runner: $(uname -m), macOS $(sw_vers -productVersion)"
+
+      - name: Build FIMsim.app and the .dmg
+        run: bash installer/macos/build_app.sh dist mm/arm64/micromamba mm/x86_64/micromamba --dmg
+
+      - name: Install from the .dmg like a user would
+        run: |
+          hdiutil attach dist/FIMsim-mac.dmg -mountpoint "$RUNNER_TEMP/dmg" -nobrowse -quiet
+          mkdir -p "$RUNNER_TEMP/Applications"
+          cp -R "$RUNNER_TEMP/dmg/FIMsim.app" "$RUNNER_TEMP/Applications/"
+          hdiutil detach "$RUNNER_TEMP/dmg" -quiet
+          test -x "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim"
+
       - name: First launch on an empty Intel Mac, then the self-check
-        run: dist/FIMsim.app/Contents/MacOS/FIMsim --smoke-test
+        run: |
+          "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" --smoke-test
+
+      - name: Start FIMsim the way a double-click does (no screen; must keep running)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" > "$RUNNER_TEMP/gui.log" 2>&1 &
+          pid=$!
+          sleep 40
+          tail -n 40 "$RUNNER_TEMP/gui.log"
+          kill -0 "$pid" || { echo "::error::FIMsim exited within 40 s of starting"; exit 1; }
+          if grep -q Traceback "$RUNNER_TEMP/gui.log"; then echo "::error::FIMsim printed a traceback"; exit 1; fi
+          kill "$pid"
+
       - name: Report the set-up log if something failed
         if: failure()
         run: |
@@ -114,6 +152,12 @@ jobs:
           [ -f "$log" ] || exit 0
           text="$(tail -n 30 "$log" | cut -c1-200 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')"
           echo "::error title=FIMsim set-up log (last lines)::${text:0:3500}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FIMsim-mac-dmg-intel
+          path: dist/FIMsim-mac.dmg
+          retention-days: 30
 
   # ────────────────────────────────────────────────────────────────────────────
   # Windows .exe (Inno Setup)
@@ -210,12 +254,21 @@ jobs:
   # Publish the GitHub Release (version tags only)
   # ────────────────────────────────────────────────────────────────────────────
   release:
-    needs: [build-windows, build-macos, check-macos-intel]
+    needs: [build-windows, build-macos, build-macos-intel]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Windows must pass; of the two Mac jobs at least one must pass and neither
+    # may FAIL (a Mac job GitHub never started is "cancelled", not failed).
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/')
+      && needs.build-windows.result == 'success'
+      && needs.build-macos.result != 'failure'
+      && needs.build-macos-intel.result != 'failure'
+      && (needs.build-macos.result == 'success' || needs.build-macos-intel.result == 'success')
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: FIMsim-windows-installer
@@ -223,42 +276,38 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: FIMsim-mac-dmg
-          path: artifacts/
+          pattern: FIMsim-mac-dmg-*
+          path: mac/
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "FIMsim ${{ github.ref_name }}"
-          body: |
-            ## FIMsim ${{ github.ref_name }} — Flood Inundation Model Simulation Tool
+      - name: Pick the macOS .dmg (both Mac jobs build the same app)
+        env:
+          ARM: ${{ needs.build-macos.result }}
+          INTEL: ${{ needs.build-macos-intel.result }}
+        run: |
+          if [ -f mac/FIMsim-mac-dmg-apple-silicon/FIMsim-mac.dmg ]; then
+            cp mac/FIMsim-mac-dmg-apple-silicon/FIMsim-mac.dmg artifacts/
+          else
+            cp mac/FIMsim-mac-dmg-intel/FIMsim-mac.dmg artifacts/
+          fi
+          [ "$ARM" = success ]   || echo "::warning::The Apple Silicon Mac check did not run ($ARM) - this release was checked on an Intel Mac only."
+          [ "$INTEL" = success ] || echo "::warning::The Intel Mac check did not run ($INTEL) - this release was checked on an Apple Silicon Mac only."
+          ls -la artifacts/
 
-            ### Download
-
-            | Your computer | Download | Then |
-            |---|---|---|
-            | **Windows 10 / 11** | `FIMsim-setup-windows.exe` | Double-click it and follow the steps. No administrator password needed. |
-            | **Mac** (Apple Silicon or Intel) | `FIMsim-mac.dmg` | Drag FIMsim into Applications, then open it. |
-
-            ### First start — one time only
-            The first time FIMsim starts, it sets itself up in a window that stays open:
-            it downloads and installs the scientific packages it needs (GDAL, rasterio, ARC-Curve2Flood, OWP HAND-FIM, …).
-            It needs an internet connection, downloads about 1.5 GB, uses about 3 GB of disk and takes about 5–20 minutes.
-            FIMsim then opens by itself, and from then on it opens immediately.
-            You do not need Python, conda or a terminal.
-
-            ### macOS: the first time you open it
-            FIMsim is not signed with a paid Apple developer account, so macOS asks you to confirm.
-            Right-click FIMsim → **Open** → **Open**. On macOS 15 or newer, if there is no Open button, go to
-            System Settings → Privacy & Security, scroll down and click **Open Anyway**.
-
-            ### Windows: the first time you run it
-            Windows SmartScreen may say "Windows protected your PC". Click **More info** → **Run anyway**.
-
-            ### All four flood models are included
-            LISFLOOD-FP, TRITON, ARC-Curve2Flood and OWP HAND-FIM, plus the DEM, land-cover, flowline and streamflow tools.
-          files: |
-            artifacts/FIMsim-setup-windows.exe
-            artifacts/FIMsim-mac.dmg
-          draft: false
-          prerelease: false
+      # GitHub's own CLI (preinstalled on the runner), not a third-party action:
+      # an organisation that allows only GitHub-made actions can still release.
+      # Re-running for a tag that already has a Release replaces its files.
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          sed "s/@TAG@/$TAG/g" installer/RELEASE_NOTES.md > notes.md
+          files="artifacts/FIMsim-setup-windows.exe artifacts/FIMsim-mac.dmg"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $files --clobber
+            gh release edit "$TAG" --title "FIMsim $TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" $files --title "FIMsim $TAG" --notes-file notes.md --verify-tag
+          fi
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'

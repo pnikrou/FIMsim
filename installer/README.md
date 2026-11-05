@@ -58,21 +58,47 @@ installer/
 
 ## What CI does (`.github/workflows/build.yml`)
 
-On every build, for each OS: assemble the installer, **install it the way a user
-would**, start it for the first time on an empty machine (this builds the whole
-environment), and run `smoke_test.py`. Only if that passes is the installer
-uploaded; only a `vX.Y.Z` tag publishes a Release.
+On every build: assemble the installers, **install them the way a user would**,
+start them for the first time on an empty machine (this builds the whole
+environment) and run `smoke_test.py`. Windows is checked on Windows; the macOS
+app is built and checked on an Apple Silicon Mac **and** on an Intel Mac.
+Only a `vX.Y.Z` tag publishes a Release, and only when Windows passed and at
+least one Mac job passed with none failing.
 
-* `git push origin vX.Y.Z` — build, check, publish a Release.
+* push a tag `vX.Y.Z` — build, check, publish a Release in that repository.
 * push a branch named `ci/<anything>` — build and check, publish nothing.
 
-## Making a release
+The workflow is the same in **pnikrou/FIMsim** and **sdmlua/FIMsim**; each
+repository publishes its own Release when it receives the tag.
 
-1. Put the new number in `VERSION` (for example `1.3.0`) and commit it.
-2. `git tag v1.3.0 && git push origin v1.3.0` (the build refuses a tag that does
-   not match `VERSION`).
-3. When the build is green, the Release page has `FIMsim-mac.dmg` and
-   `FIMsim-setup-windows.exe`.
+## Making a release (from either repository)
+
+1. Put the new number in `VERSION` (for example `1.3.0`), commit, and push
+   `main` to both repositories.
+2. Publish — either of these:
+   * **Terminal:** `git tag v1.3.0 && git push origin v1.3.0 && git push sdml v1.3.0`
+     (the tag must match `VERSION`, otherwise the build stops).
+   * **Website** (no terminal): on GitHub open *Releases → Draft a new release*,
+     *Choose a tag* → type `v1.3.0` → *Create new tag on publish*, target `main`,
+     and click **Publish release**. The build starts by itself and adds both
+     installers (and the standard notes) to that Release. If it does not start,
+     open *Actions → Build FIMsim Installers → Run workflow*, choose
+     *Tags → v1.3.0* and run it.
+3. About 15 minutes later the repository's Releases page shows
+   `FIMsim-mac.dmg` and `FIMsim-setup-windows.exe`, and
+   `…/releases/latest` points to them.
+
+**If a job says "The job was not acquired by Runner … after multiple attempts"**,
+GitHub had no free machine of that type for the organisation (this happens in
+sdmlua for macOS). It is not an error in FIMsim: open the run and click
+**Re-run failed jobs**. A release still goes out when one of the two Mac jobs
+ran and passed; the Release step then notes which Mac it was checked on.
+
+**Repository settings needed once** (an owner does this; already done in both):
+Settings → Actions → General → *Allow all actions and reusable workflows*, and
+*Workflow permissions* left at the default (the release step asks for
+`contents: write` itself). In a fork such as sdmlua/FIMsim, Actions must also
+be switched on once on the Actions tab.
 
 ## Trying it locally (macOS)
 
