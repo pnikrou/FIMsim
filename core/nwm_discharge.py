@@ -229,6 +229,80 @@ def download_nwm_retrospective(
     return out_csv
 
 
+# ── analysis & assimilation (hourly nowcast) ──────────────────────────────────
+
+def download_nwm_analysis_assim(
+    feature_ids,
+    start_dt,
+    end_dt,
+    interval_hours: float,
+    out_csv: Union[str, Path],
+    log_fn=print,
+) -> Path:
+    """NWM Analysis & Assimilation streamflow for many feature IDs, written as
+    one CSV with ``datetime`` + one column per ``feature_id`` (the same layout
+    as :func:`download_nwm_retrospective`).  Discharge units: m³/s.
+
+    The record is NOAA's hourly assimilated estimate; it carries on after the
+    retrospective ends (2023-02-01) and reaches back to 2018-09-17.  It comes
+    from the public NOAA bucket (no key), ONE ~11 MB file per hour, so the
+    interval is a whole number of hours and each timestep is a download.
+    """
+    from core.nwm_flows import fetch_analysis_assim, FORECAST_START
+
+    fids = _coerce_feature_ids(feature_ids)
+    if not fids:
+        raise ValueError("No feature IDs provided.")
+    start_ts, end_ts = _validate_event_window(start_dt, end_dt)
+    step = float(interval_hours)
+    if step < 1 or abs(step - round(step)) > 1e-9:
+        raise ValueError(
+            "NWM Analysis & Assimilation is hourly: choose an interval of "
+            "1 hour or a whole number of hours.")
+    if start_ts < pd.Timestamp(FORECAST_START):
+        raise ValueError(
+            f"NWM Analysis & Assimilation starts {FORECAST_START:%Y-%m-%d}; "
+            f"{start_ts.date()} is earlier.  Use NWM Retrospective for earlier dates.")
+    if end_ts > pd.Timestamp(datetime.utcnow()):
+        raise ValueError(
+            f"{end_ts:%Y-%m-%d %H:%M} is in the future — Analysis & Assimilation "
+            "only covers the past (up to about the present hour).  Use NWM "
+            "Forecast for what is still to come.")
+
+    target = pd.date_range(start=start_ts.floor("h"), end=end_ts,
+                           freq=pd.Timedelta(hours=int(round(step))))
+    if len(target) == 0:
+        raise ValueError("interval_hours is too large for this event window.")
+    log_fn(f"Downloading NWM Analysis & Assimilation: {len(target)} hourly "
+           f"file(s) for {len(fids)} feature_id(s) …")
+    got = fetch_analysis_assim(fids, [t.to_pydatetime() for t in target],
+                               log_fn=log_fn)
+    if not got:
+        raise RuntimeError(
+            "NOAA returned no Analysis & Assimilation file for that period.")
+
+    df = pd.DataFrame.from_dict({pd.Timestamp(t): got[t] for t in sorted(got)},
+                                orient="index")
+    df.index.name = "datetime"
+    df.columns = [str(int(c)) for c in df.columns]
+    df = df.reindex(target)                  # hours NOAA did not serve stay as gaps
+    df.index.name = "datetime"
+    absent = [f for f in fids if str(int(f)) not in df.columns]
+    if absent:
+        log_fn(f"  {len(absent)} feature_id(s) not found in the NOAA files: {absent[:10]}…")
+    for f in fids:
+        col = str(int(f))
+        if col not in df.columns:
+            df[col] = np.nan
+    df = df[[str(int(f)) for f in fids]]
+
+    out_csv = Path(out_csv)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_csv, index_label="datetime")
+    log_fn(f"  ✓ Wrote {out_csv.name} ({len(df)} rows × {len(fids)} columns)")
+    return out_csv
+
+
 # ── forecast (operational) ────────────────────────────────────────────────────
 
 def latest_forecast_run() -> str:

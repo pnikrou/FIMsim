@@ -1,8 +1,9 @@
 """Standalone streamflow download backend.
 
 Entry point:
-  run_streamflow_mode  — download NWM retrospective, NWM forecast, or USGS
-                         discharge for given feature IDs / gage numbers.
+  run_streamflow_mode  — download NWM retrospective, NWM forecast, NWM
+                         analysis & assimilation, or USGS discharge for given
+                         feature IDs / gage numbers.
 """
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ import pandas as pd
 from core.nwm_discharge import (
     download_nwm_retrospective,
     download_nwm_forecast,
+    download_nwm_analysis_assim,
     _coerce_feature_ids,
 )
 from core.flowline_mode import _download_usgs_discharge, _coerce_gage_ids
@@ -78,10 +80,11 @@ def run_streamflow_mode(
     configs: List[Dict[str, Any]],
     log_fn=print,
 ) -> Dict:
-    """Download streamflow data from NWM retrospective, NWM forecast, or USGS.
+    """Download streamflow data from NWM retrospective, NWM forecast, NWM
+    analysis & assimilation, or USGS.
 
     Each config dict has:
-        source         : "nwm_retro" | "nwm_forecast" | "usgs"
+        source         : "nwm_retro" | "nwm_forecast" | "nwm_ana" | "usgs"
         ids            : str | list  — comma-sep COMIDs/gages or path to CSV
         start_dt       : datetime
         end_dt         : datetime
@@ -275,6 +278,70 @@ def run_streamflow_mode(
                     combined_csv.unlink()
                 except Exception:
                     pass
+
+        elif source == "nwm_ana":
+            # NWM Analysis & Assimilation: NOAA's hourly assimilated estimate.
+            # Same layout as the retrospective: one wide CSV, split per feature.
+            feature_ids = _coerce_feature_ids(ids_raw)
+            if not feature_ids:
+                log_fn("  No feature IDs for source=nwm_ana, skipping.")
+                continue
+            combined_csv = out_dir / "nwm_ana_combined.csv"
+            try:
+                download_nwm_analysis_assim(
+                    feature_ids=feature_ids,
+                    start_dt=start_dt,
+                    end_dt=end_dt,
+                    interval_hours=interval_hours,
+                    out_csv=combined_csv,
+                    log_fn=log_fn,
+                )
+            except Exception as exc:
+                log_fn(f"  NWM Analysis & Assimilation download failed: {exc}")
+                _m = str(exc)
+                all_warnings.append(
+                    _m if "Analysis & Assimilation" in _m
+                    else f"NWM Analysis & Assimilation: {_m}")
+                continue
+
+            try:
+                df_wide = pd.read_csv(combined_csv)
+            except Exception as exc:
+                log_fn(f"  Error reading combined Analysis & Assimilation CSV: {exc}")
+                df_wide = None
+
+            if df_wide is not None:
+                for fid in feature_ids:
+                    col = str(fid)
+                    if col not in df_wide.columns or df_wide[col].dropna().empty:
+                        msg = f"feature ID {fid} has no data in the NOAA files for this period."
+                        log_fn(f"  ✗ NWM Analysis & Assimilation: {msg}")
+                        all_warnings.append(f"NWM Analysis & Assimilation {fid}: no data for this period.")
+                        continue
+                    csv_path = out_dir / f"nwm_ana_{fid}.csv"
+                    try:
+                        df_single = _to_time_hours_csv(df_wide, "datetime", col, csv_path)
+                        n_ts = len(df_single.dropna(subset=["discharge_cms"]))
+                        peak = float(df_single["discharge_cms"].max())
+                        cov_warns = _check_coverage(
+                            df_single, "time_hours", start_dt, end_dt,
+                            interval_hours, f"NWM Analysis & Assimilation feature {fid}", log_fn)
+                        all_warnings.extend(
+                            f"NWM Analysis & Assimilation {fid}: {w}" for w in cov_warns)
+                        results.append({
+                            "source": "nwm_ana",
+                            "id": str(fid),
+                            "csv_path": str(csv_path),
+                            "n_timesteps": n_ts,
+                            "peak_flow_cms": peak,
+                        })
+                        log_fn(f"  ✓ Saved {csv_path.name} ({n_ts} rows)")
+                    except Exception as exc:
+                        log_fn(f"  Error processing feature ID {fid}: {exc}")
+            try:
+                combined_csv.unlink()
+            except Exception:
+                pass
 
         elif source == "usgs":
             gage_ids = _coerce_gage_ids(ids_raw)

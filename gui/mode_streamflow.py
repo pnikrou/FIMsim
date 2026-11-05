@@ -4,7 +4,7 @@ Pages:
   0 — Project
   1 — Source configuration + results
 
-Sources: NWM Retrospective, NWM Forecast, USGS Gage.
+Sources: NWM Retrospective, NWM Forecast, NWM Analysis & Assimilation, USGS Gage.
 No AOI required — user supplies feature IDs or gage numbers directly.
 """
 from pathlib import Path
@@ -241,7 +241,96 @@ class ModeStreamflowWidget(QWidget):
         fore_outer.addWidget(self._fore_form)
         v.addWidget(self._fore_gb)
 
-        # ── Section 3: USGS ───────────────────────────────────────────────────
+        # ── Section 3: NWM Analysis & Assimilation ────────────────────────────
+        self._ana_gb = QGroupBox()
+        self._ana_gb.setStyleSheet(
+            "QGroupBox { background:#f9fafb; border:1px solid #e2e8f0; "
+            "border-radius:6px; padding-top:8px; }"
+        )
+        ana_outer = QVBoxLayout(self._ana_gb)
+        ana_outer.setSpacing(6)
+
+        ana_hdr = QHBoxLayout()
+        # "&&" — a single "&" in a checkbox label is a keyboard mnemonic.
+        self._ana_chk = QCheckBox("NWM Analysis && Assimilation (2018-09-17 → now)")
+        self._ana_chk.setChecked(False)
+        self._ana_chk.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self._ana_chk.toggled.connect(self._on_ana_toggled)
+        ana_hdr.addWidget(self._ana_chk)
+        ana_hdr.addStretch()
+        ana_outer.addLayout(ana_hdr)
+
+        self._ana_form = QWidget()
+        af = QVBoxLayout(self._ana_form)
+        af.setContentsMargins(10, 4, 4, 4)
+        af.setSpacing(6)
+
+        ana_ids_row = QHBoxLayout()
+        ana_ids_row.addWidget(QLabel("Feature ID(s):"))
+        self._ana_ids = QLineEdit()
+        self._ana_ids.setPlaceholderText("e.g. 12345678, 23456789  or  path/to/ids.csv")
+        ana_ids_row.addWidget(self._ana_ids, 1)
+        ana_browse = QPushButton("Browse CSV…")
+        ana_browse.setFixedWidth(100)
+        ana_browse.clicked.connect(lambda: self._browse_csv(self._ana_ids))
+        ana_ids_row.addWidget(ana_browse)
+        af.addLayout(ana_ids_row)
+
+        ana_csv_note = QLabel("★ CSV: one COMID per line, no header required.")
+        ana_csv_note.setStyleSheet("color:#718096; font-size:11px;")
+        af.addWidget(ana_csv_note)
+
+        ana_dt_row = QHBoxLayout()
+        ana_dt_row.addWidget(QLabel("Start date:"))
+        self._ana_start = QDateTimeEdit()
+        self._ana_start.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._ana_start.setCalendarPopup(True)
+        self._ana_start.setDateTime(
+            QDateTime.fromString("2019-09-19 00:00", "yyyy-MM-dd HH:mm"))
+        ana_dt_row.addWidget(self._ana_start)
+        ana_dt_row.addSpacing(12)
+        ana_dt_row.addWidget(QLabel("End date:"))
+        self._ana_end = QDateTimeEdit()
+        self._ana_end.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._ana_end.setCalendarPopup(True)
+        self._ana_end.setDateTime(
+            QDateTime.fromString("2019-09-21 00:00", "yyyy-MM-dd HH:mm"))
+        ana_dt_row.addWidget(self._ana_end)
+        ana_dt_row.addStretch()
+        af.addLayout(ana_dt_row)
+
+        ana_cov_note = QLabel(
+            "★ NOAA's hourly assimilated estimate of the flow, 2018-09-17 → now "
+            "(it carries on after the retrospective ends, 2023-02-01)  |  "
+            "public NOAA mirror, no key needed  |  times in UTC  |  USA only"
+        )
+        ana_cov_note.setWordWrap(True)
+        ana_cov_note.setStyleSheet("color:#718096; font-size:11px;")
+        af.addWidget(ana_cov_note)
+
+        ana_ivl_row = QHBoxLayout()
+        ana_ivl_row.addWidget(QLabel("Interval:"))
+        self._ana_interval = QComboBox()
+        self._ana_interval.addItems(["1h", "3h", "6h", "12h", "24h"])
+        self._ana_interval.setCurrentText("3h")
+        ana_ivl_row.addWidget(self._ana_interval)
+        ana_ivl_row.addStretch()
+        af.addLayout(ana_ivl_row)
+
+        # Every timestep is one NOAA file, so say how big the request is.
+        self._ana_est = QLabel("")
+        self._ana_est.setWordWrap(True)
+        self._ana_est.setStyleSheet("color:#975a16; font-size:11px;")
+        af.addWidget(self._ana_est)
+        for _w in (self._ana_start, self._ana_end):
+            _w.dateTimeChanged.connect(self._update_ana_est)
+        self._ana_interval.currentIndexChanged.connect(self._update_ana_est)
+        self._update_ana_est()
+
+        ana_outer.addWidget(self._ana_form)
+        v.addWidget(self._ana_gb)
+
+        # ── Section 4: USGS ───────────────────────────────────────────────────
         self._usgs_gb = QGroupBox()
         self._usgs_gb.setStyleSheet(
             "QGroupBox { background:#f9fafb; border:1px solid #e2e8f0; "
@@ -412,6 +501,7 @@ class ModeStreamflowWidget(QWidget):
         # All sections start collapsed — user must check to expand
         self._retro_form.setVisible(False)
         self._fore_form.setVisible(False)
+        self._ana_form.setVisible(False)
         self._usgs_form.setVisible(False)
 
         return page
@@ -423,6 +513,28 @@ class ModeStreamflowWidget(QWidget):
 
     def _on_fore_toggled(self, checked: bool):
         self._fore_form.setVisible(checked)
+
+    def _on_ana_toggled(self, checked: bool):
+        self._ana_form.setVisible(checked)
+
+    def _ana_timesteps(self) -> int:
+        """How many hourly NOAA files the Analysis & Assimilation request needs."""
+        secs = self._ana_start.dateTime().secsTo(self._ana_end.dateTime())
+        if secs < 0:
+            return 0
+        step = max(int(self._parse_interval(self._ana_interval.currentText())), 1)
+        return int(secs // 3600 // step) + 1
+
+    def _update_ana_est(self, *_):
+        n = self._ana_timesteps()
+        if n == 0:
+            self._ana_est.setText("⚠ End date must be after the start date.")
+            return
+        gb = n * 11 / 1024
+        self._ana_est.setText(
+            f"→ {n} timestep(s) = {n} NOAA file(s), about "
+            + (f"{gb:.1f} GB" if gb >= 1 else f"{n * 11} MB")
+            + " to download. Raise the interval to download less.")
 
     def _on_usgs_toggled(self, checked: bool):
         self._usgs_form.setVisible(checked)
@@ -455,6 +567,7 @@ class ModeStreamflowWidget(QWidget):
         any_enabled = (
             self._retro_chk.isChecked()
             or self._fore_chk.isChecked()
+            or self._ana_chk.isChecked()
             or self._usgs_chk.isChecked()
         )
         if not any_enabled:
@@ -469,6 +582,23 @@ class ModeStreamflowWidget(QWidget):
         if self._fore_chk.isChecked():
             if not self._fore_ids.text().strip():
                 return "NWM Forecast: Feature ID(s) field is empty."
+
+        if self._ana_chk.isChecked():
+            if not self._ana_ids.text().strip():
+                return "NWM Analysis & Assimilation: Feature ID(s) field is empty."
+            if self._ana_start.dateTime() >= self._ana_end.dateTime():
+                return "NWM Analysis & Assimilation: End date must be after start date."
+            if self._ana_start.dateTime() < QDateTime(2018, 9, 17, 0, 0):
+                return ("NWM Analysis & Assimilation starts 2018-09-17 — use "
+                        "NWM Retrospective for earlier dates.")
+            # Times are UTC; compare like with like (both without a zone).
+            _now_utc = QDateTime.fromString(
+                QDateTime.currentDateTimeUtc().toString("yyyy-MM-dd HH:mm"),
+                "yyyy-MM-dd HH:mm")
+            if self._ana_end.dateTime() > _now_utc:
+                return ("NWM Analysis & Assimilation: the end date is in the "
+                        "future — it only covers the past. Use NWM Forecast "
+                        "for what is still to come.")
 
         if self._usgs_chk.isChecked():
             if not self._usgs_ids.text().strip():
@@ -489,6 +619,18 @@ class ModeStreamflowWidget(QWidget):
         if err:
             QMessageBox.warning(self, "Validation error", err)
             return
+
+        # Analysis & Assimilation is one NOAA file per timestep — confirm
+        # before a request that is gigabytes.
+        if self._ana_chk.isChecked() and self._ana_timesteps() > 500:
+            n = self._ana_timesteps()
+            if QMessageBox.question(
+                    self, "Large download",
+                    f"NWM Analysis & Assimilation will download {n} files "
+                    f"(about {n * 11 / 1024:.1f} GB). Continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            ) != QMessageBox.StandardButton.Yes:
+                return
 
         # Disconnect and discard any previous worker to avoid stale signals
         if self._worker is not None:
@@ -538,6 +680,17 @@ class ModeStreamflowWidget(QWidget):
                 "start_dt": self._fore_start.dateTime().toPyDateTime(),
                 "end_dt": self._fore_start.dateTime().addDays(10).toPyDateTime(),
                 "interval_hours": 1.0,
+            })
+
+        if self._ana_chk.isChecked():
+            configs.append({
+                "source": "nwm_ana",
+                "ids": self._ana_ids.text().strip(),
+                "start_dt": self._ana_start.dateTime().toPyDateTime(),
+                "end_dt": self._ana_end.dateTime().toPyDateTime(),
+                "interval_hours": self._parse_interval(
+                    self._ana_interval.currentText()
+                ),
             })
 
         if self._usgs_chk.isChecked():
