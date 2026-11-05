@@ -41,9 +41,21 @@ from core.state_lookup import detect_us_state
 from core.FIMserv_api import (
     FIMservAPI,
     resolve_huc8_mode, download_huc8_mode, streamflow_mode, generate_fim_mode,
-    fim_tags_for_request,
+    fim_tags_for_request, fimserve_has_ana,
     discover_existing,
 )
+
+# What the date-range note under the Duration picker says for each record.
+_RANGE_NOTE_RETRO = (
+    "★ The map shows the <b>maximum</b> flood extent reached during "
+    "this period (NWM discharge aggregated to its peak per reach).")
+_RANGE_NOTE_ANA = (
+    "★ One flood map per timestep; the overview is the <b>maximum</b> extent "
+    "across them (Analysis &amp; Assimilation has no whole-period aggregate).")
+_ANA_NOTE = (
+    "★ Analysis & Assimilation is NOAA's hourly assimilated estimate of the "
+    "flow at each hour, from 2018-09-17 up to about now. FIMsim downloads one "
+    "NOAA file (about 11 MB) for every hour that is mapped.")
 
 
 # ── Module-level worker functions for HUC8 detail lookups ────────────────────
@@ -1243,14 +1255,31 @@ class ModeFIMservWidget(QWidget):
         src_row.addWidget(QLabel("Source:"))
         src_grp = QButtonGroup(card)
         rb_src_retro = QRadioButton("Retrospective  (before 2023)")
+        # Hourly assimilated nowcast: carries on after the retrospective ends
+        # and reaches back to 2018-09-17.  Needs fimserve >= 0.2.11.
+        rb_src_ana   = QRadioButton("Analysis && Assimilation  (2018-09-17 → today)")
         rb_src_fore  = QRadioButton("Forecast  (2023 onward)")
         rb_src_retro.setChecked(True)
         src_grp.addButton(rb_src_retro)
+        src_grp.addButton(rb_src_ana)
         src_grp.addButton(rb_src_fore)
         src_row.addWidget(rb_src_retro)
+        src_row.addWidget(rb_src_ana)
         src_row.addWidget(rb_src_fore)
         src_row.addStretch()
         cv.addLayout(src_row)
+        if fimserve_has_ana() is False:
+            rb_src_ana.setEnabled(False)
+            rb_src_ana.setToolTip(
+                "The installed fimserve is too old for Analysis & Assimilation "
+                "(needs 0.2.11 or newer).\nRun  python -m core.deps --fix  "
+                "from the FIMsim folder, then restart FIMsim.")
+
+        ana_note = QLabel(_ANA_NOTE)
+        ana_note.setWordWrap(True)
+        ana_note.setStyleSheet("color:#718096; font-size:11px;")
+        ana_note.setVisible(False)
+        cv.addWidget(ana_note)
 
         # ── Retrospective box: date range / specific date(s) ──────────────────
         retro_box = QWidget()
@@ -1308,9 +1337,7 @@ class ModeFIMservWidget(QWidget):
         rr.addWidget(end_dt)
         rr.addStretch()
         rbv.addWidget(range_box)
-        range_note = QLabel(
-            "★ The map shows the <b>maximum</b> flood extent reached during "
-            "this period (NWM discharge aggregated to its peak per reach).")
+        range_note = QLabel(_RANGE_NOTE_RETRO)
         range_note.setWordWrap(True)
         range_note.setStyleSheet("color:#718096; font-size:11px;")
         rbv.addWidget(range_note)
@@ -1441,11 +1468,24 @@ class ModeFIMservWidget(QWidget):
         cv.addWidget(forecast_box)
 
         # ── Wiring ────────────────────────────────────────────────────────────
-        # Source toggle: Retrospective shows retro_box, Forecast shows forecast_box.
-        rb_src_retro.toggled.connect(
-            lambda checked, rbx=retro_box, fbx=forecast_box:
-                (rbx.setVisible(checked), fbx.setVisible(not checked))
-        )
+        # Source toggle.  Retrospective and Analysis & Assimilation share the
+        # date box (both are hourly records read for past times); Forecast has
+        # its own.  An Analysis & Assimilation period is mapped one flood map
+        # per timestep (fimserve has no whole-period aggregate for it), so the
+        # per-timestep box is ticked and locked there.
+        def _sync_source(*_a, ra=rb_src_ana, rf=rb_src_fore, rbx=retro_box,
+                         fbx=forecast_box, an=ana_note, tsc=ts_chk,
+                         rn=range_note):
+            fore, ana = rf.isChecked(), ra.isChecked()
+            rbx.setVisible(not fore)
+            fbx.setVisible(fore)
+            an.setVisible(ana)
+            if ana:
+                tsc.setChecked(True)
+            tsc.setEnabled(not ana)
+            rn.setText(_RANGE_NOTE_ANA if ana else _RANGE_NOTE_RETRO)
+        for _rb in (rb_src_retro, rb_src_ana, rb_src_fore):
+            _rb.toggled.connect(_sync_source)
         # Date-mode toggle within Retrospective.
         rb_range.toggled.connect(
             lambda checked, rb=range_box, sb=specific_box, rn=range_note,
@@ -1507,7 +1547,10 @@ class ModeFIMservWidget(QWidget):
             "expanded":      False,
             # source
             "rb_src_retro":  rb_src_retro,
+            "rb_src_ana":    rb_src_ana,
             "rb_src_fore":   rb_src_fore,
+            "ana_note":      ana_note,
+            "range_note":    range_note,
             # retrospective dates
             "rb_range":      rb_range,
             "rb_specific":   rb_specific,
@@ -1606,6 +1649,13 @@ class ModeFIMservWidget(QWidget):
             when = ("latest run" if refs["fc_latest_chk"].isChecked()
                     else refs["fc_date"].dateTime().toString("yyyy-MM-dd"))
             return f"Forecast · {rng} · {when}"
+        if refs["rb_src_ana"].isChecked():
+            if refs["rb_range"].isChecked():
+                return (f"Analysis & Assimilation · "
+                        f"{refs['start_dt'].dateTime().toString('yyyy-MM-dd')} → "
+                        f"{refs['end_dt'].dateTime().toString('yyyy-MM-dd')}")
+            n = refs["specific_list"].count()
+            return f"Analysis & Assimilation · {n} specific time(s)"
         if refs["rb_range"].isChecked():
             return (f"Retrospective · "
                     f"{refs['start_dt'].dateTime().toString('yyyy-MM-dd')} → "
@@ -1615,7 +1665,9 @@ class ModeFIMservWidget(QWidget):
 
     def _sf_get_cfg(self, refs: dict) -> dict:
         return {
-            "source":  "forecast" if refs["rb_src_fore"].isChecked() else "retro",
+            "source":  ("forecast" if refs["rb_src_fore"].isChecked()
+                        else "ana" if refs["rb_src_ana"].isChecked()
+                        else "retro"),
             "date_mode": "range" if refs["rb_range"].isChecked() else "specific",
             "start":   refs["start_dt"].dateTime(),
             "end":     refs["end_dt"].dateTime(),
@@ -1630,6 +1682,7 @@ class ModeFIMservWidget(QWidget):
 
     def _sf_set_cfg(self, refs: dict, cfg: dict):
         (refs["rb_src_fore"] if cfg["source"] == "forecast"
+         else refs["rb_src_ana"] if cfg["source"] == "ana"
          else refs["rb_src_retro"]).setChecked(True)
         refs["period_combo"].setCurrentIndex(
             0 if cfg["date_mode"] == "range" else 1)
@@ -1915,6 +1968,31 @@ class ModeFIMservWidget(QWidget):
             if not card["fc_latest_chk"].isChecked():
                 kwargs["forecast_date"] = card["fc_date"].dateTime().toString("yyyy-MM-dd")
                 kwargs["forecast_hour"] = int(card["fc_hour"].currentText())
+        elif card["rb_src_ana"].isChecked():
+            # Analysis & Assimilation is mapped hour by hour: a duration
+            # becomes one timestep per interval and the overview is their
+            # maximum (fimserve gives no whole-period aggregate for it).
+            if card["rb_range"].isChecked():
+                start = card["start_dt"].dateTime().toPyDateTime()
+                end   = card["end_dt"].dateTime().toPyDateTime()
+                if end <= start:
+                    self._fim_skip_card(card, "⚠ End date must be after start — skipped.")
+                    return
+                times = FIMservAPI.expand_timesteps(
+                    start, end, card["ts_step"].currentData() or 1)
+                if not times:
+                    self._fim_skip_card(card, "⚠ No timesteps in that period — skipped.")
+                    return
+                self._log(f"Analysis & Assimilation: {len(times)} timestep(s) "
+                          f"will be mapped; each downloads one NOAA file and "
+                          f"is saved in the AOI's 'FloodMaps' folder.")
+            else:
+                times = [card["specific_list"].item(i).text()
+                         for i in range(card["specific_list"].count())]
+                if not times:
+                    self._fim_skip_card(card, "⚠ No dates added — skipped.")
+                    return
+            kwargs = dict(source="analysis_assim", value_times=times)
         elif card["rb_range"].isChecked():
             start = card["start_dt"].dateTime().toPyDateTime()
             end   = card["end_dt"].dateTime().toPyDateTime()
@@ -2004,11 +2082,18 @@ class ModeFIMservWidget(QWidget):
             card["status_lbl"].setText("⏳ discharge …")
             self._fim_stage_done(f"HAND rasters downloaded ({len(ok)} HUC8)")
             _agg = (self._fim_cur_dischg or {}).get("sort_by")
-            self._fim_stage(
-                "Downloading NWM discharge"
-                + (f" ({_agg} over the period)" if _agg == "maximum"
-                   and (self._fim_cur_dischg or {}).get("start_date") else "")
-                + " …", running=True)
+            _d = self._fim_cur_dischg or {}
+            if _d.get("source") == "analysis_assim":
+                self._fim_stage(
+                    "Downloading NWM Analysis & Assimilation discharge "
+                    f"({len(_d.get('value_times') or [])} hour(s)) …",
+                    running=True)
+            else:
+                self._fim_stage(
+                    "Downloading NWM discharge"
+                    + (f" ({_agg} over the period)" if _agg == "maximum"
+                       and _d.get("start_date") else "")
+                    + " …", running=True)
         self._set_busy(self._sf_status,
                        f"AOI {idx}/{self._fim_total} — fetching NWM discharge …")
         self._start_worker(

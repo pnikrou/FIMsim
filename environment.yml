@@ -8,7 +8,7 @@
 #
 # Step 1 (this file) is everything LISFLOOD-FP and TRITON need.  Step 2 installs
 # requirements-pip.txt with --no-deps.  It cannot be one resolver run:
-# fimserve hard-requires teehr==0.5.0, and TEEHR pins zarr<3 / s3fs<2026 /
+# fimserve hard-requires one exact teehr release, and TEEHR pins zarr<3 / s3fs<2026 /
 # fsspec<2026 while FIMsim runs on zarr 3 / s3fs 2026.  pip cannot satisfy both,
 # so a plain `pip install fimserve` backtracks through dozens of old fimserve
 # releases (downloading a 450 MB pyspark tarball on the way) and then fails, or

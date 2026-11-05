@@ -41,7 +41,8 @@ FIMsim connects to the following public data services. An internet connection is
 | Land Use / Land Cover (LULC) | Sentinel-2 — Esri | Global |
 | River flowlines | NHD — USGS | USA |
 | USGS stream gages | USGS Water Services | USA |
-| Streamflow time series | NWM Retrospective v2.1 — NOAA | USA · 1979–2020 |
+| Streamflow time series | NWM Retrospective — NOAA | USA · 1979 – early 2023 |
+| Streamflow, hourly nowcast | NWM Analysis & Assimilation — NOAA | USA · 2018-09-17 → today |
 | Streamflow forecast | NWM Operational — NOAA | USA · ~10-day horizon |
 
 ---
@@ -109,7 +110,7 @@ source) and clones three small GitHub repositories, so allow ten minutes and kee
 `git` on your PATH. It is safe to run again.
 
 **Why two steps, and why not just `pip install`?** `fimserve` requires
-`teehr==0.5.0`, and TEEHR pins `zarr<3`, `s3fs<2026` and `fsspec<2026`, while FIMsim
+one exact `teehr` release (`teehr==0.6.6`), and TEEHR pins `zarr<3`, `s3fs<2026` and `fsspec<2026`, while FIMsim
 runs on `zarr 3` and `s3fs 2026`. No pip resolver can satisfy both: it either
 deadlocks (backtracking through dozens of old fimserve releases and downloading the
 450 MB pyspark tarball on the way) or "succeeds" by *downgrading* zarr and s3fs,

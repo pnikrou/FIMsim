@@ -24,6 +24,7 @@ from rasterio.mask import mask as rio_mask
 
 
 from core.aoi_info import lookup_huc8
+from core.deps import fimserve_has_ana       # noqa: F401  (re-exported for the GUI)
 
 # NWM v3.0 retrospective runs up to early 2023; on/after this date use the
 # operational forecast instead.
@@ -42,6 +43,13 @@ RETRO_END   = datetime(2023, 1, 31)
 FORECAST_ARCHIVE_START = datetime(2018, 9, 17)
 # Longest NWM forecast horizon (long range ≈ 30 days ahead of the run).
 FORECAST_MAX_AHEAD_DAYS = 30
+# NWM Analysis & Assimilation (fimserve >= 0.2.11, getNWManalysisAssim): hourly
+# files on the same NOAA bucket, first published on the same day as the
+# forecast archive.  It carries on after the retrospective ends.
+ANA_ARCHIVE_START = datetime(2018, 9, 17)
+
+# The discharge record that gives the "analysis_assim" source.
+ANA_SOURCE = "analysis_assim"
 
 
 def _as_dt(value) -> Optional[datetime]:
@@ -77,6 +85,29 @@ def _normalize_value_time(value) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _ana_hour(value) -> str:
+    """A time as a whole hour, 'YYYY-MM-DD HH:00:00' — Analysis & Assimilation is hourly."""
+    dt = _as_dt(value)
+    if dt is None:
+        return str(value).strip()
+    return dt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _tag_prefix(tag: str, huc: str) -> str:
+    """Lower-case start of the raster names that one request tag matches.
+
+    Retrospective tags (NWM_<stamp>[...]) are followed by the HUC8:
+    ``NWM_20190919170000_10170203_inundation.tif``.  An Analysis & Assimilation
+    tag (ANA_<YYYYMMDDHH>) names the HUC8 first, then the hour:
+    ``analysis_assim_10170203_20190919_17UTC_inundation.tif``.
+    """
+    tag = str(tag)
+    if tag.startswith("ANA_") and len(tag) >= 14:
+        stamp = tag[4:]
+        return f"analysis_assim_{huc}_{stamp[:8]}_{stamp[8:10]}utc".lower()
+    return f"{tag}_{huc}".lower()
+
+
 def validate_discharge_window(source: str, start_date=None, end_date=None,
                               value_times=None, forecast_date=None) -> None:
     """Raise a clear error when the requested dates have no NWM data.
@@ -85,6 +116,26 @@ def validate_discharge_window(source: str, start_date=None, end_date=None,
     request outside the record fails silently and no flood map is produced.
     """
     today = datetime.utcnow()
+
+    if source == ANA_SOURCE:
+        wanted = [d for d in (_as_dt(v) for v in
+                  (list(value_times or []) or [start_date, end_date]))
+                  if d is not None]
+        if not wanted:
+            return
+        lo, hi = min(wanted), max(wanted)
+        if lo < ANA_ARCHIVE_START:
+            raise ValueError(
+                f"NWM Analysis & Assimilation data is not available for "
+                f"{lo.date()}.  It starts {ANA_ARCHIVE_START.date()}.  For "
+                f"earlier dates choose 'Retrospective' ({RETRO_START.date()} "
+                f"to {RETRO_END.date()}).")
+        if hi > today:
+            raise ValueError(
+                f"{hi:%Y-%m-%d %H:%M} is in the future — Analysis & "
+                "Assimilation only covers the past (up to about the present "
+                "hour).  For what is still to come choose 'Forecast'.")
+        return
 
     if source == "forecast":
         fdt = _as_dt(forecast_date)
@@ -280,6 +331,11 @@ class FIMservAPI:
               each a separate FIM.  Aggregation is ignored.
             * else start/end range with discharge_sortby aggregation.
 
+        source="analysis_assim" (NWM Analysis & Assimilation, fimserve >= 0.2.11):
+            value_times required — one CSV per exact hour
+            (analysis_assim_<huc>_<YYYYMMDD>_<HH>UTC.csv), each a separate FIM.
+            fimserve has no range aggregation for this record.
+
         Returns the source used.
         """
         fm = _import_fimserve()
@@ -289,6 +345,13 @@ class FIMservAPI:
         # caller can hit that.
         if value_times:
             value_times = [_normalize_value_time(t) for t in value_times]
+        if source == ANA_SOURCE:
+            if not value_times:
+                raise ValueError(
+                    "Analysis & Assimilation needs one or more specific hours "
+                    "(value_times); it has no whole-period aggregate.")
+            # The record is hourly: a bare date means that day's 00:00.
+            value_times = [_ana_hour(t) for t in value_times]
         specific = bool(value_times)
         # Fail fast with a clear message when the dates have no NWM data —
         # otherwise fimserve errors per-HUC and FIM runs with no discharge,
@@ -319,7 +382,9 @@ class FIMservAPI:
                         kw["sort_by"] = sort_by
                     fm.getNWMForecasteddata(huc, forecast_range, **kw)
 
-                if specific:
+                if source == ANA_SOURCE:
+                    self._fetch_ana(fm, huc, value_times, force, i, len(huc8_ids))
+                elif specific:
                     # One CSV per requested timestamp — skip the timestamps whose
                     # exact CSV already exists; only fetch the missing ones.
                     # An EMPTY csv must not count as present: a previous run
@@ -622,7 +687,7 @@ class FIMservAPI:
             for tif in sorted(glob.glob(str(base / "*.tif"))):
                 name = Path(tif).name.lower()
                 if fim_tags and not any(
-                        name.startswith(f"{t.lower()}_{huc.lower()}")
+                        name.startswith(_tag_prefix(t, huc))
                         for t in fim_tags):
                     continue
                 if name.endswith("_depth.tif"):
@@ -679,7 +744,8 @@ class FIMservAPI:
     def _ymd(date_str) -> str:
         return str(date_str).replace("-", "").replace(":", "").replace(" ", "")[:8]
 
-    def _drop_stale_fim(self, huc8: str, value_times: List[str]) -> int:
+    def _drop_stale_fim(self, huc8: str, value_times: List[str],
+                        source: str = "retrospective") -> int:
         """Delete the FIM rasters for these timestamps so they are rebuilt.
 
         runOWPHANDFIM skips any timestamp whose raster already exists, so a
@@ -691,7 +757,8 @@ class FIMservAPI:
             return 0
         removed = 0
         for t in value_times:
-            stem = self.expected_event_csv(huc8, t).stem      # NWM_<stamp>_<huc>
+            stem = (self.expected_ana_csv(huc8, t) if source == ANA_SOURCE
+                    else self.expected_event_csv(huc8, t)).stem   # NWM_<stamp>_<huc>
             for f in base.glob(f"{stem}_inundation*.tif"):
                 try:
                     f.unlink(); removed += 1
@@ -836,6 +903,67 @@ class FIMservAPI:
             stamp = self._ymd(value_time)
         return self._inputs_dir() / f"NWM_{stamp}_{huc8}.csv"
 
+    def expected_ana_csv(self, huc8: str, value_time: str) -> Path:
+        """The CSV getNWManalysisAssim writes for one exact hour:
+        ``analysis_assim_<huc>_<YYYYMMDD>_<HH>UTC.csv``."""
+        dt = _as_dt(value_time)
+        if dt is None:
+            return self._inputs_dir() / f"analysis_assim_{huc8}_{self._ymd(value_time)}_00UTC.csv"
+        return self._inputs_dir() / f"analysis_assim_{huc8}_{dt:%Y%m%d}_{dt:%H}UTC.csv"
+
+    def _fetch_ana(self, fm, huc: str, value_times: List[str], force: bool,
+                   i: int, n: int) -> None:
+        """Download NWM Analysis & Assimilation discharge, one CSV per hour.
+
+        Uses fimserve's own getNWManalysisAssim.  One call per requested hour:
+        fimserve keeps the downloaded range in a parquet named only by its
+        DATES (NWM_data_assim_<YYYYMMDD>_<YYYYMMDD>.parquet), so a second hour
+        on the same day would find the first hour's file, skip the download
+        and write nothing.  That cache is only an intermediate (the CSV is
+        what FIM reads), so it is cleared around every call.
+        """
+        if not hasattr(fm, "getNWManalysisAssim"):
+            raise RuntimeError(
+                "The installed fimserve has no Analysis & Assimilation support "
+                "(it arrived in fimserve 0.2.11).  Run  python -m core.deps "
+                "--fix  to install the version FIMsim pins.")
+        # An EMPTY csv must not count as present (see the retrospective note).
+        todo = [t for t in value_times
+                if force or self._csv_row_count(self.expected_ana_csv(huc, t)) == 0]
+        have = len(value_times) - len(todo)
+        if have:
+            self.log(f"Discharge [{i}/{n}] {have} hour(s) already present — skipping those: {huc}")
+        if not todo:
+            self.log(f"Discharge [{i}/{n}] all hour(s) present: {huc}")
+            return
+        self.log(f"Discharge [{i}/{n}]: {huc} — {len(todo)} Analysis & Assimilation hour(s) …")
+        cache = self.output_dir / f"flood_{huc}" / "discharge" / "analysis_assim"
+
+        def _clear_cache():
+            for p in cache.glob("NWM_data_assim_*.parquet"):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+        for k, t in enumerate(todo, 1):
+            _clear_cache()
+            try:
+                fm.getNWManalysisAssim(huc, t, t, value_times=t)
+            finally:
+                _clear_cache()
+            if k % 12 == 0 or k == len(todo):
+                self.log(f"  Analysis & Assimilation hour(s) {k}/{len(todo)} done")
+        empty = [t for t in todo
+                 if self._csv_row_count(self.expected_ana_csv(huc, t)) == 0]
+        if empty:
+            self.log(f"Discharge [{i}/{n}] ⚠ {len(empty)} of {len(todo)} hour(s) "
+                     f"came back EMPTY for {huc} (first: {empty[0]}) — NOAA has "
+                     "no file for them yet, so those maps would be dry.")
+        # Any raster already there for these hours came from no discharge.
+        self._drop_stale_fim(huc, [t for t in todo if t not in empty],
+                             source=ANA_SOURCE)
+
     def has_fim(self, huc8: str, fim_tags: Optional[List[str]] = None,
                 require_all: bool = False) -> bool:
         """True when a FIM inundation raster already exists for this HUC8.
@@ -852,7 +980,7 @@ class FIMservAPI:
             return bool(tifs)
         def _present(tag):
             return any(
-                Path(t).name.lower().startswith(f"{tag.lower()}_{huc8.lower()}")
+                Path(t).name.lower().startswith(_tag_prefix(tag, huc8))
                 for t in tifs)
         # Two different questions, two different rules:
         #   require_all=True  -> "is there nothing left to do?"  (skip check)
@@ -1252,6 +1380,8 @@ def fim_tags_for_request(source="retrospective", value_times=None,
     it, so the prefix identifies the run:
       * specific time(s) -> ``NWM_<YYYYMMDDHHMMSS>``   (per event time)
       * duration         -> ``NWM_<YYYYMMDD>_<YYYYMMDD>_<sortby>``
+      * Analysis & Assimilation (always whole hours) -> ``ANA_<YYYYMMDDHH>``
+        per hour, matched by :func:`_tag_prefix`; no aggregated tag.
 
     Returns ``None`` for a forecast run (its naming is not pinned down), which
     means "no filter" — the previous behaviour.
@@ -1259,6 +1389,13 @@ def fim_tags_for_request(source="retrospective", value_times=None,
     import datetime as _dt
     if source == "forecast":
         return None
+    if source == ANA_SOURCE:
+        tags = []
+        for vt in (value_times or []):
+            dt = _as_dt(_ana_hour(vt))
+            if dt is not None and f"ANA_{dt:%Y%m%d%H}" not in tags:
+                tags.append(f"ANA_{dt:%Y%m%d%H}")
+        return tags or None
     tags = []
     if value_times:
         for vt in value_times:
@@ -1287,7 +1424,7 @@ def _run_key(raster_name: str, huc8: str) -> str:
     ``shortrange_10230003_20240624_16UTC_inundation.tif`` -> ``shortrange_20240624_16UTC``
 
     FIMserv names each raster after the discharge file that produced it, and a
-    forecast request yields one file PER FORECAST HOUR — 17 of them for NWM
+    forecast request yields one file PER FORECAST HOUR — 18 of them for NWM
     short range.  Stripping the HUC8 gives a key that is the same across HUC8s,
     so the per-hour rasters can be mosaicked hour by hour.
     """
@@ -1348,6 +1485,8 @@ def _stamp_to_slug(stamp: str) -> str:
     st = str(stamp)
     if len(st) == 14:
         return f"{st[0:4]}-{st[4:6]}-{st[6:8]}_{st[8:10]}{st[10:12]}"
+    if len(st) == 10:                       # Analysis & Assimilation: YYYYMMDDHH
+        return f"{st[0:4]}-{st[4:6]}-{st[6:8]}_{st[8:10]}00"
     if len(st) == 8:
         return f"{st[0:4]}-{st[4:6]}-{st[6:8]}"
     return st
@@ -1358,6 +1497,8 @@ def _stamp_to_text(stamp: str) -> str:
     st = str(stamp)
     if len(st) == 14:
         return f"{st[0:4]}-{st[4:6]}-{st[6:8]} {st[8:10]}:{st[10:12]}"
+    if len(st) == 10:                       # Analysis & Assimilation: YYYYMMDDHH
+        return f"{st[0:4]}-{st[4:6]}-{st[6:8]} {st[8:10]}:00"
     if len(st) == 8:
         return f"{st[0:4]}-{st[4:6]}-{st[6:8]}"
     return st
@@ -1431,7 +1572,7 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
 
 
     # No tags means a FORECAST run: FIMserv named the rasters after the
-    # forecast files, one per forecast hour (17 for NWM short range), and there
+    # forecast files, one per forecast hour (18 for NWM short range), and there
     # is no tag convention to match them.  Discover the runs from disk instead
     # and treat each as a timestep, so every forecast hour gets its own map.
     discovered = []
@@ -1506,6 +1647,10 @@ def generate_fim_mode(project_dir, huc8_ids, aoi_path=None, depth=False,
         for k, tag in enumerate(step_tags, 1):
             stamp = tag.split("_", 1)[1] if "_" in tag else tag
             slug = _stamp_to_slug(stamp)
+            if tag.startswith("ANA_"):
+                # Same hour mapped from the retrospective must not overwrite
+                # (or be overwritten by) this one in the same FloodMaps folder.
+                slug += "_AnA"
 
             def _name(fam, kind, sl=slug):
                 stem = "FIM" if fam == "extent" else "depth"

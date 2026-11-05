@@ -10,8 +10,8 @@ ARC-Curve2Flood (``arc``/``curve2flood``/``nencarta``) - come from
 
     python -m core.deps --fix
 
-That cannot be one resolver run.  ``fimserve`` hard-requires ``teehr==0.5.0``,
-and TEEHR pins ``zarr<3``, ``s3fs<2026`` and ``fsspec<2026``, while the S3
+That cannot be one resolver run.  ``fimserve`` hard-requires one exact ``teehr``
+release (``teehr==0.6.6`` for the pinned fimserve), and TEEHR pins ``zarr<3``, ``s3fs<2026`` and ``fsspec<2026``, while the S3
 stack FIMsim runs on is ``zarr 3`` / ``s3fs 2026``.  pip cannot satisfy both,
 so a plain ``pip install fimserve`` either deadlocks (a user watched it
 backtrack through fimserve 0.1.87 → 0.1.6 pulling a 450 MB pyspark source
@@ -27,14 +27,32 @@ from __future__ import annotations
 
 import importlib.metadata as _md
 import importlib.util
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PIP_REQS = _ROOT / "requirements-pip.txt"
+
+# First fimserve release with NWM Analysis & Assimilation (getNWManalysisAssim).
+FIMSERVE_ANA_MIN = (0, 2, 11)
+
+
+def fimserve_has_ana() -> Optional[bool]:
+    """Whether the installed fimserve can fetch Analysis & Assimilation.
+
+    True / False from its version; None when that cannot be told (fimserve is
+    not installed).  Reads package metadata only - importing fimserve takes
+    seconds.
+    """
+    try:
+        parts = tuple(int(p) for p in re.findall(r"\d+", _md.version("fimserve"))[:3])
+    except Exception:
+        return None
+    return parts >= FIMSERVE_ANA_MIN
 
 # Each entry: (import name, package, what stops working without it)
 
@@ -271,6 +289,15 @@ def _old_arc() -> List[Tuple[str, str, str]]:
     return []
 
 
+def _old_fimserve() -> List[Tuple[str, str, str]]:
+    """fimserve installed, but too old for NWM Analysis & Assimilation (< 0.2.11)."""
+    if fimserve_has_ana() is False:
+        return [("fimserve", "fimserve",
+                 "OWP HAND-FIM mode (installed fimserve is older than 0.2.11, "
+                 "which Analysis & Assimilation needs)")]
+    return []
+
+
 def check(log_fn=None, deep: bool = False):
     """Return (missing_required, missing_optional, s3_problems).
 
@@ -279,7 +306,8 @@ def check(log_fn=None, deep: bool = False):
     the fast check; the FIMserv tab imports fimserve for real.
     """
     req = _missing(_REQUIRED)
-    opt = _missing(_PER_FEATURE) + _missing_binaries() + _old_arc()
+    opt = (_missing(_PER_FEATURE) + _missing_binaries() + _old_arc()
+           + _old_fimserve())
     if deep:
         opt = opt + _broken_imports(opt) + _failed_smoke()
     s3 = s3_stack_problems()

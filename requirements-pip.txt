@@ -4,7 +4,7 @@
 # These are the OWP HAND-FIM (fimserve) and ARC-Curve2Flood backends and
 # everything they import at run time.  They are installed WITHOUT dependency
 # resolution on purpose - see the docstring of core/deps.py.  In short: fimserve
-# requires teehr==0.5.0, TEEHR pins zarr<3 / s3fs<2026 / fsspec<2026, and FIMsim
+# requires one exact teehr release, TEEHR pins zarr<3 / s3fs<2026 / fsspec<2026, and FIMsim
 # runs on zarr 3 / s3fs 2026, so no resolver can satisfy both.  --no-deps leaves
 # the conda-installed stack alone, which is the combination that was verified.
 #
@@ -18,9 +18,11 @@
 # download for pyspark, which has no wheel and installs from source.
 
 # ── HAND-FIM backend ──────────────────────────────────────────────────────────
-fimserve==0.1.99
-teehr==0.5.0
-fimeval==0.1.64
+# fimserve 0.2.11+ is the first with NWM Analysis & Assimilation; 0.2.13 is the
+# authors' latest.  teehr and fimeval are the versions it asks for.
+fimserve==0.2.13
+teehr==0.6.6
+fimeval==0.1.65
 
 # ── ARC-Curve2Flood backend (GitHub-only; pinned to the commits the release
 #    builds in .github/workflows/build.yml use) ───────────────────────────────
