@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QDateTime
 from PyQt6.QtGui import QFont, QTextCursor
+from core.version import VERSION_LABEL
 
 # ── Model selector ───────────────────────────────────────────────────────────
 from gui.model_selector import ModelSelectorWidget
@@ -75,7 +76,7 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self):
         self.setWindowTitle(
-            "FIMsim  |  Flood Inundation Model Simulation Tool  v1.0"
+            f"FIMsim  |  Flood Inundation Model Simulation Tool  {VERSION_LABEL}"
         )
         self.resize(1000, 860)
 
@@ -195,14 +196,8 @@ class MainWindow(QMainWindow):
 
         self._stack.setCurrentIndex(_PAGE_SELECTOR)
         self._update_nav()
-        try:
-            from pathlib import Path as _P
-            _ver = (_P(__file__).resolve().parent.parent / "VERSION").read_text().strip()
-        except OSError:
-            _ver = ""
         self._append_log(
-            "Welcome to FIMsim  |  Flood Inundation Model Simulation Tool"
-            + (f"  v{_ver}" if _ver else "")
+            f"Welcome to FIMsim  |  Flood Inundation Model Simulation Tool  {VERSION_LABEL}"
         )
         self._append_log("Select a category on the home screen to begin.")
         self._warn_if_env_incomplete()
@@ -415,7 +410,7 @@ class MainWindow(QMainWindow):
 
         label, desc = self._MODE_LABELS[mode]
         self.setWindowTitle(
-            f"FIMsim  |  Flood Inundation Model Simulation Tool  v1.0  ({label})"
+            f"FIMsim  |  Flood Inundation Model Simulation Tool  {VERSION_LABEL}  ({label})"
         )
 
         is_tab_mode = mode in ("lisflood", "triton", "arc_curve2flood")
@@ -449,7 +444,7 @@ class MainWindow(QMainWindow):
         self._active_model = None
         # Keep the category title in the window title
         self.setWindowTitle(
-            "FIMsim  |  Flood Inundation Model Simulation Tool  v1.0"
+            f"FIMsim  |  Flood Inundation Model Simulation Tool  {VERSION_LABEL}"
         )
         self._back_btn.setVisible(False)
         self._prev_btn.setVisible(False)

@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QPixmap
 
+from core.version import VERSION_LABEL
+
 # Logo lives in <repo>/assets/fimsim_logo.png (this file is in <repo>/gui/).
 _LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "fimsim_logo.png"
 
@@ -84,7 +86,7 @@ class ModelSelectorWidget(QWidget):
         title.setVisible(not logo_shown)
         root.addWidget(title)
 
-        sub = QLabel("Flood Inundation Model Simulation Tool  ·  v1.0")
+        sub = QLabel(f"Flood Inundation Model Simulation Tool  ·  {VERSION_LABEL}")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet("color:#718096; font-size:12px; border:none; margin-bottom:4px;")
         root.addWidget(sub)

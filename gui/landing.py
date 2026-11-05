@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont
 
+from core.version import VERSION_LABEL
+
 
 class LandingWidget(QWidget):
     """Emits category_selected('input_data' | 'flood_mapping')."""
@@ -26,7 +28,7 @@ class LandingWidget(QWidget):
         title.setStyleSheet("color:#1a365d; border:none;")
         root.addWidget(title)
 
-        subtitle = QLabel("Flood Inundation Model Simulation Tool  ·  v1.0")
+        subtitle = QLabel(f"Flood Inundation Model Simulation Tool  ·  {VERSION_LABEL}")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setFont(QFont("Arial", 12))
         subtitle.setStyleSheet("color:#718096; border:none; margin-bottom:8px;")

@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QPixmap, QFont
 
+from core.version import VERSION_LABEL
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _REPO_ROOT   = Path(__file__).resolve().parent.parent
 _MANUAL_HTML = _REPO_ROOT / "manual_site" / "index.html"
@@ -94,7 +96,7 @@ def show_about(parent=None) -> None:
     title.setStyleSheet("color:#1a365d;")
     root.addWidget(title)
 
-    sub = QLabel("Flood Inundation Model Simulation Tool  ·  v1.0")
+    sub = QLabel(f"Flood Inundation Model Simulation Tool  ·  {VERSION_LABEL}")
     sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
     sub.setStyleSheet("color:#718096; font-size:12px;")
     root.addWidget(sub)
