@@ -63,6 +63,19 @@ jobs:
         run: |
           "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" --smoke-test
 
+      - name: Start FIMsim the way a double-click does (no screen; must keep running)
+        env:
+          FIMSIM_HOME: ${{ runner.temp }}/fimsim-home
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          "$RUNNER_TEMP/Applications/FIMsim.app/Contents/MacOS/FIMsim" > "$RUNNER_TEMP/gui.log" 2>&1 &
+          pid=$!
+          sleep 40
+          tail -n 40 "$RUNNER_TEMP/gui.log"
+          kill -0 "$pid" || { echo "::error::FIMsim exited within 40 s of starting"; exit 1; }
+          if grep -q Traceback "$RUNNER_TEMP/gui.log"; then echo "::error::FIMsim printed a traceback"; exit 1; fi
+          kill "$pid"
+
       - name: Report the set-up log if something failed
         if: failure()
         run: |
@@ -134,14 +147,17 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe" -OutFile innosetup.exe
-          Start-Process -Wait -FilePath .\innosetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART"
+          # From Inno Setup's own GitHub releases (old versions stay there; the
+          # files.jrsoftware.org copies are removed when a new version comes out).
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe" -OutFile innosetup.exe
+          Start-Process -Wait -FilePath .\innosetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=C:\InnoSetup6"
+          if (-not (Test-Path C:\InnoSetup6\ISCC.exe)) { throw "Inno Setup did not install" }
 
       - name: Build the installer
         shell: pwsh
         run: |
           $v = (Get-Content VERSION -Raw).Trim()
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" installer\windows\FIMsim.iss
+          & C:\InnoSetup6\ISCC.exe "/DAppVersion=$v" installer\windows\FIMsim.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-Item dist\FIMsim-setup-windows.exe | Select-Object Name, Length
 
@@ -163,6 +179,21 @@ jobs:
           # Windows PowerShell 5.1 is what the Start Menu shortcut uses.
           powershell -NoProfile -ExecutionPolicy Bypass -File "$env:FIMSIM_INSTALL_DIR\launch.ps1" -SmokeTest
           if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Start FIMsim the way the Start Menu shortcut does (no screen; must keep running)
+        shell: pwsh
+        env:
+          FIMSIM_HOME: ${{ runner.temp }}\fimsim-home
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$env:FIMSIM_INSTALL_DIR\launch.ps1"
+          Start-Sleep -Seconds 40
+          $err = Join-Path $env:FIMSIM_HOME "fimsim-errors.log"
+          if (Test-Path $err) { Get-Content $err -Tail 40 }
+          $py = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object { $_.CommandLine -like '*main.py*' }
+          if (-not $py) { throw "FIMsim is not running 40 s after the shortcut started it" }
+          if ((Test-Path $err) -and (Select-String -Path $err -Pattern 'Traceback' -Quiet)) { throw "FIMsim printed a traceback" }
+          $py | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
       - name: Report the set-up log if something failed
         if: failure()
