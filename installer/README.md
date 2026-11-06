@@ -70,6 +70,10 @@ least one Mac job passed with none failing.
 
 The workflow is the same in **pnikrou/FIMsim** and **sdmlua/FIMsim**; each
 repository publishes its own Release when it receives the tag.
+**sdmlua/FIMsim is the public download address** — the main README, the
+installers' "Help and updates" link and the download buttons all point to
+`https://github.com/sdmlua/FIMsim/releases/latest` — so every release must be
+published there.
 
 ## Making a release (from either repository)
 

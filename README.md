@@ -1,6 +1,6 @@
 # FIMsim — Flood Inundation Model Simulation Tool
 
-> **v1.2.2** · Web Application · Desktop app for macOS and Windows — [download](../../releases/latest)
+> **v1.2.2** · Web Application · Desktop app for macOS and Windows — [download](https://github.com/sdmlua/FIMsim/releases/latest)
 
 FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for four supported flood mapping models (LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically. For users who prefer a local setup, standalone desktop installers for macOS and Windows are also available — no Python installation or technical configuration required.
 
@@ -75,13 +75,13 @@ FIMsim is deployed as a web application — no installation required. Open it in
 > 🔗 **Live app:** *(link coming soon)*
 
 ### Desktop app
-Download the installer for your computer from the **[latest release](../../releases/latest)**.
-No Python, conda or terminal needed.
+Download the installer for your computer from the **[latest release](https://github.com/sdmlua/FIMsim/releases/latest)**
+(`https://github.com/sdmlua/FIMsim/releases/latest`). No Python, conda or terminal needed.
 
-| Platform | File | Install |
+| Platform | Download | Install |
 |---|---|---|
-| Windows 10 / 11 | `FIMsim-setup-windows.exe` | Double-click it and follow the steps (no administrator password needed), then start FIMsim from the Start Menu |
-| macOS (Apple Silicon or Intel) | `FIMsim-mac.dmg` | Open it, drag FIMsim into Applications, then open FIMsim |
+| Windows 10 / 11 | [`FIMsim-setup-windows.exe`](https://github.com/sdmlua/FIMsim/releases/latest/download/FIMsim-setup-windows.exe) | Double-click it and follow the steps (no administrator password needed), then start FIMsim from the Start Menu |
+| macOS (Apple Silicon or Intel) | [`FIMsim-mac.dmg`](https://github.com/sdmlua/FIMsim/releases/latest/download/FIMsim-mac.dmg) | Open it, drag FIMsim into Applications, then open FIMsim |
 
 **First start, once:** FIMsim sets itself up in a window that stays open. It downloads
 and installs the scientific packages it needs (about 1.5 GB download, about 3 GB of disk,
@@ -105,7 +105,7 @@ rebuilds the environment.
 `git`, and about 8 GB of free disk space. The environment is named **`FIMsim`**.
 
 ```bash
-git clone https://github.com/pnikrou/FIMsim.git
+git clone https://github.com/sdmlua/FIMsim.git
 cd FIMsim
 
 # Step 1 - the core: geospatial stack, NWM/S3 libraries, GUI
