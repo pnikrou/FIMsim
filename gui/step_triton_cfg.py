@@ -26,6 +26,7 @@ from gui.worker import Worker
 from gui.run_button import set_running, set_ready
 from gui.triton_cfg_config_panel import TritonCfgConfigPanel
 from gui.aoi_triton_cfg_card import AOITritonCfgCard
+from gui.help_util import TRITON_URL
 
 
 _CFG_STEP_RE = re.compile(r"^▶\s+Config\s+\[(\d+)/(\d+)\]")
@@ -188,6 +189,23 @@ class StepTritonCfgWidget(QWidget):
         self._gb_preview.setVisible(False)
         layout.addWidget(self._gb_preview)
 
+        # Shown once the .cfg files are written: where to get TRITON.
+        self._run_info_lbl = QLabel(
+            "<b>To run a simulation:</b> &nbsp;use the files in each AOI's "
+            "<code>triton-files</code> folder with TRITON."
+            "<br>Get TRITON and its documentation: "
+            f"<a href='{TRITON_URL}'>{TRITON_URL}</a>"
+        )
+        self._run_info_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._run_info_lbl.setOpenExternalLinks(True)
+        self._run_info_lbl.setWordWrap(True)
+        self._run_info_lbl.setStyleSheet(
+            "padding:8px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
+            "border-radius:4px; font-size:12px;"
+        )
+        self._run_info_lbl.setVisible(False)
+        layout.addWidget(self._run_info_lbl)
+
     # ── layout switching ───────────────────────────────────────────────────────
 
     def _rebuild_for_aoi_count(self):
@@ -337,6 +355,8 @@ class StepTritonCfgWidget(QWidget):
         if hasattr(self, "_gb_preview"):
             self._gb_preview.setVisible(False)
             self._cfg_view.clear()
+        if hasattr(self, "_run_info_lbl"):
+            self._run_info_lbl.setVisible(False)
 
     def _build_results(self, ctx):
         self._clear_results()
@@ -380,6 +400,7 @@ class StepTritonCfgWidget(QWidget):
         self._results_gb.setVisible(True)
         if first_ok:
             self._show_cfg_for_aoi(first_ok)   # preview the first AOI by default
+            self._run_info_lbl.setVisible(True)
 
     def _show_cfg_for_aoi(self, entry: dict):
         path = entry.get("cfg_path")

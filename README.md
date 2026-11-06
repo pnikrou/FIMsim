@@ -2,7 +2,7 @@
 
 > **v1.2.3** · Web Application · Desktop app for macOS and Windows — [download](https://github.com/sdmlua/FIMsim/releases/latest)
 
-FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for four supported flood mapping models (LISFLOOD-FP, TRITON, ARC-Curve2Flood, and OWP HAND-FIM). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically. For users who prefer a local setup, standalone desktop installers for macOS and Windows are also available — no Python installation or technical configuration required.
+FIMsim is a web-based tool designed to eliminate the technical barrier of setting up 2D flood simulations. It serves two distinct purposes: **(1) automated preparation of individual hydraulic model input data** — including terrain, land cover, river networks, and streamflow time series — and **(2) end-to-end configuration and cloud execution of complete flood mapping simulations** for four supported flood mapping models ([LISFLOOD-FP](https://zenodo.org/records/13121102), [TRITON](https://triton.ornl.gov/), ARC-Curve2Flood, and OWP HAND-FIM). Users define a study area, and FIMsim handles all data downloading, processing, and file formatting automatically. For users who prefer a local setup, standalone desktop installers for macOS and Windows are also available — no Python installation or technical configuration required.
 
 ---
 
@@ -51,10 +51,16 @@ FIMsim connects to the following public data services. An internet connection is
 
 | Model | Type | Input files generated |
 |---|---|---|
-| **LISFLOOD-FP** | 2D raster-based | `.par` · `.bci` · `.bdy` · DEM and Manning ASCII grids |
-| **TRITON** | 2D GPU-accelerated | `.cfg` · `.extbc` · `.hyg` · DEM and friction ASCII grids |
+| **[LISFLOOD-FP](https://zenodo.org/records/13121102)** | 2D raster-based | `.par` · `.bci` · `.bdy` · DEM and Manning ASCII grids |
+| **[TRITON](https://triton.ornl.gov/)** | 2D GPU-accelerated | `.cfg` · `.extbc` · `.hyg` · DEM and friction ASCII grids |
 | **ARC-Curve2Flood** | Rapid rating-curve flood mapping | NenCarta input package — configuration JSON · DEM · land-cover raster · Manning's n table · flowlines · streamflow |
 | **OWP HAND-FIM** | HAND-based inundation mapping | Flood inundation maps generated directly from the AOI (HUC8 → NWM discharge → FIM) |
+
+**Get the models:** FIMsim writes the LISFLOOD-FP and TRITON input files; the
+simulations are run with the models themselves.
+
+- **LISFLOOD-FP v8.2** — https://zenodo.org/records/13121102
+- **TRITON** (Oak Ridge National Laboratory) — https://triton.ornl.gov/
 
 ---
 

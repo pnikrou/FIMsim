@@ -157,7 +157,8 @@ keywords* box for any additional LISFLOOD-FP keywords you may want:
 
 **Expected:** `AOI_1.par` is written. The `lisflood-files/` folder now contains the
 complete LISFLOOD-FP input package — `dem.ascii`, `lulc.ascii`, `AOI_1.bci`,
-`AOI_1.bdy`, `AOI_1.par` — ready to run with any LISFLOOD-FP executable.
+`AOI_1.bdy`, `AOI_1.par` — ready to run with any LISFLOOD-FP executable
+(`lisflood -v AOI_1.par`). Get LISFLOOD-FP v8.2 from https://zenodo.org/records/13121102.
 
 </details>
 
@@ -277,6 +278,7 @@ hydrograph automatically) and run.
 **Expected:** `<AOI>.cfg` is written. The `triton-files/` folder now contains the
 complete TRITON input package — `dem.asc`, `friction.asc`, `<AOI>.src`,
 `<AOI>.extbc`, `<AOI>.hyg`, `<AOI>.cfg` — ready to run with the TRITON solver.
+Get TRITON and its documentation from https://triton.ornl.gov/.
 
 ![Step 7 — Config file](images/triton_11_config.png)
 

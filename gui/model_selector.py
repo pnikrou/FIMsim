@@ -9,6 +9,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QPixmap
 
 from core.version import VERSION_LABEL
+from gui.help_util import LISFLOOD_FP_URL, TRITON_URL
 
 # Logo lives in <repo>/assets/fimsim_logo.png (this file is in <repo>/gui/).
 _LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "fimsim_logo.png"
@@ -34,8 +35,10 @@ _INPUT_MODES = [
 ]
 
 _MODEL_MODES = [
-    {"title": "LISFLOOD-FP", "mode_key": "lisflood", "desc": "7-step wizard → .par .bci .bdy"},
-    {"title": "TRITON",      "mode_key": "triton",   "desc": "7-step wizard → .cfg .extbc .hyg"},
+    {"title": "LISFLOOD-FP", "mode_key": "lisflood", "desc": "7-step wizard → .par .bci .bdy",
+     "url": LISFLOOD_FP_URL},
+    {"title": "TRITON",      "mode_key": "triton",   "desc": "7-step wizard → .cfg .extbc .hyg",
+     "url": TRITON_URL},
     {"title": "ARC-Curve2Flood", "mode_key": "arc_curve2flood",
      "desc": "7-step wizard → NenCarta .json (rapid flood mapping)"},
     {"title": "OWP HAND-FIM", "subtitle": "(FIMserv)", "mode_key": "fimserv",
@@ -277,6 +280,20 @@ class ModelSelectorWidget(QWidget):
         lbl_desc.setWordWrap(True)
         lbl_desc.setStyleSheet("color:#555; font-size:11px; border:none;")
         layout.addWidget(lbl_desc)
+
+        # Link to the model itself (FIMsim writes its input files; the model
+        # is downloaded from its developers).
+        if mode_data.get("url"):
+            lbl_url = QLabel(
+                f"<a href='{mode_data['url']}' style='color:{accent};'>"
+                "Model website ↗</a>"
+            )
+            lbl_url.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_url.setTextFormat(Qt.TextFormat.RichText)
+            lbl_url.setOpenExternalLinks(True)
+            lbl_url.setToolTip(mode_data["url"])
+            lbl_url.setStyleSheet("font-size:11px; border:none;")
+            layout.addWidget(lbl_url)
 
         layout.addStretch()
 

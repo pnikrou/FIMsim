@@ -25,6 +25,7 @@ from gui.worker import Worker
 from gui.run_button import set_running, set_ready
 from gui.par_config_panel import PARConfigPanel
 from gui.aoi_par_card import AOIPARCard
+from gui.help_util import LISFLOOD_FP_URL
 
 
 _PAR_STEP_RE = re.compile(r"^▶\s+PAR\s+\[(\d+)/(\d+)\]")
@@ -208,7 +209,11 @@ class StepPARWidget(QWidget):
             "<b>To run a simulation:</b> &nbsp;"
             "<code style='background:#edf2f7; padding:2px 6px; "
             "border-radius:3px;'>lisflood -v &lt;par-file&gt;</code>"
+            "<br>Get LISFLOOD-FP v8.2: "
+            f"<a href='{LISFLOOD_FP_URL}'>{LISFLOOD_FP_URL}</a>"
         )
+        self._run_cmd_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._run_cmd_lbl.setOpenExternalLinks(True)
         self._run_cmd_lbl.setStyleSheet(
             "padding:8px 10px; background:#f0fff4; border:1px solid #9ae6b4; "
             "border-radius:4px; font-size:12px;"

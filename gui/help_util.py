@@ -27,6 +27,10 @@ FIM_ECOSYSTEM_URL = (
     "FIM-Ecosystem-Webpage.html#fimsim"
 )
 
+# Where to get the two models FIMsim writes input files for.
+LISFLOOD_FP_URL = "https://zenodo.org/records/13121102"   # LISFLOOD-FP v8.2
+TRITON_URL      = "https://triton.ornl.gov/"
+
 # ── Mode-key → manual anchor ───────────────────────────────────────────────────
 # Keys match the mode keys used in gui.app / gui.model_selector.
 MANUAL_ANCHORS = {
@@ -120,7 +124,8 @@ def show_about(parent=None) -> None:
         "individual hydraulic model inputs &mdash; terrain, land cover, river "
         "networks, and streamflow time series; and <b>(2)</b> end-to-end "
         "configuration and cloud execution of complete flood simulations for "
-        "<b>LISFLOOD-FP</b> and <b>TRITON</b>. Users only define a study area; "
+        f"<b><a href='{LISFLOOD_FP_URL}'>LISFLOOD-FP</a></b> and "
+        f"<b><a href='{TRITON_URL}'>TRITON</a></b>. Users only define a study area; "
         "FIMsim downloads, processes, and formats everything automatically. "
         "Standalone desktop installers for macOS and Windows are also available "
         "&mdash; no Python installation and no technical configuration required."
