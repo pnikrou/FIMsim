@@ -108,7 +108,9 @@ rm -rf "$LOCK"
 # FIMsim 1.2.0 kept its environment in "~/Library/Application Support/FIMsim"
 # (a path with a space - see common.sh).  Free that space once the new one works.
 # Only a folder FIMsim made is removed: it must hold FIMsim's env.stamp.
-if [ -z "${FIMSIM_HOME:-}" ] && [ "$OLD_HOME_DIR" != "$HOME_DIR" ] \
+# (Tested on HOME_DIR, not on FIMSIM_HOME: the launcher's set-up window always
+# exports FIMSIM_HOME, so checking that it is unset skipped this every time.)
+if [ "$HOME_DIR" = "$HOME/Library/FIMsim" ] \
    && [ -f "$OLD_HOME_DIR/env.stamp" ] && [ -d "$OLD_HOME_DIR/env" ]; then
     say "Removing the environment of the previous FIMsim version ($OLD_HOME_DIR) ..." | tee -a "$LOG"
     rm -rf "${OLD_HOME_DIR:?}"
