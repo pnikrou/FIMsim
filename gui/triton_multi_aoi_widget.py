@@ -296,10 +296,10 @@ class _AOIFileBlock(QFrame):
         (unhashable) dataclass and can't be used as a dict key.
         """
         for r in range(self._table.rowCount()):
-            if r in mapping:
-                it = self._table.item(r, 1)
-                if it:
-                    it.setText(str(mapping[r]))
+            it = self._table.item(r, 1)
+            if it:
+                # rows that are not on the map (unchecked) get no number
+                it.setText(str(mapping[r]) if r in mapping else "–")
 
     def _set_all(self, checked: bool):
         for r in range(self._table.rowCount()):
@@ -667,56 +667,53 @@ class MultiAOIWidget(QWidget):
             f"from {len(self._blocks)} file(s)."
         )
 
-        # Map shows the active (expanded) block's features.  Stars are
-        # numbered 1, 2, 3, … and the same numbers are written into the "#"
-        # column of the active block's table so the user can match them.
-        active = self._active_block()
-        if active and active.selected_features():
-            active_feats = active.selected_features()
-            # ── Single-AOI case: show full detail panel + 3-panel map for it
-            #    (same UX as clicking a confirmed AOI in the report).
-            if len(active_feats) == 1:
-                self._show_feature_detail(active_feats[0])
-                # Number the row "1" in the active block's table
-                star_map_by_row = {}
-                for r, f in enumerate(active.features()):
-                    if f is active_feats[0]:
-                        star_map_by_row[r] = 1
-                        break
-                active.set_star_numbers(star_map_by_row)
-            else:
-                # ── Multiple-AOI case: numbered dots on a single CONUS map.
-                # The legend is rendered in a side table (populated below)
-                # rather than as an overlay inside the figure, so the map
-                # itself stays uncluttered.
-                states = sorted({f.state_abbr for f in active_feats if f.state_abbr})
-                points = [(f.centroid_lon, f.centroid_lat) for f in active_feats]
-                labels = [str(i + 1) for i in range(len(active_feats))]
-                self._map.update_plots(states, points, labels)
-                self._populate_side_table(active_feats)
-                self._show_map()
-                star_map_by_row = {}
-                star_counter = 1
-                for r, f in enumerate(active.features()):
-                    if f in active_feats:
-                        star_map_by_row[r] = star_counter
-                        star_counter += 1
-                active.set_star_numbers(star_map_by_row)
-                # Hide the per-AOI detail panel — it doesn't apply when many
-                # AOIs are selected at once
-                self._detail_gb.setVisible(False)
-                self._selected_detail = None
-        elif not self._confirmed_features:
-            self._hide_map()
-            self._detail_gb.setVisible(False)
-            self._selected_detail = None
-        else:
-            # post-confirm state, no row clicked yet
-            self._hide_map()
-            self._detail_gb.setVisible(False)
-            self._selected_detail = None
+        self._refresh_map()
         # NOTE: the confirmed report stays visible until user explicitly
         # removes entries — adding new uploads doesn't dismiss it.
+
+    def _refresh_map(self):
+        """Redraw the map for what is selected right now.
+
+        * exactly one AOI selected (in the open file) → its detail view
+          (US + state + close-up, with the river / HUC / gage lookups);
+        * more than one — several features in one file OR features from
+          several files → ONE overview map with every selected AOI as a
+          numbered dot.  The numbers run across all files and are written
+          into the "#" column of each file's table;
+        * nothing selected → overview of the confirmed AOIs, if any.
+        """
+        pending = self._all_selected()
+        active = self._active_block()
+        if len(pending) == 1 and active and len(active.selected_features()) == 1:
+            feat = pending[0]
+            self._show_feature_detail(feat)
+            active.set_star_numbers(
+                {r: 1 for r, f in enumerate(active.features()) if f is feat})
+        elif pending:
+            self._show_overview(pending)
+            number = {id(f): i + 1 for i, f in enumerate(pending)}
+            for b in self._blocks:
+                b.set_star_numbers({r: number[id(f)]
+                                    for r, f in enumerate(b.features())
+                                    if id(f) in number})
+        elif self._confirmed_features:
+            self._show_overview(self._confirmed_features)
+        else:
+            self._hide_map()
+            self._detail_gb.setVisible(False)
+            self._selected_detail = None
+
+    def _show_overview(self, features: List[AOIFeatureInfo]):
+        """All ``features`` as numbered dots on one US map, with the
+        # / Name / State list beside it (no per-AOI detail panel)."""
+        states = sorted({f.state_abbr for f in features if f.state_abbr})
+        points = [(f.centroid_lon, f.centroid_lat) for f in features]
+        labels = [str(i + 1) for i in range(len(features))]
+        self._map.update_plots(states, points, labels)
+        self._populate_side_table(features)
+        self._show_map()
+        self._detail_gb.setVisible(False)
+        self._selected_detail = None
 
     # ── confirm + report ──────────────────────────────────────────────────────
 
@@ -795,11 +792,11 @@ class MultiAOIWidget(QWidget):
         # button is what advances; nothing extra to reveal here.
         self._build_report()
         self._report_gb.setVisible(True)
-        # Clear any old detail panel; hide the map until a row is clicked
-        self._detail_gb.setVisible(False)
+        # Clear any old detail panel and show every confirmed AOI on the
+        # overview map (numbers = the numbers in the confirmed list); a
+        # click on a row there shows that AOI's detail.
         self._detail_lbl.setText("(click any row above to see details here)")
-        self._map.clear_plots()
-        self._hide_map()
+        self._show_overview(self._confirmed_features)
         self._status.setText("0 AOI feature(s) ready to confirm.")
 
     def _build_report(self):
@@ -1107,12 +1104,13 @@ class MultiAOIWidget(QWidget):
         self._confirmed_features = [
             f for f in self._confirmed_features if f is not feature
         ]
-        if self._selected_detail is feature:
+        # The map showed the removed AOI or an overview that included it →
+        # redraw it (overview of what is left, or the empty placeholder).
+        if self._selected_detail is feature or self._selected_detail is None:
             self._selected_detail = None
-            self._detail_gb.setVisible(False)
             self._detail_lbl.setText("(click any row above to see details here)")
             self._map.clear_plots()
-            self._hide_map()
+            self._refresh_map()
 
         if not self._confirmed_features:
             self._report_gb.setVisible(False)
