@@ -21,6 +21,3 @@ System Settings → Privacy & Security, scroll down and click **Open Anyway**.
 
 ### Windows: the first time you run it
 Windows SmartScreen may say "Windows protected your PC". Click **More info** → **Run anyway**.
-
-### All four flood models are included
-LISFLOOD-FP, TRITON, ARC-Curve2Flood and OWP HAND-FIM, plus the DEM, land-cover, flowline and streamflow tools.
