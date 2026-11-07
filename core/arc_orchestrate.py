@@ -465,7 +465,8 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
         # run at the gate with nothing written, so it is checked here, where the
         # message can say what to do about it.
         if src.upper().startswith("NWM"):
-            from core.api_keys import load_nwm_api_key, check_nwm_api_key
+            from core.api_keys import (load_nwm_api_key, check_nwm_api_key,
+                                       KEY_REJECTED)
             key = str(cfg.get("nwm_api_key") or "").strip() or load_nwm_api_key()
             if not key:
                 raise RuntimeError(
@@ -476,10 +477,17 @@ def run_arc_flowfile_for_all_aois(ctx_path: str, ctx: dict,
                     "→ NWM BigQuery API), or choose GEOGLOWS, whose return "
                     "periods are public.")
             why = check_nwm_api_key(key)
-            if why:
+            if why and why.startswith(KEY_REJECTED):
                 raise RuntimeError(
                     f"{where}: the saved NWM API key did not work — {why}. "
                     "Re-enter it in the Streamflow step.")
+            if why:
+                # A server error or no connection: the key was not checked,
+                # so do not send the user off to re-enter a key that may be fine.
+                raise RuntimeError(
+                    f"{where}: the CIROH service did not answer the NWM API "
+                    f"key check — {why}. This is usually temporary; run the "
+                    "step again in a few minutes.")
             cfg["nwm_api_key"] = key
         if cfg.get("forensic_forecast_date"):
             cfg["forensic_forecast_date"] = _as_yyyymmdd(

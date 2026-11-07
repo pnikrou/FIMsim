@@ -64,6 +64,11 @@ def clear_nwm_api_key() -> None:
         pass
 
 
+# check_nwm_api_key() starts its message with this when CIROH refused the key
+# itself (HTTP 401/403); any other message means the check could not be made.
+KEY_REJECTED = "the CIROH API rejected this key"
+
+
 def check_nwm_api_key(key: str, comid: int = 7226582,
                       timeout: int = 30) -> Optional[str]:
     """Ask CIROH for one return period.  Returns None if the key works.
@@ -75,17 +80,28 @@ def check_nwm_api_key(key: str, comid: int = 7226582,
     """
     if not key:
         return "no key"
-    try:
-        import requests
-        r = requests.get(RP_URL,
-                         params={"comids": str(int(comid)),
-                                 "output_format": "csv",
-                                 "order_by_comid": False},
-                         headers={"x-api-key": key}, timeout=timeout)
-    except Exception as exc:                       # network, DNS, timeout …
-        return f"could not reach {RP_URL} ({type(exc).__name__})"
-    if r.status_code == 200:
-        return None
-    if r.status_code in (401, 403):
-        return "the CIROH API rejected this key (HTTP "f"{r.status_code})"
-    return f"HTTP {r.status_code} from {RP_URL}"
+    import time
+    import requests
+    # A server error (e.g. HTTP 504 gateway timeout) or a dropped connection
+    # says nothing about the key, and is often gone seconds later: try once
+    # more before reporting it.
+    for attempt in (1, 2):
+        try:
+            r = requests.get(RP_URL,
+                             params={"comids": str(int(comid)),
+                                     "output_format": "csv",
+                                     "order_by_comid": False},
+                             headers={"x-api-key": key}, timeout=timeout)
+        except Exception as exc:                   # network, DNS, timeout …
+            why = f"could not reach {RP_URL} ({type(exc).__name__})"
+        else:
+            if r.status_code == 200:
+                return None
+            if r.status_code in (401, 403):
+                return KEY_REJECTED + f" (HTTP {r.status_code})"
+            why = f"HTTP {r.status_code} from {RP_URL}"
+            if r.status_code < 500:
+                return why
+        if attempt == 1:
+            time.sleep(5)
+    return why
