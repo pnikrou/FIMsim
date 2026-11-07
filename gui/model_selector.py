@@ -40,7 +40,7 @@ _MODEL_MODES = [
     {"title": "TRITON",      "mode_key": "triton",   "desc": "7-step wizard → .cfg .extbc .hyg",
      "url": TRITON_URL},
     {"title": "ARC-Curve2Flood", "mode_key": "arc_curve2flood",
-     "desc": "7-step wizard → NenCarta .json (rapid flood mapping)"},
+     "desc": "6-step wizard → flood map (NenCarta, rapid flood mapping)"},
     {"title": "OWP HAND-FIM", "subtitle": "(FIMserv)", "mode_key": "fimserv",
      "desc": "OWP HAND · AOI → HUC8 → FIM"},
 ]
