@@ -728,8 +728,10 @@ class MainWindow(QMainWindow):
                 if current_idx == 1:
                     tabs.setCurrentIndex(next_idx)
             else:
-                self._append_log(
-                    f"All steps complete! {model.upper()} input files are ready.")
+                label = self._MODE_LABELS.get(model, (model,))[0]
+                what = ("flood maps are ready" if model == "arc_curve2flood"
+                        else "input files are ready")
+                self._append_log(f"All steps complete! {label} {what}.")
             self._update_nav()
         return _slot
 
