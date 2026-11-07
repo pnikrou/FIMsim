@@ -355,13 +355,18 @@ class StepFimservProjectWidget(QWidget):
 
     def _show_report(self, ctx, new: bool):
         action = "created" if new else "selected"
-        model_label = "LISFLOOD files" if self._model == "lisflood" else "TRITON files"
         model_dir_val = ctx.get(self._ctx_key, ctx.get("model_dir", ""))
         html = (
             f"<b>Project folder successfully {action}.</b><br><br>"
             f"<b>Project name:</b> {ctx.get('project_name', '')}<br>"
-            f"<b>Project folder:</b> {ctx.get('project_dir', '')}<br>"
-            f"<b>{model_label} folder:</b> {model_dir_val}"
+            f"<b>Project folder:</b> {ctx.get('project_dir', '')}"
         )
+        # Every workflow passes model="generic": the model's files go into
+        # each AOI's own sub-folder (made in the AOI step), so there is no
+        # separate model folder to name here.  (This used to print
+        # "TRITON files folder" for every model.)
+        if self._model in ("lisflood", "triton"):
+            model_label = "LISFLOOD files" if self._model == "lisflood" else "TRITON files"
+            html += f"<br><b>{model_label} folder:</b> {model_dir_val}"
         self._report.setText(html)
         self._report.setVisible(True)
