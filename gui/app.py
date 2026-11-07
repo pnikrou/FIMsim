@@ -594,16 +594,19 @@ class MainWindow(QMainWindow):
         # keep showing a *different* AOI set of the same size (e.g. 1 AOI
         # left over from an earlier project matching this project's own
         # 1 confirmed AOI) without ever refreshing.
-        confirmed_ids = tuple(
-            f.get("folder_path") or f.get("name") for f in confirmed
-        )
+        # The ctx holds plain dicts, but the DEM steps keep AOIFeatureInfo
+        # objects in `_features` — read the two fields from either.
+        def _aoi_id(f):
+            if isinstance(f, dict):
+                return f.get("folder_path") or f.get("name")
+            return getattr(f, "folder_path", None) or getattr(f, "name", None)
+
+        confirmed_ids = tuple(_aoi_id(f) for f in confirmed)
         entered = widgets[idx]
         cur = getattr(entered, "_aoi_features", None)
         if cur is None:
             cur = getattr(entered, "_features", [])
-        cur_ids = tuple(
-            f.get("folder_path") or f.get("name") for f in (cur or [])
-        )
+        cur_ids = tuple(_aoi_id(f) for f in (cur or []))
         if cur_ids != confirmed_ids:
             entered.set_context(self._ctx_path[model], self._ctx[model])
 

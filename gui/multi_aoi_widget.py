@@ -398,7 +398,10 @@ class MultiAOIWidget(QWidget):
     def reset(self):
         for b in list(self._blocks):
             self._remove_block(b, refresh=False)
-        self._add_block()
+        # Removing the last block already adds a fresh empty one; adding
+        # another here left a stray "(no file)" row ("... from 2 file(s)").
+        if not self._blocks:
+            self._add_block()
         self._map.clear_plots()
         self._hide_map()
         self._report_gb.setVisible(False)
