@@ -20,6 +20,16 @@ automatically.
 
 ---
 
+## ▶️ Demo video
+
+This is a demo video of FIMsim (9:25, narrated, with captions): it walks through the
+main page, Test Case 2 (TRITON) and Test Case 3 (ARC-Curve2Flood) step by step, and
+the standalone input data tools.
+
+[![FIMsim demo video](images/demo_video_thumbnail.jpg)](https://youtu.be/WJC0mSy-JOM)
+
+---
+
 <details>
 <summary><h2>Test Case 1 — LISFLOOD-FP · Neuse River, North Carolina</h2></summary>
 
